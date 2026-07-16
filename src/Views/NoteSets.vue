@@ -33,13 +33,13 @@ async function loadNoteSets() {
 </script>
 <template>
   <v-sheet>
-    <v-alert v-if="isError" type="error" outlined>
+    <v-alert v-if="isError" type="error">
       Oh no!便签怎么皱成一团了！
     </v-alert>
-    <v-empty-state v-if="noteSets.length === 0 && !isError"
+    <v-empty-state v-else-if="noteSets.length === 0"
     :icon="mdiNoteOffOutline"
     title = "还没有便签……"
-    text = "点击右下角的 + 按钮创建新的便签集" />
+    text = "点击右上角的 + 按钮创建新的便签集" />
     <v-list v-else>
       <v-list-item v-for="(noteSet, index) in noteSets" :key="index">
         <v-list-item-content>

@@ -29,7 +29,7 @@ const router = createRouter({
 
 const vuetify = createVuetify({
   theme: {
-    defaultTheme: 'light',
+    defaultTheme: 'dark',
   },
   icons: {
     defaultSet: 'mdi',
