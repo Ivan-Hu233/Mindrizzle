@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct HyperNote {
     #[serde(rename = "title")]
     pub title: String,
-    #[serde(rename = "content")]
+    #[serde(rename = "description")]
     pub description: String,
     #[serde(rename = "tag")]
     pub tag: Vec<String>,

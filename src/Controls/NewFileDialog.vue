@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ 'update:close': [value: { status: boolean }] }>()
@@ -71,15 +71,36 @@ const debouncedCheck = (name: string) => {
 watch(fileName, (newVal) => debouncedCheck(newVal))
 
 const fileRules = [
-  (v: any) => !!v || '不可为空',
   () => fileNameAsyncError.value   // 返回错误信息或 true
 ]
+
+const infoForm = ref()
+
+async function submit() {
+  const { valid } = await infoForm.value.validate();
+  if (!valid) return;
+
+  try {
+    const result = await invoke('create_hypernote', {
+      hypernoteInfo: {
+        title: title.value,
+        description: description.value,
+        tag: [],
+        content: "**Hello,world!**",
+      },
+      fileName: fileName.value,
+    });
+    dialog.value = false;
+  } catch (error) {
+    console.error('创建笔记失败:', error);
+  }
+}
 </script>
 <template>
   <v-dialog v-model="dialog" max-width="500">
     <v-card>
       <v-card-text>
-        <v-form>
+        <v-form ref="infoForm">
           <v-text-field
             v-model="title"
             :counter="30"
@@ -108,7 +129,7 @@ const fileRules = [
           取消
         </v-btn>
         <v-spacer />
-        <v-btn color="primary" variant="text" @click="dialog = false">
+        <v-btn color="primary" variant="text" @click="submit()">
           提交
         </v-btn>
       </v-card-actions>
