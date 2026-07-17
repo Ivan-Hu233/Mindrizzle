@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 loadNoteSets();
 
+
 let isError = false;
 const noteSets = ref<
   { name: string; description: string; tag?: string }[]
