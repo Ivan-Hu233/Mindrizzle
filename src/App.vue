@@ -44,7 +44,7 @@ const newFileRef = shallowRef(false)
       </div>
     </v-toolbar>
 
-    <NewFileDialog :is-open="newFileRef" @update:close="newFileRef = $event"/>
+    <NewFileDialog :is-open="newFileRef" @update:close="newFileRef = $event.status"/>
 
     <v-navigation-drawer v-model="menuRef" :location="$vuetify.display.mobile ? 'bottom' : undefined" temporary>
       <v-list :lines="false" density="compact" nav>
