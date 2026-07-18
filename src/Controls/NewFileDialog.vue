@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
 import { ref, watch } from 'vue'
+import { error, info, trace } from '@tauri-apps/plugin-log';
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ 'update:close': [value: { status: boolean }] }>()
@@ -32,7 +33,7 @@ const shortRules = [
 
 const longRules = [
   (v: any) => !!v || '不可为空',
-  (v: string) => v.length <= 200 || '太长了'
+  (v: string) => v.length <= 1000 || '太长了'
 ]
 
 function isValidFileName(name: string): boolean {
@@ -50,6 +51,7 @@ let debounceTimer: number | null = null
 const debouncedCheck = (name: string) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = window.setTimeout(async () => {
+    trace("检查文件名是否合规")
     if (!name) {
       fileNameAsyncError.value = true
       return
@@ -61,8 +63,10 @@ const debouncedCheck = (name: string) => {
     try {
       const valid = await invoke<boolean>('is_file_name_valid', { fileName: name })
       fileNameAsyncError.value = valid ? true : '文件名已被占用'
-    } catch(error) {
-      console.log(error)
+    } catch(e) {
+      if(e instanceof Error){
+        error(e.message)
+      }
       fileNameAsyncError.value = '校验失败，请重试'
     }
   }, 500)
@@ -85,14 +89,16 @@ async function submit() {
       hypernoteInfo: {
         title: title.value,
         description: description.value,
-        tag: [],
+        tag: ["新笔记"],
         content: "**Hello,world!**",
       },
       fileName: fileName.value,
     });
     dialog.value = false;
-  } catch (error) {
-    console.error('创建笔记失败:', error);
+  } catch (e) {
+    if(e instanceof Error){
+      error(e.message)
+    }
   }
 }
 </script>
@@ -107,11 +113,12 @@ async function submit() {
             :rules="shortRules"
             label="标题"
           />
-          <v-text-field
+          <v-textarea
             v-model="description"
-            :counter="200"
+            :counter="1000"
             :rules="longRules"
             label="描述"
+            auto-grow
           />
           <v-text-field
             v-model="fileName"

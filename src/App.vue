@@ -15,6 +15,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '@tauri-apps/api/core';
 
 import NewFileDialog from './Controls/NewFileDialog.vue';
+import { attachConsole } from '@tauri-apps/plugin-log';
+
+attachConsole();
 
 let appWindow: ReturnType<typeof getCurrentWindow> | undefined;
 if (isTauri()) {

@@ -13,6 +13,7 @@
     "@liaogn/vue-drag-resize-rotate": "^2.0.0",
     "@mdi/js": "^7.4.47",
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-log": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2",
     "vue": "^3.5.13",
     "vue-router": "^5.1.0",
