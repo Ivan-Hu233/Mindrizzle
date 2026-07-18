@@ -8,9 +8,19 @@ use quick_xml::de::from_str;
 use crate::hn_fs;
 use crate::hn_struct::HyperNote;
 
-pub fn get_hypernote(file_name: String) -> Result<HyperNote, quick_xml::DeError> {
-    let data = std::fs::read_to_string(hn_fs::get_hn_file_dir(file_name)).unwrap();
-    deserialize_hn_xml(&data)
+pub fn get_hypernote(file_name: String) -> Result<HyperNote, &'static str> {
+    let path = hn_fs::get_hn_file_dir(file_name);
+    if !path.is_file() {
+        return Err("文件不存在或者是个目录");
+    }
+    let data = std::fs::read_to_string(path).unwrap();
+    let result = deserialize_hn_xml(&data);
+    if let Ok(data) = result  {
+        Ok(data)
+    }
+    else {
+        Err("解码时出现错误")
+    }
 }
 
 #[tauri::command]

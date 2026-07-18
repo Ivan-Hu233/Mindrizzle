@@ -24,6 +24,8 @@ if (isTauri()) {
   appWindow = getCurrentWindow();
 }
 
+const isDev = import.meta.env.TAURI_DEV_HOST !== undefined;
+
 const menuRef = shallowRef(false)
 const newFileRef = shallowRef(false)
 </script>

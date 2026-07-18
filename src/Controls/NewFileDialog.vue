@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { ref, watch } from 'vue'
 import { error, info, trace } from '@tauri-apps/plugin-log';
+import { useRouter } from 'vue-router';
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ 'update:close': [value: { status: boolean }] }>()
@@ -79,6 +80,7 @@ const fileRules = [
 ]
 
 const infoForm = ref()
+const router = useRouter();
 
 async function submit() {
   const { valid } = await infoForm.value.validate();
@@ -95,6 +97,7 @@ async function submit() {
       fileName: fileName.value,
     });
     dialog.value = false;
+    router.push(`/editor/${fileName}`)
   } catch (e) {
     if(e instanceof Error){
       error(e.message)

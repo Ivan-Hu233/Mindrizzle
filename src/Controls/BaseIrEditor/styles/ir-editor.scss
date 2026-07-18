@@ -1,0 +1,62 @@
+.ir-editor-content {
+  // 基础排版与交互
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  caret-color: rgb(var(--v-theme-primary)); // 光标颜色跟随主题主色
+
+  line-height: 1; // 或 1.3，根据偏好调整
+
+  p {
+    margin: 0.2em 0; // 段落间距，可设为 0 或更小值
+  }
+
+  // 占位符（当内容为空时显示）
+  &:empty::before {
+    content: attr(data-placeholder);
+    color: rgba(var(--v-theme-on-surface), 0.4); // 半透明，明暗均适用
+    pointer-events: none;
+  }
+
+  // 选区高亮（使用主题主色的半透明版本）
+  ::selection {
+    background: rgba(var(--v-theme-primary), 0.3);
+  }
+
+  // 链接样式（若存在）
+  a {
+    color: rgb(var(--v-theme-primary));
+    text-decoration: underline;
+    &:hover {
+      text-decoration: none;
+    }
+  }
+
+  // 内联代码或代码块
+  code {
+    font-family: monospace;
+    background: rgba(var(--v-theme-on-surface), 0.08);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+  }
+
+  // 块级引用
+  blockquote {
+    border-left: 4px solid rgb(var(--v-theme-primary));
+    padding-left: 0.8em;
+    margin-left: 0.5em;
+    color: rgba(var(--v-theme-on-surface), 0.7);
+  }
+
+  // 列表样式继承自父级，无需额外定义
+  // 所有文本颜色、背景等均继承自 Vuetify 主题，无需显式设置
+}
+
+// 禁用状态（由外部 wrapper 控制）
+.ir-editor-wrapper.ir-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+  .ir-editor-content {
+    caret-color: transparent; // 禁用时隐藏光标
+  }
+}

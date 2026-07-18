@@ -21,6 +21,16 @@ fn fetch_file_list() -> Vec<String> {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_file() {
+            let is_hn_file = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("hn"));
+
+            if !is_hn_file {
+                trace!("跳过非 .hn 文件：{:?}", path.to_str());
+                continue;
+            }
+
             trace!("找到文件：{:?}", path.to_str());
             if let Some(file_name) = path.file_stem() {
                 if let Some(file_name_str) = file_name.to_str() {
@@ -54,7 +64,7 @@ fn get_file_info(file_name: &str) -> Result<hn_struct::HyperNote, &str> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let log_level = if cfg!(debug_assertions) {
+    let log_level = if tauri::is_dev() {
         LevelFilter::Trace // 开发时输出所有日志
     } else {
         LevelFilter::Info // 发布后只输出 info 及以上

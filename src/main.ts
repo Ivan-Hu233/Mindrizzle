@@ -12,12 +12,12 @@ import * as directives from 'vuetify/directives'
 import NoteSet from './Views/NoteSets.vue'
 import Noteboard from './Views/NoteBoard.vue'
 import Setting from './Views/Settings.vue'
-import NoteEditor from './Editor/NoteEditor.vue'
+import Editor from './Views/Editor.vue'
 
 const routes = [
   { path: '/', redirect: '/set' },
   { path: '/set', component: NoteSet },
-  { path: '/editor/:file_name', component: NoteEditor },
+  { path: '/editor/:file_name', component: Editor },
   { path: '/board', component: Noteboard },
   { path: '/settings/:tab', component: Setting },
 ]
