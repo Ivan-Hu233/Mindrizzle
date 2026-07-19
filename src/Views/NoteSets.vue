@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { mdiNoteOffOutline } from '@mdi/js';
 import { invoke } from '@tauri-apps/api/core'
 import { trace } from '@tauri-apps/plugin-log';
 
 loadNoteSets();
-
 
 let isError = false;
 const noteSets = ref<

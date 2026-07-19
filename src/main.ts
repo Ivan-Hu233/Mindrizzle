@@ -13,12 +13,14 @@ import NoteSet from './Views/NoteSets.vue'
 import Noteboard from './Views/NoteBoard.vue'
 import Setting from './Views/Settings.vue'
 import Editor from './Views/Editor.vue'
+import Debug from './Views/Debug.vue'
 
 const routes = [
   { path: '/', redirect: '/set' },
   { path: '/set', component: NoteSet },
-  { path: '/editor/:file_name', component: Editor },
   { path: '/board', component: Noteboard },
+  { path: '/debug', component: Debug },
+  { path: '/editor/:file_name', component: Editor },
   { path: '/settings/:tab', component: Setting },
 ]
 

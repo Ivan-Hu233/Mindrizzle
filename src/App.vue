@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  mdiBug,
   mdiWindowMinimize,
   mdiWindowMaximize,
   mdiWindowClose,
@@ -10,7 +11,7 @@ import {
   mdiCogOutline,
   mdiPlus
 } from '@mdi/js'
-import { onMounted, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '@tauri-apps/api/core';
 
@@ -45,7 +46,7 @@ onMounted(async () => {
   }
 });
 
-const isDev = import.meta.env.TAURI_DEV_HOST !== undefined;
+const isDev = computed(() => import.meta.env.DEV);
 
 const menuRef = shallowRef(false)
 const newFileRef = shallowRef(false)
@@ -80,7 +81,7 @@ const newFileRef = shallowRef(false)
       </v-list>
       <v-divider v-if="isDev" />
       <v-list v-if="isDev" :lines="false" density="compact" nav>
-        <v-list-item :prepend-icon="mdiFormatListBulleted" title="便签集" @click="$router.push('/set')" />
+        <v-list-item :prepend-icon="mdiBug" title="调试页面" @click="$router.push('/debug')" />
       </v-list>
       <v-divider v-if="isTauri()" />
       <v-list v-if="isTauri()" :lines="false" density="compact" nav>
