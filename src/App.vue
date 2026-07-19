@@ -98,24 +98,24 @@ const newFileRef = shallowRef(false)
 </template>
 <style>
 * {
-  -webkit-tap-highlight-color: transparent;
+  -webkit-tap-highlight-color: transparent !important;
   /* 去移动端高亮 */
 }
 
 body,
 .titlebar,
 [data-tauri-drag-region] {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
 }
 
 input,
 textarea {
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  -ms-user-select: text;
-  user-select: text;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
 }
 </style>

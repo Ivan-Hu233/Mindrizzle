@@ -9,6 +9,8 @@ import { createVuetify } from 'vuetify'
 import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
 
+import vuetify from './Vuetify.ts'
+
 import NoteSet from './Views/NoteSets.vue'
 import Noteboard from './Views/NoteBoard.vue'
 import Setting from './Views/Settings.vue'
@@ -27,21 +29,6 @@ const routes = [
 const router = createRouter({
   history: createMemoryHistory(),
   routes,
-})
-
-const vuetify = createVuetify({
-  theme: {
-    defaultTheme: 'dark',
-  },
-  icons: {
-    defaultSet: 'mdi',
-    aliases,
-    sets: {
-      mdi,
-    },
-  },
-  components,
-  directives,
 })
 
 createApp(App).use(vuetify).use(router).mount('#app')

@@ -3,6 +3,7 @@
     <div
       ref="editorRef"
       class="ir-editor-content text-body-1 pa-3"
+      :class="{ 'is-empty': isEmpty }"
       :style="{ minHeight, maxHeight }"
       :contenteditable="!disabled"
       :data-placeholder="placeholder"
@@ -29,6 +30,7 @@ const props = withDefaults(defineProps<EditorProps>(), {
   minHeight: '120px',
   maxHeight: '600px',
   disabled: false,
+  components: () => ({}),
 })
 
 const emit = defineEmits<EditorEmits>()
@@ -37,6 +39,7 @@ const emit = defineEmits<EditorEmits>()
 const {
   editorRef,          // contenteditable 元素的 DOM 引用
   innerHtml,          // 当前 HTML 内容的响应式引用
+  isEmpty,
   applyBold,
   applyItalic,
   applyUnderline,
@@ -56,7 +59,15 @@ const {
   restoreSelection,
   handleInput,        // 由模板 @input 调用
   handleKeydown,      // 由模板 @keydown 调用
+  insertVueComponent,
+  registerComponent,
+  updateComponentProps,
+  removeComponent,
 } = useIrEditor(props, emit)
+
+// Provider
+const editorContext = { insertText, insertHtml, getHtml }
+provide('editorContext', editorContext)
 
 // 本地事件处理
 const onInput = (e: Event) => {
@@ -114,6 +125,11 @@ defineExpose<EditorExposed>({
   applyClearFormat,
   insertHtml,
   insertText,
+  insertVueComponent,
+  registerComponent,
+  updateComponentProps,
+  removeComponent,
 })
 import './styles/ir-editor.scss'
+import { provide } from 'vue'
 </script>

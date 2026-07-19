@@ -11,10 +11,9 @@
     margin: 0.2em 0; // 段落间距，可设为 0 或更小值
   }
 
-  // 占位符（当内容为空时显示）
-  &:empty::before {
+  &.is-empty::before {
     content: attr(data-placeholder);
-    color: rgba(var(--v-theme-on-surface), 0.4); // 半透明，明暗均适用
+    color: rgba(var(--v-theme-on-surface), 0.4);
     pointer-events: none;
   }
 

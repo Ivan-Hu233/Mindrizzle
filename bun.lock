@@ -11,6 +11,7 @@
         "@tauri-apps/plugin-log": "^2.9.0",
         "@tauri-apps/plugin-opener": "^2",
         "dompurify": "^3.4.12",
+        "highlight.js": "^11.11.1",
         "vue": "^3.5.13",
         "vue-router": "^5.1.0",
         "vuetify": "^4.1.5",
@@ -298,6 +299,8 @@
     "fsevents": ["fsevents@2.3.3", "https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
     "he": ["he@1.2.0", "https://registry.npmmirror.com/he/-/he-1.2.0.tgz", { "bin": { "he": "bin/he" } }, "sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw=="],
+
+    "highlight.js": ["highlight.js@11.11.1", "https://registry.npmmirror.com/highlight.js/-/highlight.js-11.11.1.tgz", {}, "sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w=="],
 
     "hookable": ["hookable@5.5.3", "https://registry.npmmirror.com/hookable/-/hookable-5.5.3.tgz", {}, "sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ=="],
 
