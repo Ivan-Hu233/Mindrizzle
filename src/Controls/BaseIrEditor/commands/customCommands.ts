@@ -1,3 +1,5 @@
+import { debug, warn, error as logError } from "@tauri-apps/plugin-log";
+
 /**
  * 通用函数：对当前选区包裹 <span> 并应用样式
  * @param style 样式键值对（如 { 'font-size': '16px', color: '#ff0000' }）
@@ -5,13 +7,13 @@
 function wrapSelectionWithSpan(style: Record<string, string>): void {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) {
-        console.warn('[customCommands] 无有效选区，无法应用样式');
+        warn('[customCommands] 无有效选区，无法应用样式');
         return;
     }
 
     const range = sel.getRangeAt(0);
     if (range.collapsed) {
-        console.debug('[customCommands] 选区已折叠，不执行包裹');
+        debug('[customCommands] 选区已折叠，不执行包裹');
         return;
     }
 
@@ -35,9 +37,12 @@ function wrapSelectionWithSpan(style: Record<string, string>): void {
         newRange.selectNodeContents(span);
         sel.addRange(newRange);
 
-        console.debug('[customCommands] 样式应用成功', style);
+        debug('[customCommands] 样式应用成功', style);
     } catch (error) {
-        console.error('[customCommands] 包裹选区时发生错误:', error);
+        if (!(error instanceof Error)){
+          return;
+        }
+        logError(`[customCommands] 包裹选区时发生错误:${error.message}`);
     }
 }
 
@@ -47,7 +52,7 @@ function wrapSelectionWithSpan(style: Record<string, string>): void {
  */
 export function customApplyFontSize(size: number): void {
     if (typeof size !== 'number' || size <= 0) {
-        console.warn('[customCommands] 无效字号，必须为正数');
+        warn('[customCommands] 无效字号，必须为正数');
         return;
     }
     wrapSelectionWithSpan({ 'font-size': `${size}px` });
@@ -59,7 +64,7 @@ export function customApplyFontSize(size: number): void {
  */
 export function customApplyHighlight(color: string): void {
     if (!color) {
-        console.warn('[customCommands] 未提供颜色，使用默认黄色');
+        warn('[customCommands] 未提供颜色，使用默认黄色');
         color = '#FFEB3B'; // 默认高亮色
     }
     wrapSelectionWithSpan({ 'background-color': color });
@@ -71,7 +76,7 @@ export function customApplyHighlight(color: string): void {
  */
 export function customApplyInlineStyle(style: Record<string, string>): void {
     if (!style || Object.keys(style).length === 0) {
-        console.warn('[customCommands] 样式对象为空，忽略操作');
+        warn('[customCommands] 样式对象为空，忽略操作');
         return;
     }
     wrapSelectionWithSpan(style);

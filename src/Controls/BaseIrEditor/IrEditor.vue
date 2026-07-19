@@ -1,5 +1,5 @@
 <template>
-  <v-card variant="outlined" class="ir-editor-wrapper" :class="{ 'ir-disabled': disabled }">
+  <v-card class="ir-editor-wrapper" :class="{ 'ir-disabled': disabled }">
     <div
       ref="editorRef"
       class="ir-editor-content text-body-1 pa-3"

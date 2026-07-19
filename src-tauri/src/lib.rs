@@ -1,15 +1,13 @@
 mod hn_fs;
 mod hn_op;
 mod hn_struct;
-
-use std::result;
-
 use crate::hn_op::get_hypernote;
 
 use tauri_plugin_log::{
-    log::{error, trace, LevelFilter},
-    RotationStrategy, Target, TargetKind,
+    RotationStrategy, Target, TargetKind, TimezoneStrategy, fern::FormatCallback, log::{LevelFilter, error, trace},
 };
+use log::Record;
+use std::{fmt::Arguments, io::Write};
 use tokio::fs;
 
 #[tauri::command]
@@ -69,15 +67,27 @@ pub fn run() {
     } else {
         LevelFilter::Info // 发布后只输出 info 及以上
     };
+    let custom_format = |out: FormatCallback<'_>, args: &Arguments<'_>, record: &Record<'_>|{
+        out.finish(format_args!(
+            "[{}] [{}@{}:{}] [{}] {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            record.target(),
+            record.file().unwrap_or("?"),
+            record.line().unwrap_or(0),
+            record.level(),
+            args.to_string().rsplit_once("] ").unwrap().1//FIXME: Tauri日志插件不符合预期，会输出默认日志格式，使格式重复
+        ))
+    };
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log_level)
                 .targets([
-                    Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::Webview),
-                    Target::new(TargetKind::LogDir { file_name: None }),
+                    Target::new(TargetKind::Stdout).format(custom_format),//FIXME: Tauri日志插件不符合预期，必须手动在target内设置格式
+                    Target::new(TargetKind::Webview).format(custom_format),
+                    Target::new(TargetKind::LogDir { file_name: None }).format(custom_format),
                 ])
+                .timezone_strategy(TimezoneStrategy::UseLocal)
                 .max_file_size(1_000_000)
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .build(),

@@ -10,12 +10,14 @@ import {
   mdiCogOutline,
   mdiPlus
 } from '@mdi/js'
-import { shallowRef } from 'vue'
+import { onMounted, shallowRef } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '@tauri-apps/api/core';
 
 import NewFileDialog from './Controls/NewFileDialog.vue';
 import { attachConsole } from '@tauri-apps/plugin-log';
+import { useRouter } from 'vue-router';
+import { info, error as logError } from '@tauri-apps/plugin-log';
 
 attachConsole();
 
@@ -23,6 +25,25 @@ let appWindow: ReturnType<typeof getCurrentWindow> | undefined;
 if (isTauri()) {
   appWindow = getCurrentWindow();
 }
+
+const router = useRouter();
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return String(error);
+};
+
+onMounted(async () => {
+  await router.isReady()
+
+  try {
+    const win = getCurrentWindow();
+    await win.show();
+    info('Tauri 窗口已显示'); // 调试日志
+  } catch (error) {
+    logError(getErrorMessage(error))
+    info('当前不在 Tauri 环境中，跳过显示');
+  }
+});
 
 const isDev = import.meta.env.TAURI_DEV_HOST !== undefined;
 
@@ -56,6 +77,10 @@ const newFileRef = shallowRef(false)
         <v-list-item :prepend-icon="mdiFormatListBulleted" title="便签集" @click="$router.push('/set')" />
         <v-list-item :prepend-icon="mdiCalendarBlankOutline" title="记事板" @click="$router.push('/board')" />
         <v-list-item :prepend-icon="mdiCogOutline" title="设置" @click="$router.push('/settings/introduce')" />
+      </v-list>
+      <v-divider v-if="isDev" />
+      <v-list v-if="isDev" :lines="false" density="compact" nav>
+        <v-list-item :prepend-icon="mdiFormatListBulleted" title="便签集" @click="$router.push('/set')" />
       </v-list>
       <v-divider v-if="isTauri()" />
       <v-list v-if="isTauri()" :lines="false" density="compact" nav>
