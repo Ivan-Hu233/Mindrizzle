@@ -14,7 +14,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ProseKit } from '@prosekit/vue'
 import {
   createEditor,
@@ -126,14 +126,10 @@ function removeFontFamily() {
 }
 
 function insertVueComponent(componentName: string, props: Record<string, any> = {}) {
-  const success = editor.commands.insertNode({
+  editor.commands.insertNode({
     type: 'vueComponent',
     attrs: { componentName, props },
-  });
-  console.log('插入成功?', success);
-  if (success) {
-    nextTick(() => editor.view.focus());
-  }
+  })
 }
 
 defineExpose({
