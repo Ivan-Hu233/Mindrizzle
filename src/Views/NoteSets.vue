@@ -43,12 +43,9 @@ async function loadNoteSets() {
     title = "还没有便签……"
     text = "点击右上角的 + 按钮创建新的便签集" />
     <v-list v-else>
-      <v-list-item v-for="(noteSet, index) in noteSets" :key="index">
-        <v-list-item-content>
-          <v-list-item-title>{{ noteSet.name }}</v-list-item-title>
-          <v-list-item-subtitle>{{ noteSet.description }}</v-list-item-subtitle>
-        </v-list-item-content>
-      </v-list-item>
+      <v-list-item v-for="(noteSet, index) in noteSets" :key="index"
+        :title="noteSet.name"
+        :subtitle="noteSet.description" />
     </v-list>
   </v-sheet>
 </template>

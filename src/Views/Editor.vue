@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import IrEditor from '../Controls/BaseIrEditor/IrEditor.vue';
+import IrEditor from '../Controls/BaseIrEditor/RichTextEditor.vue';
 import Code from '../Controls/EditorPlugin/EditableCodeBlock.vue';
 
 const editorRef = ref<InstanceType<typeof IrEditor>>()
 const content = ref('<p>初始内容</p>')
 
 function insertCodeBlock() {
-  editorRef.value?.insertVueComponent(Code,{
+  editorRef.value?.insertVueComponent('CodeBlock',{
     modelValue: 'print("Hello,world!")',
     language: 'python'
   })

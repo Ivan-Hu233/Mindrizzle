@@ -20,7 +20,9 @@ import { attachConsole } from '@tauri-apps/plugin-log';
 import { useRouter } from 'vue-router';
 import { info, error as logError } from '@tauri-apps/plugin-log';
 
-attachConsole();
+if (isTauri()) {
+  attachConsole();
+}
 
 let appWindow: ReturnType<typeof getCurrentWindow> | undefined;
 if (isTauri()) {
