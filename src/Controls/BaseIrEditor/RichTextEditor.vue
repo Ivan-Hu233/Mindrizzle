@@ -9,11 +9,18 @@
   >
     <ProseKit :editor="editor">
       <div ref="editorMount" class="editor-mount" />
+      <blockHandle />
+      <dropIndicator />
     </ProseKit>
   </div>
 </template>
 
 <script setup lang="ts">
+import 'prosekit/basic/style.css'
+import 'prosekit/basic/typography.css'
+
+import blockHandle from './extensions/block-handle.vue'
+import dropIndicator from './extensions/drop-indicator.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ProseKit } from '@prosekit/vue'
 import {
@@ -149,20 +156,29 @@ defineExpose({
 
 <style scoped>
 .editor-wrapper {
-  border: 1px solid;
-  border-radius: 6px;
-  padding: 12px;
+  position: relative;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 4px;
+  padding: 0;
   min-height: 200px;
+  transition: border-color 0.15s ease;
 }
+
+.editor-wrapper:focus-within {
+  border-color: rgb(var(--v-theme-primary));
+}
+
 .editor-mount {
+  padding: 12px 56px 12px 56px;
   min-height: 180px;
-}
-.editor-wrapper :deep(.ProseMirror) {
   outline: none;
-  min-height: 180px;
-  font-size: 1rem;
 }
-.editor-wrapper :deep(.ProseMirror p) {
-  margin: 0;
+
+/* 让 ProseKit 编辑器内容区填满容器 */
+.editor-mount :deep(.ProseMirror) {
+  padding: 0;
+  min-height: 180px;
+  outline: none;
 }
 </style>
+

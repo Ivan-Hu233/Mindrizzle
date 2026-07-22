@@ -14,6 +14,7 @@
     "@mdi/js": "^7.4.47",
     "@prosekit/extensions": "^0.17.4",
     "@prosekit/vue": "^0.7.6",
+    "@prosekit/web": "^0.8.6",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-log": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2",

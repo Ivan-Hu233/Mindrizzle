@@ -3,12 +3,6 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import App from './App.vue'
 
-import { aliases, mdi } from 'vuetify/iconsets/mdi-svg'
-import 'vuetify/styles'
-import { createVuetify } from 'vuetify'
-import * as components from 'vuetify/components'
-import * as directives from 'vuetify/directives'
-
 import vuetify from './Vuetify.ts'
 
 import NoteSet from './Views/NoteSets.vue'
