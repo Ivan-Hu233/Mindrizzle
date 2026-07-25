@@ -54,8 +54,15 @@
     </v-snackbar>
   </div>
 </template>
-
-<script setup>
+<script lang="ts">
+export const resizeConstraints = {
+  minWidth: 330,
+  maxWidth: null,
+  minHeight: 210,
+  maxHeight: null,
+}
+</script>
+<script setup lang="ts">
 import { ref, onMounted, watch, nextTick, computed, onBeforeUnmount } from 'vue';
 import { useTheme } from 'vuetify';
 import { mdiContentCopy } from '@mdi/js';

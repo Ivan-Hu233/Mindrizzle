@@ -12,6 +12,7 @@
   "dependencies": {
     "@liaogn/vue-drag-resize-rotate": "^2.0.0",
     "@mdi/js": "^7.4.47",
+    "@prosekit/core": "^0.12.3",
     "@prosekit/extensions": "^0.17.4",
     "@prosekit/vue": "^0.7.6",
     "@prosekit/web": "^0.8.6",
