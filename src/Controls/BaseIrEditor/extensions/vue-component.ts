@@ -1,6 +1,8 @@
 import { defineNodeSpec } from '@prosekit/core'
 import { defineVueNodeView } from '@prosekit/vue'
 import { h, defineComponent, ref, watch, onUnmounted, reactive, PropType } from 'vue'
+import { mdiArrowBottomRight } from "@mdi/js"
+import { VIcon } from 'vuetify/components'
 
 // ==================== 类型定义 ====================
 
@@ -117,6 +119,7 @@ const ResizableContainer = defineComponent({
   setup(props, { emit, slots }) {
     const containerRef = ref<HTMLElement | null>(null)
     const isResizing = ref(false)
+    const isHovering = ref(false)
     const currentWidth = ref(props.width)
     const currentHeight = ref(props.height)
 
@@ -143,7 +146,6 @@ const ResizableContainer = defineComponent({
       const startWidth = currentWidth.value
       const startHeight = currentHeight.value
 
-      // 解析约束：null 表示无限制，使用 Infinity 或 -Infinity
       const minW = props.minWidth !== null ? props.minWidth : -Infinity
       const maxW = props.maxWidth !== null ? props.maxWidth : Infinity
       const minH = props.minHeight !== null ? props.minHeight : -Infinity
@@ -189,6 +191,18 @@ const ResizableContainer = defineComponent({
       const children = slots.default ? slots.default() : []
       const surfaceColor = 'var(--v-theme-on-surface, #000000)'
 
+      const isActive = isResizing.value || isHovering.value
+      const bgColor = isActive
+        ? `rgba(${surfaceColor}, 0.10)`
+        : `rgba(${surfaceColor}, 0.04)`
+      const borderColor = isActive
+        ? `rgba(${surfaceColor}, 0.25)`
+        : `rgba(${surfaceColor}, 0.08)`
+      const iconColor = isActive
+        ? `rgba(${surfaceColor}, 0.85)`
+        : `rgba(${surfaceColor}, 0.40)`
+      const scale = isActive ? 1.1 : 1.0
+
       return h(
         'div',
         {
@@ -200,7 +214,6 @@ const ResizableContainer = defineComponent({
             position: 'relative',
             boxSizing: 'border-box',
             overflow: 'hidden',
-            border: '1px dashed rgba(var(--v-theme-on-surface), 0.12)',
             borderRadius: '4px',
           },
         },
@@ -213,11 +226,11 @@ const ResizableContainer = defineComponent({
                 position: 'absolute',
                 bottom: '4px',
                 right: '4px',
-                width: '18px',
-                height: '18px',
-                borderRadius: '50%',
-                background: `rgba(${surfaceColor}, 0.04)`,
-                border: `1px solid rgba(${surfaceColor}, 0.08)`,
+                width: '22px',
+                height: '22px',
+                borderRadius: '4px',
+                background: bgColor,
+                border: `1px solid ${borderColor}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -225,52 +238,28 @@ const ResizableContainer = defineComponent({
                 zIndex: 5,
                 transition: 'background 0.2s, border-color 0.2s, transform 0.15s',
                 userSelect: 'none',
+                transform: `scale(${scale})`,
               },
-              onMouseenter: (e) => {
-                const el = e.currentTarget as HTMLElement
-                el.style.background = `rgba(${surfaceColor}, 0.10)`
-                el.style.borderColor = `rgba(${surfaceColor}, 0.25)`
-                el.style.transform = 'scale(1.1)'
-              },
-              onMouseleave: (e) => {
-                const el = e.currentTarget as HTMLElement
-                el.style.background = `rgba(${surfaceColor}, 0.04)`
-                el.style.borderColor = `rgba(${surfaceColor}, 0.08)`
-                el.style.transform = 'scale(1)'
-              },
+              onMouseenter: () => { isHovering.value = true },
+              onMouseleave: () => { isHovering.value = false },
               onMousedown: startResize,
             },
             [
               h(
-                'svg',
-                {
-                  viewBox: '0 0 24 24',
-                  width: '12',
-                  height: '12',
-                  style: {
-                    display: 'block',
-                    opacity: 0.4,
-                    pointerEvents: 'none',
-                  },
+                'svg', 
+                { 
+                  viewBox: '0 0 24 24', 
+                  width: '16', 
+                  height: '16',
+                  style: { /* 你的样式 */ }
                 },
                 [
-                  h('path', {
-                    d: 'M22 22 L2 22 L22 2 L22 22 Z',
-                    fill: 'none',
-                    stroke: surfaceColor,
-                    strokeWidth: '1.2',
-                    strokeLinejoin: 'round',
-                  }),
-                  h('path', {
-                    d: 'M16 22 L22 22 L22 16',
-                    fill: 'none',
-                    stroke: surfaceColor,
-                    strokeWidth: '1.2',
-                    strokeLinecap: 'round',
-                    strokeLinejoin: 'round',
-                  }),
+                  h('path', { 
+                    d: mdiArrowBottomRight, // 直接使用导入的路径数据
+                    fill: 'currentColor' // 或你定义的 iconColor
+                  })
                 ]
-              ),
+              )
             ]
           ),
         ]
