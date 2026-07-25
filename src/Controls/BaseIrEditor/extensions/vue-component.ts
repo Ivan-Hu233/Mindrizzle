@@ -1,8 +1,17 @@
 import { defineNodeSpec } from '@prosekit/core'
 import { defineVueNodeView } from '@prosekit/vue'
-import { h, defineComponent, ref, watch, onUnmounted, reactive, PropType } from 'vue'
-import { mdiArrowBottomRight } from "@mdi/js"
-import { VIcon } from 'vuetify/components'
+import {
+  h,
+  defineComponent,
+  ref,
+  watch,
+  onUnmounted,
+  reactive,
+  PropType,
+  onMounted,
+  computed,
+} from 'vue'
+import { mdiArrowBottomRight } from '@mdi/js'
 
 // ==================== 类型定义 ====================
 
@@ -40,7 +49,10 @@ const DEFAULT_CONSTRAINTS: Required<ResizeConstraints> = {
 
 // ==================== 加载与缓存 ====================
 
-const loadedCache = new Map<string, { component: any; constraints: Required<ResizeConstraints> }>()
+const loadedCache = new Map<
+  string,
+  { component: any; constraints: Required<ResizeConstraints> }
+>()
 
 async function loadComponent(name: string) {
   if (loadedCache.has(name)) return loadedCache.get(name)!
@@ -51,10 +63,14 @@ async function loadComponent(name: string) {
   const raw = module.resizeConstraints || {}
   // 处理 null 表示无限制，undefined 回退默认
   const constraints: Required<ResizeConstraints> = {
-    minWidth: raw.minWidth === undefined ? DEFAULT_CONSTRAINTS.minWidth : raw.minWidth,
-    maxWidth: raw.maxWidth === undefined ? DEFAULT_CONSTRAINTS.maxWidth : raw.maxWidth,
-    minHeight: raw.minHeight === undefined ? DEFAULT_CONSTRAINTS.minHeight : raw.minHeight,
-    maxHeight: raw.maxHeight === undefined ? DEFAULT_CONSTRAINTS.maxHeight : raw.maxHeight,
+    minWidth:
+      raw.minWidth === undefined ? DEFAULT_CONSTRAINTS.minWidth : raw.minWidth,
+    maxWidth:
+      raw.maxWidth === undefined ? DEFAULT_CONSTRAINTS.maxWidth : raw.maxWidth,
+    minHeight:
+      raw.minHeight === undefined ? DEFAULT_CONSTRAINTS.minHeight : raw.minHeight,
+    maxHeight:
+      raw.maxHeight === undefined ? DEFAULT_CONSTRAINTS.maxHeight : raw.maxHeight,
   }
   const result = { component: comp, constraints }
   loadedCache.set(name, result)
@@ -146,10 +162,11 @@ const ResizableContainer = defineComponent({
       const startWidth = currentWidth.value
       const startHeight = currentHeight.value
 
-      const minW = props.minWidth !== null ? props.minWidth : -Infinity
+      // 如果 maxWidth 为 null，则视为无限制（使用 Infinity）
       const maxW = props.maxWidth !== null ? props.maxWidth : Infinity
-      const minH = props.minHeight !== null ? props.minHeight : -Infinity
+      const minW = props.minWidth !== null ? props.minWidth : -Infinity
       const maxH = props.maxHeight !== null ? props.maxHeight : Infinity
+      const minH = props.minHeight !== null ? props.minHeight : -Infinity
 
       const onMouseMove = (ev: MouseEvent) => {
         ev.preventDefault()
@@ -211,6 +228,8 @@ const ResizableContainer = defineComponent({
             display: 'inline-block',
             width: currentWidth.value + 'px',
             height: currentHeight.value + 'px',
+            maxWidth: props.maxWidth !== null ? props.maxWidth + 'px' : '100%',
+            maxHeight: props.maxHeight !== null ? props.maxHeight + 'px' : '100%',
             position: 'relative',
             boxSizing: 'border-box',
             overflow: 'hidden',
@@ -236,30 +255,35 @@ const ResizableContainer = defineComponent({
                 justifyContent: 'center',
                 cursor: 'nwse-resize',
                 zIndex: 5,
-                transition: 'background 0.2s, border-color 0.2s, transform 0.15s',
+                transition:
+                  'background 0.2s, border-color 0.2s, transform 0.15s',
                 userSelect: 'none',
                 transform: `scale(${scale})`,
               },
-              onMouseenter: () => { isHovering.value = true },
-              onMouseleave: () => { isHovering.value = false },
+              onMouseenter: () => {
+                isHovering.value = true
+              },
+              onMouseleave: () => {
+                isHovering.value = false
+              },
               onMousedown: startResize,
             },
             [
               h(
-                'svg', 
-                { 
-                  viewBox: '0 0 24 24', 
-                  width: '16', 
+                'svg',
+                {
+                  viewBox: '0 0 24 24',
+                  width: '16',
                   height: '16',
-                  style: { /* 你的样式 */ }
+                  style: { color: iconColor },
                 },
                 [
-                  h('path', { 
-                    d: mdiArrowBottomRight, // 直接使用导入的路径数据
-                    fill: 'currentColor' // 或你定义的 iconColor
-                  })
+                  h('path', {
+                    d: mdiArrowBottomRight,
+                    fill: 'currentColor',
+                  }),
                 ]
-              )
+              ),
             ]
           ),
         ]
@@ -276,6 +300,9 @@ export const vueComponentNodeView = defineVueNodeView({
     props: ['node', 'view', 'getPos'],
     setup(props) {
       const node = props.node
+      const view = props.view
+      const getPos = props.getPos
+
       const state = reactive<{
         component: any | null
         constraints: Required<ResizeConstraints>
@@ -310,8 +337,45 @@ export const vueComponentNodeView = defineVueNodeView({
         }
       )
 
+      // ---------- 监听容器宽度（编辑区域） ----------
+      // 初始值：直接取 view.dom.clientWidth，若为 0 则给一个较大后备（如 10000）
+      const containerWidth = ref<number>(view.dom.clientWidth || 10000)
+      let resizeObserver: ResizeObserver | null = null
+
+      onMounted(() => {
+        const container = view.dom // ProseMirror 内容元素
+        if (container) {
+          containerWidth.value = container.clientWidth || 10000
+          resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+              containerWidth.value = entry.contentRect.width || 10000
+            }
+          })
+          resizeObserver.observe(container)
+        }
+      })
+
+      onUnmounted(() => {
+        if (resizeObserver) {
+          resizeObserver.disconnect()
+          resizeObserver = null
+        }
+      })
+
+      // 有效最大宽度：取组件约束 maxWidth 与容器宽度的较小值，始终为数字
+      const effectiveMaxWidth = computed(() => {
+        const constraintsMax = state.constraints.maxWidth // 可能为 null
+        const containerW = containerWidth.value
+
+        // 容器宽度总是有效数字（初始有后备值）
+        if (constraintsMax === null) {
+          return containerW
+        }
+        return Math.min(constraintsMax, containerW)
+      })
+
+      // 当有效最大宽度发生变化时，若当前宽度超出，则自动缩小
       const handleResize = (newWidth: number, newHeight: number) => {
-        const { view, getPos } = props
         const pos = getPos()
         if (typeof pos !== 'number') return
         const tr = view.state.tr
@@ -323,13 +387,35 @@ export const vueComponentNodeView = defineVueNodeView({
         view.dispatch(tr)
       }
 
+      watch(
+        [effectiveMaxWidth, () => node.value.attrs.width],
+        ([maxW, currentW]) => {
+          if (maxW < currentW) {
+            const newWidth = Math.floor(maxW)
+            const currentHeight = node.value.attrs.height
+            handleResize(newWidth, currentHeight)
+          }
+        },
+        { immediate: true }
+      )
+      // ---------- 新增部分结束 ----------
+
       return () => {
         const currentNode = node.value
         const componentName = currentNode.attrs.componentName as string
         const componentProps = currentNode.attrs.props as Record<string, any>
 
         if (!state.loaded) {
-          return h('div', { style: { padding: '16px', color: 'rgba(var(--v-theme-on-surface), 0.6)' } }, '加载中...')
+          return h(
+            'div',
+            {
+              style: {
+                padding: '16px',
+                color: 'rgba(var(--v-theme-on-surface), 0.6)',
+              },
+            },
+            '加载中...'
+          )
         }
         if (state.error || !state.component) {
           return h(
@@ -371,6 +457,7 @@ export const vueComponentNodeView = defineVueNodeView({
           })
         )
 
+        // 始终传递数字（不传 null），确保限制生效
         return h(
           ResizableContainer,
           {
@@ -378,7 +465,7 @@ export const vueComponentNodeView = defineVueNodeView({
             height: currentNode.attrs.height,
             aspectRatio: aspectRatio ?? undefined,
             minWidth: state.constraints.minWidth,
-            maxWidth: state.constraints.maxWidth,
+            maxWidth: effectiveMaxWidth.value, // 保证是数字
             minHeight: state.constraints.minHeight,
             maxHeight: state.constraints.maxHeight,
             onResize: handleResize,

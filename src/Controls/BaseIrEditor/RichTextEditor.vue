@@ -133,9 +133,17 @@ function removeFontFamily() {
 }
 
 function insertVueComponent(componentName: string, props: Record<string, any> = {}) {
+  const view = editor.view
+  if (!view) return
+
+  // 直接使用 view.dom 的宽度（即 ProseMirror 内容区宽度）
+  const containerWidth = view.dom.clientWidth || 360
+  const defaultWidth = Math.min(360, containerWidth)
+  const defaultHeight = 240
+
   editor.commands.insertNode({
     type: 'vueComponent',
-    attrs: { componentName, props },
+    attrs: { componentName, props, width: defaultWidth, height: defaultHeight },
   })
 }
 
