@@ -33,6 +33,7 @@ import 'prosekit/pm/view/style/prosemirror.css'
 import { defineDoc } from '@prosekit/extensions/doc'
 import { defineParagraph } from '@prosekit/extensions/paragraph'
 import { defineText } from '@prosekit/extensions/text'
+import { definePlaceholder } from '@prosekit/extensions/placeholder'
 import {
   bold,
   italic,
@@ -61,6 +62,7 @@ const editor = createEditor({
     defineText(),
     defineBaseKeymap(),
     defineHistory(),
+    definePlaceholder({ placeholder: '写点什么吧' }),
     bold,
     italic,
     underline,

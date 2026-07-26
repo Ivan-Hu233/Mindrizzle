@@ -15,7 +15,7 @@ function insertCodeBlock() {
 </script>
 <template>
   <v-sheet>
-    <IrEditor ref="editorRef" v-model="content" placeholder="写点什么吧"/>
+    <IrEditor ref="editorRef" v-model="content"/>
     <v-btn @click="insertCodeBlock()">插入代码块</v-btn>
     <Code language="javascript" max-height="500px"/>
   </v-sheet>
