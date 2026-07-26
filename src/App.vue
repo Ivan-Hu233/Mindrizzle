@@ -93,7 +93,7 @@ const newFileRef = shallowRef(false)
       </v-list>
     </v-navigation-drawer>
 
-    <v-main>
+    <v-main class="no-scrollbar">
       <RouterView style="height: 100%;" />
     </v-main>
   </v-app>
@@ -119,5 +119,16 @@ textarea {
   -moz-user-select: text !important;
   -ms-user-select: text !important;
   user-select: text !important;
+}
+
+.no-scrollbar {
+  overflow-y: auto;
+  height: calc(100vh - 64px);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 </style>
