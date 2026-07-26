@@ -113,6 +113,8 @@ hljs.registerLanguage('kotlin', kotlin);
 import githubCss from 'highlight.js/styles/github.css?raw';
 import atomDarkCss from 'highlight.js/styles/atom-one-dark.css?raw';
 
+import { info , error as logError } from '@tauri-apps/plugin-log';
+
 // ----- Vuetify 主题 -----
 const theme = useTheme();
 const isDark = computed(() => theme.global.name.value === 'dark');
@@ -213,7 +215,7 @@ const renderHighlight = () => {
     }
     codeElement.innerHTML = highlighted.value;
   } catch (error) {
-    console.warn('高亮失败，使用纯文本:', error);
+    warn('高亮失败，使用纯文本:', error);
     codeElement.textContent = code;
   }
 };
@@ -240,14 +242,14 @@ const syncScroll = () => {
 const copyCode = async () => {
   const text = internalCode.value;
   if (!text) {
-    console.warn('没有代码可复制');
+    warn('没有代码可复制');
     return;
   }
 
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
-      console.log('复制成功 (Clipboard API)');
+      info('复制成功 (Clipboard API)');
     } else {
       const textarea = document.createElement('textarea');
       textarea.value = text;
@@ -257,11 +259,11 @@ const copyCode = async () => {
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      console.log('复制成功 (execCommand)');
+      info('复制成功 (execCommand)');
     }
     snackbar.value = true;
   } catch (err) {
-    console.error('复制失败:', err);
+    logError('复制失败:', err);
     alert('复制失败，请手动复制代码。\n错误信息：' + err.message);
   }
 };
