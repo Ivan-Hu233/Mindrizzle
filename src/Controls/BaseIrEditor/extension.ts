@@ -28,6 +28,9 @@ import {
   highlightKeymap,
 } from './extensions/formatting'
 import { vueComponentNode, vueComponentNodeView } from './extensions/vue-component'
+import { defineBlockquote } from 'prosekit/extensions/blockquote'
+import { defineSubscript } from 'prosekit/extensions/subscript'
+import { defineSuperscript } from 'prosekit/extensions/superscript'
 
 export function defineExtension() {
   return union(
@@ -40,6 +43,9 @@ export function defineExtension() {
     defineHeading(),
     definePlaceholder({ placeholder: '写点什么吧' }),
     defineList(),
+    defineBlockquote(),
+    defineSubscript(),
+    defineSuperscript(),
     defineMath({ renderMathBlock: renderKaTeXMathBlock, renderMathInline: renderKaTeXMathInline }),
     bold,
     italic,
