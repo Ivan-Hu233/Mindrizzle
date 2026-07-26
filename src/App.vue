@@ -123,7 +123,7 @@ textarea {
 
 .no-scrollbar {
   overflow-y: auto;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 48px);
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
