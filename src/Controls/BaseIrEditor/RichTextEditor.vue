@@ -34,6 +34,7 @@ import { defineDoc } from '@prosekit/extensions/doc'
 import { defineParagraph } from '@prosekit/extensions/paragraph'
 import { defineText } from '@prosekit/extensions/text'
 import { defineMath } from 'prosekit/extensions/math'
+import { defineHeading } from 'prosekit/extensions/heading'
 import { renderKaTeXMathBlock, renderKaTeXMathInline } from './extensions/kateX.ts'
 import { definePlaceholder } from '@prosekit/extensions/placeholder'
 import {
@@ -64,6 +65,7 @@ const editor = createEditor({
     defineText(),
     defineBaseKeymap(),
     defineHistory(),
+    defineHeading(),
     definePlaceholder({ placeholder: '写点什么吧' }),
     defineMath({ renderMathBlock: renderKaTeXMathBlock, renderMathInline: renderKaTeXMathInline }),
     bold,
@@ -143,6 +145,42 @@ function insertVueComponent(componentName: string, props: Record<string, any> = 
   })
 }
 
+function setHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
+  editor.commands.setHeading({ level })
+}
+
+function toggleHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
+  // 如果当前已经是该级别标题，则切换回段落；否则设置为该级别标题
+  const { state } = editor
+  const { selection } = state
+  const node = selection.$from.node(selection.$from.depth)
+  if (node && node.type.name === 'heading' && node.attrs.level === level) {
+    editor.commands.setParagraph()
+  } else {
+    editor.commands.setHeading({ level })
+  }
+}
+
+function insertMathInline(latex: string) {
+  const { view } = editor
+  const { state } = view
+  const node = state.schema.nodes.mathInline?.create({}, state.schema.text(latex))
+  if (!node) return
+  const tr = state.tr.replaceSelectionWith(node)
+  view.dispatch(tr)
+  view.focus()
+}
+
+function insertMathBlock(latex: string) {
+  const { view } = editor
+  const { state } = view
+  const node = state.schema.nodes.mathBlock?.create({}, state.schema.text(latex))
+  if (!node) return
+  const tr = state.tr.replaceSelectionWith(node)
+  view.dispatch(tr)
+  view.focus()
+}
+
 defineExpose({
   toggleBold,
   toggleItalic,
@@ -153,6 +191,10 @@ defineExpose({
   setHighlight,
   removeHighlight,
   insertVueComponent,
+  setHeading,
+  toggleHeading,
+  insertMathInline,
+  insertMathBlock,
 })
 </script>
 
