@@ -4,7 +4,6 @@
     :style="{
       color: 'var(--v-theme-on-surface)',
       background: 'var(--v-theme-surface)',
-      borderColor: 'var(--v-theme-outline)',
     }"
   >
     <ProseKit :editor="editor">
@@ -165,7 +164,7 @@ defineExpose({
 <style scoped>
 .editor-wrapper {
   position: relative;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border: 1px solid transparent;
   border-radius: 4px;
   padding: 0;
   min-height: 200px;
@@ -182,11 +181,9 @@ defineExpose({
   outline: none;
 }
 
-/* 让 ProseKit 编辑器内容区填满容器 */
 .editor-mount :deep(.ProseMirror) {
   padding: 0;
   min-height: 180px;
   outline: none;
 }
 </style>
-
