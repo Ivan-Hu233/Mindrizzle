@@ -17,77 +17,19 @@
 <script setup lang="ts">
 import 'prosekit/basic/style.css'
 import 'prosekit/basic/typography.css'
+import 'prosekit/pm/view/style/prosemirror.css'
 
 import blockHandle from './extensions/block-handle.vue'
 import dropIndicator from './extensions/drop-indicator.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ProseKit } from '@prosekit/vue'
-import {
-  createEditor,
-  union,
-  defineBaseCommands,
-  defineBaseKeymap,
-  defineHistory,
-} from '@prosekit/core'
-import 'prosekit/pm/view/style/prosemirror.css'
-import { defineDoc } from '@prosekit/extensions/doc'
-import { defineList } from 'prosekit/extensions/list'
-import { defineParagraph } from '@prosekit/extensions/paragraph'
-import { defineText } from '@prosekit/extensions/text'
-import { defineMath } from 'prosekit/extensions/math'
-import { defineHeading } from 'prosekit/extensions/heading'
-import { renderKaTeXMathBlock, renderKaTeXMathInline } from './extensions/kateX.ts'
-import { definePlaceholder } from '@prosekit/extensions/placeholder'
-import {
-  bold,
-  italic,
-  underline,
-  strikethrough,
-  textColor,
-  backgroundColor,
-  highlight,
-  fontFamily,
-  boldKeymap,
-  italicKeymap,
-  underlineKeymap,
-  strikethroughKeymap,
-  highlightKeymap,
-} from './extensions/formatting'
-import { vueComponentNode, vueComponentNodeView } from './extensions/vue-component'
 
+import { defineExtension } from './extension.ts'
+import { createEditor } from '@prosekit/core'
+
+const extension = defineExtension()
+const editor = createEditor({ extension })
 const editorMount = ref<HTMLDivElement>()
-
-// 创建编辑器实例，传入所有扩展
-const editor = createEditor({
-  extension: union(
-    defineBaseCommands(),
-    defineDoc(),
-    defineParagraph(),
-    defineText(),
-    defineBaseKeymap(),
-    defineHistory(),
-    defineHeading(),
-    definePlaceholder({ placeholder: '写点什么吧' }),
-    defineList(),
-    defineMath({ renderMathBlock: renderKaTeXMathBlock, renderMathInline: renderKaTeXMathInline }),
-    bold,
-    italic,
-    underline,
-    strikethrough,
-    textColor,
-    backgroundColor,
-    highlight,
-    fontFamily,
-    // 快捷键
-    boldKeymap,
-    italicKeymap,
-    underlineKeymap,
-    strikethroughKeymap,
-    highlightKeymap,
-    vueComponentNode,
-    vueComponentNodeView,
-  ),
-})
 
 onMounted(() => {
   if (editorMount.value) {
