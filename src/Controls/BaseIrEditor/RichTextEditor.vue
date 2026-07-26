@@ -31,6 +31,7 @@ import {
 } from '@prosekit/core'
 import 'prosekit/pm/view/style/prosemirror.css'
 import { defineDoc } from '@prosekit/extensions/doc'
+import { defineList } from 'prosekit/extensions/list'
 import { defineParagraph } from '@prosekit/extensions/paragraph'
 import { defineText } from '@prosekit/extensions/text'
 import { defineMath } from 'prosekit/extensions/math'
@@ -67,6 +68,7 @@ const editor = createEditor({
     defineHistory(),
     defineHeading(),
     definePlaceholder({ placeholder: '写点什么吧' }),
+    defineList(),
     defineMath({ renderMathBlock: renderKaTeXMathBlock, renderMathInline: renderKaTeXMathInline }),
     bold,
     italic,
@@ -97,39 +99,6 @@ onUnmounted(() => {
   editor.unmount()
 })
 
-// ---------- 对外暴露的操作方法 ----------
-function toggleBold() {
-  editor.commands.toggleBold()
-}
-
-function toggleItalic() {
-  editor.commands.toggleItalic()
-}
-
-function toggleUnderline() {
-  editor.commands.toggleUnderline()
-}
-
-function toggleStrikethrough() {
-  editor.commands.toggleStrike()
-}
-
-function setTextColor(color: string) {
-  editor.commands.addTextColor({ color })
-}
-
-function removeTextColor() {
-  editor.commands.removeTextColor()
-}
-
-function setHighlight(bgColor: string) {
-  editor.commands.addBackgroundColor({ color: bgColor })
-}
-
-function removeHighlight() {
-  editor.commands.removeBackgroundColor()
-}
-
 function insertVueComponent(componentName: string, props: Record<string, any> = {}) {
   const view = editor.view
   if (!view) return
@@ -143,10 +112,6 @@ function insertVueComponent(componentName: string, props: Record<string, any> = 
     type: 'vueComponent',
     attrs: { componentName, props, width: defaultWidth, height: defaultHeight },
   })
-}
-
-function setHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
-  editor.commands.setHeading({ level })
 }
 
 function toggleHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
@@ -182,16 +147,8 @@ function insertMathBlock(latex: string) {
 }
 
 defineExpose({
-  toggleBold,
-  toggleItalic,
-  toggleUnderline,
-  toggleStrikethrough,
-  setTextColor,
-  removeTextColor,
-  setHighlight,
-  removeHighlight,
+  commands: editor.commands,
   insertVueComponent,
-  setHeading,
   toggleHeading,
   insertMathInline,
   insertMathBlock,
