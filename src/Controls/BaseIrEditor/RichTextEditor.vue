@@ -33,6 +33,8 @@ import 'prosekit/pm/view/style/prosemirror.css'
 import { defineDoc } from '@prosekit/extensions/doc'
 import { defineParagraph } from '@prosekit/extensions/paragraph'
 import { defineText } from '@prosekit/extensions/text'
+import { defineMath } from 'prosekit/extensions/math'
+import { renderKaTeXMathBlock, renderKaTeXMathInline } from './extensions/kateX.ts'
 import { definePlaceholder } from '@prosekit/extensions/placeholder'
 import {
   bold,
@@ -63,6 +65,7 @@ const editor = createEditor({
     defineBaseKeymap(),
     defineHistory(),
     definePlaceholder({ placeholder: '写点什么吧' }),
+    defineMath({ renderMathBlock: renderKaTeXMathBlock, renderMathInline: renderKaTeXMathInline }),
     bold,
     italic,
     underline,
@@ -125,14 +128,6 @@ function removeHighlight() {
   editor.commands.removeBackgroundColor()
 }
 
-function setFontFamily(family: string) {
-  editor.commands.addFontFamily({ family })
-}
-
-function removeFontFamily() {
-  editor.commands.removeFontFamily()
-}
-
 function insertVueComponent(componentName: string, props: Record<string, any> = {}) {
   const view = editor.view
   if (!view) return
@@ -157,8 +152,6 @@ defineExpose({
   removeTextColor,
   setHighlight,
   removeHighlight,
-  setFontFamily,
-  removeFontFamily,
   insertVueComponent,
 })
 </script>
