@@ -20,7 +20,7 @@ const props = defineProps<Props>()
     <BlockHandlePositioner
       :placement="props.dir === 'rtl' ? 'right' : 'left'"
       class="block-handle-positioner"
-    >
+    ><!--TODO 未来或许可以把这个单独分离出来成为一个窗口?-->
       <BlockHandlePopup class="block-handle-popup">
         <BlockHandleAdd class="block-handle-btn">
           <svg
@@ -64,6 +64,8 @@ const props = defineProps<Props>()
 }
 
 .block-handle-popup {
+  background-color: rgba(var(--v-theme-on-surface), 0.06);
+  border-radius: 3px;
   display: flex;
   box-sizing: border-box;
   transition: opacity 0.1s, scale 0.1s;

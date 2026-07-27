@@ -122,7 +122,6 @@ defineExpose({
 }
 
 .editor-mount {
-  padding: 12px 56px 12px 56px;
   min-height: 180px;
   outline: none;
 }

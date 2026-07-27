@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <v-sheet>
     <v-btn @click="save">保存</v-btn>
     <v-btn @click="load">加载</v-btn>
     <v-btn data-test="add-rich" @click="addRichText">➕ 添加富文本</v-btn>
@@ -14,6 +14,7 @@
         :class="{ selected: state.selectedIds.has(item.id) }"
         @click="(e) => handleSelect(item.id, e)"
       >
+      <!--FIXME isConflictCheck,snap和snap-tolerance不生效，可能是上游问题-->
         <VueDraggableResizable
           :x="item.x"
           :y="item.y"
@@ -37,7 +38,7 @@
         </VueDraggableResizable>
       </div>
     </div>
-  </div>
+  </v-sheet>
 </template>
 
 <script setup lang="ts">
@@ -201,12 +202,12 @@ const addCodeBlock = () => {
 }
 
 // ---------- 保存 / 加载 ----------
-const save = () => {
+const save = () => {//TODO rust后端保存数据
   syncRichTextContent()
   localStorage.setItem('canvasData', JSON.stringify(state.items))
 }
 
-const load = () => {
+const load = () => {//TODO rust后端保存数据
   const raw = localStorage.getItem('canvasData')
   if (raw) {
     state.items = JSON.parse(raw)
@@ -244,19 +245,20 @@ onMounted(() => {
 <style scoped>
 .canvas {
   position: relative;
-  width: 100%;
-  height: 800px; /* 可调整画布大小 */
-  background: #f5f7fa;
+  width: calc(100% - 112px);
+  height: 100%;
+  
+  /* 可调整画布大小 */
+  background: transparent;
   border: 1px solid #ddd;
+  left: 56px;
 }
+
 .drag-wrapper {
   position: absolute;
 }
+
 .drag-wrapper.selected .vdr {
   outline: 2px solid #409eff;
-}
-/* 确保内部组件最小高度，避免空内容缩成点 */
-.drag-wrapper .vdr > div {
-  min-height: 100px;
 }
 </style>
