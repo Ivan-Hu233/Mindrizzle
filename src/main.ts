@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
-
 import App from './App.vue'
 
 import vuetify from './Vuetify.ts'

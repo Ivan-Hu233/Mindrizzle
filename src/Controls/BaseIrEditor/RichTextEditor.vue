@@ -25,7 +25,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { ProseKit } from '@prosekit/vue'
 
 import { defineExtension } from './extension.ts'
-import { createEditor } from '@prosekit/core'
+import { createEditor, NodeJSON } from '@prosekit/core'
 
 const extension = defineExtension()
 const editor = createEditor({ extension })
@@ -88,12 +88,22 @@ function insertMathBlock(latex: string) {
   view.focus()
 }
 
+function exportJSON(): NodeJSON {
+  return editor.state.doc.toJSON() as NodeJSON
+}
+
+function importJSON(json: NodeJSON) {
+  editor.setContent(json)
+}
+
 defineExpose({
   commands: editor.commands,
+  doc: editor.state.doc,
   insertVueComponent,
   toggleHeading,
   insertMathInline,
   insertMathBlock,
+  importJSON,
 })
 </script>
 

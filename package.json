@@ -10,7 +10,6 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@liaogn/vue-drag-resize-rotate": "^2.0.0",
     "@mdi/js": "^7.4.47",
     "@prosekit/core": "^0.12.3",
     "@prosekit/extensions": "^0.17.4",
@@ -27,8 +26,8 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "^1.42.2",
     "vue": "^3.5.40",
+    "vue-draggable-resizable-gorkys": "^3.0.0",
     "vue-router": "^5.2.0",
-    "vue3-draggable-resizable": "^1.6.5",
     "vuetify": "^4.1.6"
   },
   "devDependencies": {
