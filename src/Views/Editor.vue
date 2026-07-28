@@ -5,24 +5,43 @@
     <v-btn data-test="add-rich" @click="addRichText">➕ 添加富文本</v-btn>
     <v-btn data-test="add-code" @click="addCodeBlock">➕ 添加代码块</v-btn>
     <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
+    <v-btn @click="toggleEditMode">
+      {{ isEditMode ? '切换到只读' : '切换到编辑' }}
+    </v-btn>
 
     <div class="canvas">
       <template v-for="item in state.items" :key="item.id" class="drag-wrapper"
-        :class="{ selected: state.selectedIds.has(item.id) }">
+        :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
         <VueDraggableResizable :x="item.x" :y="item.y" :w="item.w" :h="item.h" :min-width="100" :min-height="100"
           :is-conflict-check="true" :snap="true" :snap-tolerance="10" parent=".canvas" :active-on-top="true"
-          @dragstop="(x: number, y: number) => { item.x = x; item.y = y }" drag-handle=".drag-handle"
-          @resizestop="(x: number, y: number, w: number, h: number) => { item.x = x; item.y = y; item.w = w; item.h = h }">
-          <div style="height:100%; display:flex; flex-direction:column;" @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
-            <!-- primary 色小栏 -->
-            <div class="drag-handle" v-show="state.selectedIds.has(item.id)"
-              style="height:8px; flex-shrink:0; margin-top: -8px;" :style="{ backgroundColor: String(primaryColor) }">
+          @dragstop="(x, y) => { item.x = x; item.y = y }" drag-handle=".drag-handle"
+          @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }"
+          :disabled="!isEditMode"
+          >
+          <div class="block-container"
+            style="height:100%; width:100%; position:relative; overflow:visible; background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
+
+            <!-- 左上角：名称 + 图标 -->
+            <div v-if="isEditMode" class="drag-handle" @mousedown="(e) => handleSelect(item.id, e)"
+              style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; background:#f5f5f5; border-radius:4px 4px 0 0; border:1px solid #e0e0e0; border-bottom:0; z-index:10; white-space:nowrap;">
+              <v-icon size="16" color="grey-darken-2" :icon="mdiDragVertical" />
+              <span style="font-size:12px; color:#666; user-select:none; margin-left:4px;">
+                {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
+              </span>
             </div>
-            <!-- 内容区域，占据剩余高度 -->
-            <div style="flex:1; min-height:0;">
-              <component style="height:100%; min-height:120px;"
+
+            <!-- 右上角：选中指示器 -->
+            <div v-if="isEditMode" class="drag-handle" @mousedown="(e) => handleSelect(item.id, e)"
+              style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; background:#f5f5f5; border-radius:4px 4px 0 0; border:1px solid #e0e0e0; border-bottom:0; z-index:10;">
+              <div v-if="state.selectedIds.has(item.id)" style="width:12px; height:12px; border-radius:50%;"
+                :style="{ backgroundColor: String(primaryColor) }"></div>
+            </div>
+
+            <!-- 内容区域 -->
+            <div style="background-color: transparent; height:100%; width:100%; padding:4px; box-sizing:border-box;">
+              <component style="height:100%;"
                 :is="componentMap[item.component as keyof typeof componentMap]"
-                :ref="(el: any) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
+                :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
                 @update:model-value="(val: string) => updateCode(item.id, val)"
                 @update:language="(lang: string) => updateLanguage(item.id, lang)" />
             </div>
@@ -38,6 +57,7 @@ import { reactive, ref, nextTick, onMounted, computed } from 'vue'
 import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
+import { mdiDragVertical } from '@mdi/js'
 import RichTextEditor from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { NodeJSON } from '@prosekit/core'
@@ -45,6 +65,11 @@ import { NodeJSON } from '@prosekit/core'
 import { useTheme } from 'vuetify'
 const theme = useTheme()
 const primaryColor = computed(() => theme.current.value.colors.primary)
+
+const isEditMode = ref(true);
+const toggleEditMode = () => {
+  isEditMode.value = !isEditMode.value
+}
 
 // ---------- 类型定义 ----------
 interface RichTextConfig {
@@ -262,6 +287,8 @@ onMounted(() => {
   background: transparent;
   border: 1px solid #ddd;
   left: 56px;
+  overflow: visible !important;
+  /* 允许手柄溢出 */
 }
 
 .drag-wrapper {
