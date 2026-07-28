@@ -1,5 +1,5 @@
 // shims-vue-draggable-resizable-gorkys.d.ts
-declare module 'vue-draggable-resizable-gorkys' {
+declare module 'vue-draggable-resizable-gorkys' {//HACK 需要自己定义导出
   import { DefineComponent } from 'vue'
 
   // 控制柄类型（8 个方向）

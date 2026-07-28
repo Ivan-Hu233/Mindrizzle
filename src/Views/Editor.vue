@@ -14,7 +14,7 @@
         :class="{ selected: state.selectedIds.has(item.id) }"
         @click="(e) => handleSelect(item.id, e)"
       >
-      <!--FIXME isConflictCheck,snap和snap-tolerance不生效，可能是上游问题-->
+      <!--BUG isConflictCheck,snap和snap-tolerance不生效，可能是上游问题-->
         <VueDraggableResizable
           :x="item.x"
           :y="item.y"
