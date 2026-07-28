@@ -15,9 +15,7 @@
         <VueDraggableResizable :x="item.x" :y="item.y" :w="item.w" :h="item.h" :min-width="100" :min-height="100"
           :is-conflict-check="true" :snap="true" :snap-tolerance="10" parent=".canvas" :active-on-top="true"
           @dragstop="(x, y) => { item.x = x; item.y = y }" drag-handle=".drag-handle"
-          @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }"
-          :disabled="!isEditMode"
-          >
+          @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }" :disabled="!isEditMode">
           <div class="block-container"
             style="height:100%; width:100%; position:relative; overflow:visible; background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
 
@@ -31,16 +29,18 @@
             </div>
 
             <!-- 右上角：选中指示器 -->
-            <div v-if="isEditMode" class="drag-handle" @mousedown="(e) => handleSelect(item.id, e)"
-              style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; background:#f5f5f5; border-radius:4px 4px 0 0; border:1px solid #e0e0e0; border-bottom:0; z-index:10;">
-              <div v-if="state.selectedIds.has(item.id)" style="width:12px; height:12px; border-radius:50%;"
-                :style="{ backgroundColor: String(primaryColor) }"></div>
-            </div>
+            <transition name="pop-up">
+              <div v-if="isEditMode && state.selectedIds.has(item.id)" class="drag-handle"
+                @mousedown="(e) => handleSelect(item.id, e)"
+                style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; background:#f5f5f5; border-radius:4px 4px 0 0; border:1px solid #e0e0e0; border-bottom:0; z-index:10;">
+                <div style="width:12px; height:12px; border-radius:50%;"
+                  :style="{ backgroundColor: String(primaryColor) }"></div>
+              </div>
+            </transition>
 
             <!-- 内容区域 -->
             <div style="background-color: transparent; height:100%; width:100%; padding:4px; box-sizing:border-box;">
-              <component style="height:100%;"
-                :is="componentMap[item.component as keyof typeof componentMap]"
+              <component style="height:100%;" :is="componentMap[item.component as keyof typeof componentMap]"
                 :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
                 @update:model-value="(val: string) => updateCode(item.id, val)"
                 @update:language="(lang: string) => updateLanguage(item.id, lang)" />
@@ -297,5 +297,28 @@ onMounted(() => {
 
 .drag-wrapper.selected .vdr {
   outline: 2px solid var(--v-theme-primary);
+}
+
+/* 动画 */
+/* 右上角指示器整体弹出动画 */
+.pop-up-enter-active,/* TODO 更改动画，更有机械感 */
+.pop-up-leave-active {
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); /* 弹性缓动 */
+}
+.pop-up-enter-from {
+  opacity: 0;
+  transform: translateY(12px) scale(0.6);
+}
+.pop-up-enter-to {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.pop-up-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.pop-up-leave-to {
+  opacity: 0;
+  transform: translateY(12px) scale(0.6);
 }
 </style>
