@@ -80,7 +80,7 @@ const props = defineProps<Props>()
   }
 }
 
-/* 关闭状态：由 ProseKit Web Component 自动切换 data-state */
+
 .block-handle-popup[data-state='closed'] {
   opacity: 0;
   scale: 0.95;

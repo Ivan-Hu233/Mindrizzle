@@ -377,7 +377,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ===== 容器与整体布局 ===== */
+
 .code-editor-container {
   display: flex;
   flex-direction: column;
@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
   min-height: 200px;
 }
 
-/* ===== 工具栏 ===== */
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-/* ===== 编辑器主体 ===== */
+
 .code-editor-wrapper {
   position: relative;
   border: 1px solid var(--v-theme-border, #e1e4e8);
@@ -414,7 +414,7 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 
-/* ===== 高亮层与编辑层的共用样式 ===== */
+
 .highlight-layer,
 .edit-layer {
   margin: 0;
@@ -438,19 +438,19 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   min-height: 120px;
 
-  /* 修复选中文本偏移 & 字体渲染一致性 */
+
   vertical-align: baseline;
   font-variant-ligatures: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ===== 高亮层（背景，只读） ===== */
+
 .highlight-layer {
-  position: absolute;          /* 改为绝对定位，与编辑层重叠 */
+  position: absolute;
   top: 0;
   left: 0;
-  height: 100%;               /* 占满父容器 */
+  height: 100%;
   width: 100%;
   z-index: 1;
   background-color: transparent !important;
@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
   padding: 12px 16px;
   border-radius: 0;
   overflow: auto;
-  /* 移除 min-height，因为 height:100% 已固定 */
+
 }
 
 .highlight-layer code {
@@ -473,7 +473,7 @@ onBeforeUnmount(() => {
   vertical-align: baseline;
 }
 
-/* ===== 编辑层（透明覆盖，可交互） ===== */
+
 .edit-layer {
   position: absolute;
   top: 0;
@@ -486,12 +486,12 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: inherit;
 
-  /* 显示滚动条，与高亮层保持一致 */
+
   scrollbar-width: auto;
   -ms-overflow-style: auto;
 }
 
-/* ===== 统一点击区域的滚动条样式 ===== */
+
 .edit-layer::-webkit-scrollbar,
 .highlight-layer::-webkit-scrollbar {
   width: 8px;

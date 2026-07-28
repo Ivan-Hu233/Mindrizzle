@@ -7,48 +7,44 @@
     <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
 
     <div class="canvas">
-      <div
-        v-for="item in state.items"
-        :key="item.id"
-        class="drag-wrapper"
-        :class="{ selected: state.selectedIds.has(item.id) }"
-        @click="(e) => handleSelect(item.id, e)"
-      >
-      <!--BUG isConflictCheck,snap和snap-tolerance不生效，可能是上游问题-->
-        <VueDraggableResizable
-          :x="item.x"
-          :y="item.y"
-          :w="item.w"
-          :h="item.h"
-          :min-width="100"
-          :min-height="100"
-          @dragstop="(x: number, y: number) => { item.x = x; item.y = y }"
-          @resizestop="(x: number, y: number, w: number, h: number) => { item.x = x; item.y = y; item.w = w; item.h = h }"
-        >
-          <div style="height:100%;">
-            <component
-              style="height:100%; min-height:120px;"
-              :is="componentMap[item.component as keyof typeof componentMap]"
-              :ref="(el: any) => setComponentRef(item.id, el)"
-              v-bind="getComponentProps(item)"
-              @update:model-value="(val: string) => updateCode(item.id, val)"
-              @update:language="(lang: string) => updateLanguage(item.id, lang)"
-            />
+      <template v-for="item in state.items" :key="item.id" class="drag-wrapper"
+        :class="{ selected: state.selectedIds.has(item.id) }">
+        <VueDraggableResizable :x="item.x" :y="item.y" :w="item.w" :h="item.h" :min-width="100" :min-height="100"
+          :is-conflict-check="true" :snap="true" :snap-tolerance="10" parent=".canvas" :active-on-top="true"
+          @dragstop="(x: number, y: number) => { item.x = x; item.y = y }" drag-handle=".drag-handle"
+          @resizestop="(x: number, y: number, w: number, h: number) => { item.x = x; item.y = y; item.w = w; item.h = h }">
+          <div style="height:100%; display:flex; flex-direction:column;" @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+            <!-- primary 色小栏 -->
+            <div class="drag-handle" v-show="state.selectedIds.has(item.id)"
+              style="height:8px; flex-shrink:0; margin-top: -8px;" :style="{ backgroundColor: String(primaryColor) }">
+            </div>
+            <!-- 内容区域，占据剩余高度 -->
+            <div style="flex:1; min-height:0;">
+              <component style="height:100%; min-height:120px;"
+                :is="componentMap[item.component as keyof typeof componentMap]"
+                :ref="(el: any) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
+                @update:model-value="(val: string) => updateCode(item.id, val)"
+                @update:language="(lang: string) => updateLanguage(item.id, lang)" />
+            </div>
           </div>
         </VueDraggableResizable>
-      </div>
+      </template>
     </div>
   </v-sheet>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, nextTick, onMounted } from 'vue'
+import { reactive, ref, nextTick, onMounted, computed } from 'vue'
 import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
 import RichTextEditor from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { NodeJSON } from '@prosekit/core'
+
+import { useTheme } from 'vuetify'
+const theme = useTheme()
+const primaryColor = computed(() => theme.current.value.colors.primary)
 
 // ---------- 类型定义 ----------
 interface RichTextConfig {
@@ -113,14 +109,14 @@ const getComponentProps = (item: CanvasItem) => {
 const updateCode = (id: string, code: string) => {
   const item = state.items.find((i) => i.id === id)
   if (item && item.component === 'EditableCodeBlock') {
-    ;(item.config as CodeBlockConfig).code = code
+    ; (item.config as CodeBlockConfig).code = code
   }
 }
 
 const updateLanguage = (id: string, lang: string) => {
   const item = state.items.find((i) => i.id === id)
   if (item && item.component === 'EditableCodeBlock') {
-    ;(item.config as CodeBlockConfig).language = lang
+    ; (item.config as CodeBlockConfig).language = lang
   }
 }
 
@@ -131,11 +127,25 @@ const setComponentRef = (id: string, el: any) => {
 
 const handleSelect = (id: string, e: MouseEvent) => {
   if (e.ctrlKey) {
-    if (state.selectedIds.has(id)) state.selectedIds.delete(id)
-    else state.selectedIds.add(id)
+    // 创建新 Set 并基于当前选中切换
+    const newSet = new Set(state.selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    state.selectedIds = newSet;  // 重新赋值触发更新
   } else {
-    state.selectedIds = new Set([id])
+    state.selectedIds = new Set([id]);  // 直接替换
   }
+}
+
+// 处理画布空白点击取消选中
+const handleCanvasClick = (e: MouseEvent) => {
+  const target = e.target as HTMLElement;
+  // 如果点击的元素或其父级包含 .drag-wrapper，则忽略（因为内部点击已由 handleSelect 处理）
+  if (target.closest('.drag-wrapper')) return;
+  state.selectedIds = new Set();  // 清空选中
 }
 
 // ---------- 同步与存储 ----------
@@ -144,7 +154,7 @@ const syncRichTextContent = () => {
     if (item.component === 'RichTextEditor') {
       const inst = componentRefs.value[item.id]
       if (inst && inst.doc) {
-        ;(item.config as RichTextConfig).content = inst.doc.toJSON()
+        ; (item.config as RichTextConfig).content = inst.doc.toJSON()
       }
     }
   })
@@ -247,8 +257,8 @@ onMounted(() => {
   position: relative;
   width: calc(100% - 112px);
   height: 100%;
-  
-  /* 可调整画布大小 */
+  /* width: 1000px;
+  height: 800px; */
   background: transparent;
   border: 1px solid #ddd;
   left: 56px;
@@ -259,6 +269,6 @@ onMounted(() => {
 }
 
 .drag-wrapper.selected .vdr {
-  outline: 2px solid #409eff;
+  outline: 2px solid var(--v-theme-primary);
 }
 </style>

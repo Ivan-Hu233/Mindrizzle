@@ -109,15 +109,14 @@ defineExpose({
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 0;
-  
-  /* ===== 关键修改：向左延伸 56px ===== */
-  margin-left: -56px;          /* 整体左移 56px */
-  width: calc(100% + 56px);   /* 宽度相应增加，防止右侧被拉短 */
-  padding-left: 56px;         /* 把内容（ProseMirror）向右推回原位 */
-  box-sizing: border-box;     /* 确保 padding 计入宽高内 */
+
+  margin-left: -56px;
+  width: calc(100% + 56px);
+  padding-left: 56px;
+  box-sizing: border-box;
   
   height: 100%;
-  overflow: auto;             /* 解决之前你遇到的多行文字溢出问题 */
+  overflow: auto;
   min-height: 120px;
   transition: border-color 0.15s ease;
 }
@@ -127,13 +126,13 @@ defineExpose({
 }
 
 .editor-mount {
-  min-height: 100%;       /* 确保内部占满，但ProseMirror会自动撑开，可保留 */
+  min-height: 100%;
   outline: none;
 }
 
 .editor-mount :deep(.ProseMirror) {
   padding: 0;
-  min-height: 120px;      /* 与wrapper的最小高度匹配 */
+  min-height: 120px;
   outline: none;
 }
 </style>

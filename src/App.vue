@@ -101,7 +101,7 @@ const newFileRef = shallowRef(false)
 <style>
 * {
   -webkit-tap-highlight-color: transparent !important;
-  /* 去移动端高亮 */
+
 }
 
 body,
