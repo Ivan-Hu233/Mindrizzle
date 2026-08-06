@@ -13,11 +13,15 @@
       <v-btn @click="toggleMobileSim">
         {{ mobileButtonLabel }}
       </v-btn>
+      <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="state.selectedIds.size === 0">
+        删除
+      </v-btn>
     </div>
 
     <!-- 画布区域 -->
     <div class="canvas-container">
-      <div class="canvas" @click="handleCanvasClick" ref="canvasRef">
+      <div class="canvas" @click="handleCanvasClick" @mousedown="startSelection" @mousemove="updateSelection" ref="canvasRef">
+        <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
         <template v-for="item in state.items" :key="item.id">
           <VueDraggableResizable
             :x="layoutOf(item).x"
@@ -33,6 +37,7 @@
             :active-on-top="true"
             :axis="mobileMode ? 'y' : 'both'"
             :handles="mobileMode ? ['tm', 'bm'] : undefined"
+            @dragging="(x, y) => onDragging(item, x, y)"
             @dragstop="(x, y) => onDragStop(item, x, y)"
             drag-handle=".drag-handle"
             @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
@@ -61,6 +66,9 @@
                          style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
                          @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
                   <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+                  <!-- <v-btn icon small color="red" style="margin-left:6px;" @click.stop="deleteItem(item.id)">
+                    <v-icon size="14" :icon="mdiDelete" />
+                  </v-btn> -->
                 </v-sheet>
               </transition>
 
@@ -174,6 +182,31 @@ const state = reactive({
 const componentRefs = ref<Record<string, any>>({})
 const canvasRef = ref<HTMLElement | null>(null)
 const canvasWidth = ref(0)
+const dragGroupState = ref<{ active: boolean; origins: Record<string, { x: number; y: number }> }>({
+  active: false,
+  origins: {},
+})
+const selectionBox = ref<{ x: number; y: number; w: number; h: number } | null>(null)
+const selectionState = reactive({
+  active: false,
+  startX: 0,
+  startY: 0,
+  currentX: 0,
+  currentY: 0,
+  extend: false,
+  justFinishedSelection: false,
+})
+
+const selectionBoxStyle = computed(() => {
+  if (!selectionBox.value) return {}
+  const { x, y, w, h } = selectionBox.value
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+    width: `${w}px`,
+    height: `${h}px`,
+  }
+})
 
 // ---------- 移动端边距常量 ----------
 const MOBILE_MARGIN = 8 // 左右对称边距
@@ -222,12 +255,49 @@ const setComponentRef = (id: string, el: any) => {
 // Layout helpers
 const layoutOf = (item: CanvasItem) => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
 
-const onDragStop = (item: CanvasItem, x: number, y: number) => {
-  // 同步更新两端布局，保证切换时位置一致
+const syncItemPosition = (item: CanvasItem, x: number, y: number) => {
   item.layout.desktop.x = x
   item.layout.desktop.y = y
   item.layout.mobile.x = x
   item.layout.mobile.y = y
+}
+
+const getSelectedItemIds = (item: CanvasItem) => {
+  const selected = state.selectedIds.has(item.id) && state.selectedIds.size > 1
+    ? Array.from(state.selectedIds)
+    : [item.id]
+  return selected
+}
+
+const onDragging = (item: CanvasItem, x: number, y: number) => {
+  if (!dragGroupState.value.active) {
+    dragGroupState.value = {
+      active: true,
+      origins: Object.fromEntries(
+        getSelectedItemIds(item).map((id) => {
+          const target = state.items.find((it) => it.id === id)
+          if (!target) return [id, { x: 0, y: 0 }]
+          return [id, { x: target.layout.desktop.x, y: target.layout.desktop.y }]
+        }),
+      ),
+    }
+  }
+
+  const targetOrigin = dragGroupState.value.origins[item.id] ?? { x: item.layout.desktop.x, y: item.layout.desktop.y }
+  const dx = x - targetOrigin.x
+  const dy = y - targetOrigin.y
+
+  getSelectedItemIds(item).forEach((id) => {
+    const target = state.items.find((it) => it.id === id)
+    if (!target) return
+    const origin = dragGroupState.value.origins[id] ?? { x: target.layout.desktop.x, y: target.layout.desktop.y }
+    syncItemPosition(target, origin.x + dx, origin.y + dy)
+  })
+}
+
+const onDragStop = (item: CanvasItem, x: number, y: number) => {
+  dragGroupState.value = { active: false, origins: {} }
+  syncItemPosition(item, x, y)
 }
 
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
@@ -244,6 +314,9 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
 }
 
 const handleSelect = (id: string, e: MouseEvent) => {
+  const isSelected = state.selectedIds.has(id)
+  const selectedCount = state.selectedIds.size
+
   if (e.ctrlKey) {
     const newSet = new Set(state.selectedIds)
     if (newSet.has(id)) {
@@ -252,13 +325,82 @@ const handleSelect = (id: string, e: MouseEvent) => {
       newSet.add(id)
     }
     state.selectedIds = newSet
+  } else if (isSelected && selectedCount > 1) {
+    // 保留当前多选集合，避免拖拽手柄时把它收缩为单选
+    return
   } else {
     state.selectedIds = new Set([id])
   }
 }
 
+const updateSelectionBox = () => {
+  const x = Math.min(selectionState.startX, selectionState.currentX)
+  const y = Math.min(selectionState.startY, selectionState.currentY)
+  const w = Math.abs(selectionState.currentX - selectionState.startX)
+  const h = Math.abs(selectionState.currentY - selectionState.startY)
+  selectionBox.value = w > 2 || h > 2 ? { x, y, w, h } : null
+}
+
+const isRectIntersectingItem = (rect: { x: number; y: number; w: number; h: number }, item: CanvasItem) => {
+  const itemRect = layoutOf(item)
+  return itemRect.x < rect.x + rect.w && itemRect.x + itemRect.w > rect.x && itemRect.y < rect.y + rect.h && itemRect.y + itemRect.h > rect.y
+}
+
+const startSelection = (e: MouseEvent) => {
+  const target = e.target as HTMLElement
+  if (e.button !== 0) return
+  if (target.closest('.drag-wrapper') || target.closest('.drag-handle') || target.closest('.toolbar')) return
+
+  const rect = canvasRef.value?.getBoundingClientRect()
+  if (!rect) return
+
+  e.preventDefault()
+  selectionState.active = true
+  selectionState.extend = e.ctrlKey
+  selectionState.justFinishedSelection = false
+  selectionState.startX = e.clientX - rect.left
+  selectionState.startY = e.clientY - rect.top
+  selectionState.currentX = selectionState.startX
+  selectionState.currentY = selectionState.startY
+  updateSelectionBox()
+}
+
+const updateSelection = (e: MouseEvent) => {
+  if (!selectionState.active) return
+  const rect = canvasRef.value?.getBoundingClientRect()
+  if (!rect) return
+  e.preventDefault()
+  selectionState.currentX = e.clientX - rect.left
+  selectionState.currentY = e.clientY - rect.top
+  updateSelectionBox()
+}
+
+const finishSelection = () => {
+  if (!selectionState.active) return
+  selectionState.active = false
+  const rect = selectionBox.value
+  if (rect) {
+    const matchedIds = state.items.filter((item) => isRectIntersectingItem(rect, item)).map((item) => item.id)
+    if (selectionState.extend) {
+      const next = new Set(state.selectedIds)
+      matchedIds.forEach((id) => next.add(id))
+      state.selectedIds = next
+    } else {
+      state.selectedIds = new Set(matchedIds)
+    }
+  } else if (!selectionState.extend) {
+    state.selectedIds = new Set()
+  }
+  selectionState.justFinishedSelection = true
+  selectionBox.value = null
+}
+
 const handleCanvasClick = (e: MouseEvent) => {
   const target = e.target as HTMLElement
+  if (selectionState.justFinishedSelection) {
+    selectionState.justFinishedSelection = false
+    return
+  }
   if (target.closest('.drag-wrapper')) return
   state.selectedIds = new Set()
 }
@@ -447,6 +589,15 @@ const batchToggleHeading = (level: number) => {
   })
 }
 
+// ---------- 删除功能 ----------
+const deleteSelected = () => {
+  if (state.selectedIds.size === 0) return
+  const ids = Array.from(state.selectedIds)
+  state.items = state.items.filter((it) => !ids.includes(it.id))
+  state.selectedIds = new Set()
+  ids.forEach(id => { delete componentRefs.value[id] })
+}
+
 // ---------- 生命周期 ----------
 onMounted(() => {
   load()
@@ -457,10 +608,14 @@ onMounted(() => {
     }
   })
   window.addEventListener('resize', onResize)
+  window.addEventListener('mousemove', updateSelection)
+  window.addEventListener('mouseup', finishSelection)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('mousemove', updateSelection)
+  window.removeEventListener('mouseup', finishSelection)
 })
 </script>
 
@@ -508,6 +663,14 @@ onUnmounted(() => {
 .drag-wrapper.selected {
   outline: 2px solid var(--v-theme-primary);
   outline-offset: -1px;
+}
+
+.selection-box {
+  position: absolute;
+  border: 1px dashed var(--v-theme-primary);
+  background: rgba(var(--v-theme-primary), 0.12);
+  pointer-events: none;
+  z-index: 55;
 }
 
 .block-container {

@@ -135,13 +135,12 @@ defineExpose({
   position: relative;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 0;
-
+  margin: 0px;
   /* 桌面端负边距，为手柄留空间 */
   margin-left: -56px;
-  width: calc(100% + 56px);
   padding-left: 56px;
-  box-sizing: border-box;
+  width: calc(100% + 112px);
+  box-sizing: content-box;
   
   height: 100%;
   overflow: auto;
