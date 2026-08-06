@@ -24,7 +24,7 @@ import 'prosekit/pm/view/style/prosemirror.css'
 
 import blockHandle from './extensions/block-handle.vue'
 import dropIndicator from './extensions/drop-indicator.vue'
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { ProseKit } from '@prosekit/vue'
 import { useDisplay } from 'vuetify'
 
@@ -34,6 +34,7 @@ import { createEditor, NodeJSON } from '@prosekit/core'
 interface Props {
   dir?: 'ltr' | 'rtl'
   compact?: boolean
+  doc?: NodeJSON | null
 }
 const props = defineProps<Props>()
 
@@ -51,6 +52,10 @@ onMounted(() => {
     // 移动端主动聚焦（可选）
     if (isMobile.value) {
       setTimeout(() => editor.view?.focus(), 100)
+    }
+    // 如果外部传入了初始 doc，导入到编辑器
+    if (props.doc) {
+      editor.setContent(props.doc)
     }
   }
 })
@@ -106,6 +111,11 @@ function importJSON(json: NodeJSON) {
   editor.setContent(json)
 }
 
+// 监听外部 doc prop 的变化并导入
+watch(() => props.doc, (v) => {
+  if (v) editor.setContent(v as NodeJSON)
+})
+
 defineExpose({
   commands: editor.commands,
   doc: editor.state.doc,
@@ -114,6 +124,9 @@ defineExpose({
   insertMathInline,
   insertMathBlock,
   importJSON,
+  getDocJSON() {
+    return editor.state.doc.toJSON()
+  },
 })
 </script>
 

@@ -10,6 +10,9 @@
       <v-btn @click="toggleEditMode">
         {{ isEditMode ? '切换到只读' : '切换到编辑' }}
       </v-btn>
+      <v-btn @click="toggleMobileSim">
+        {{ mobileButtonLabel }}
+      </v-btn>
     </div>
 
     <!-- 画布区域 -->
@@ -17,22 +20,22 @@
       <div class="canvas" @click="handleCanvasClick" ref="canvasRef">
         <template v-for="item in state.items" :key="item.id">
           <VueDraggableResizable
-            :x="item.x"
-            :y="item.y"
-            :w="item.w"
-            :h="item.h"
+            :x="layoutOf(item).x"
+            :y="layoutOf(item).y"
+            :w="layoutOf(item).w"
+            :h="layoutOf(item).h"
             :min-width="100"
             :min-height="100"
-            :is-conflict-check="!isMobile"
+            :is-conflict-check="!mobileMode"
             :snap="true"
             :snap-tolerance="10"
             parent
             :active-on-top="true"
-            :axis="isMobile ? 'y' : 'both'"
-            :handles="isMobile ? ['tm', 'bm'] : undefined"
-            @dragstop="(x, y) => { item.x = x; item.y = y }"
+            :axis="mobileMode ? 'y' : 'both'"
+            :handles="mobileMode ? ['tm', 'bm'] : undefined"
+            @dragstop="(x, y) => onDragStop(item, x, y)"
             drag-handle=".drag-handle"
-            @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }"
+            @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
             :disabled="!isEditMode"
             class="drag-wrapper"
             :class="{ selected: isEditMode && state.selectedIds.has(item.id) }"
@@ -99,6 +102,25 @@ const primaryColor = computed(() => theme.current.value.colors.primary)
 const { xs } = useDisplay()
 const isMobile = computed(() => xs.value)
 
+// ---------- 可控移动端模拟（用于调试/强制切换） ----------
+const forceMobile = ref<boolean | null>(null) // null = 不强制，使用真实断点
+const mobileMode = computed(() => (forceMobile.value === null ? isMobile.value : forceMobile.value))
+const mobileButtonLabel = computed(() => {
+  if (forceMobile.value === null) return '模拟移动端'
+  return forceMobile.value ? '强制桌面' : '恢复自动布局'
+})
+
+const toggleMobileSim = () => {
+  // cycle: null -> true -> false -> null
+  if (forceMobile.value === null) forceMobile.value = true
+  else if (forceMobile.value === true) forceMobile.value = false
+  else forceMobile.value = null
+  nextTick(() => {
+    updateCanvasWidth()
+    if (mobileMode.value) applyMobileLayout()
+  })
+}
+
 // ---------- 编辑模式 ----------
 const isEditMode = ref(true)
 const toggleEditMode = () => {
@@ -121,14 +143,21 @@ interface CodeBlockConfig {
 
 type WidgetConfig = RichTextConfig | CodeBlockConfig
 
-interface CanvasItem {
-  id: string
+interface Rect {
   x: number
   y: number
   w: number
   h: number
+}
+
+interface CanvasItem {
+  id: string
   component: 'RichTextEditor' | 'EditableCodeBlock'
   config: WidgetConfig
+  layout: {
+    desktop: Rect
+    mobile: Rect
+  }
 }
 
 // ---------- 组件映射 ----------
@@ -154,7 +183,7 @@ const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
     return {
       doc: (item.config as RichTextConfig).content,
-      compact: isMobile.value, // 关键
+      compact: mobileMode.value, // 关键
     }
   }
   if (item.component === 'EditableCodeBlock') {
@@ -190,6 +219,30 @@ const setComponentRef = (id: string, el: any) => {
   else delete componentRefs.value[id]
 }
 
+// Layout helpers
+const layoutOf = (item: CanvasItem) => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
+
+const onDragStop = (item: CanvasItem, x: number, y: number) => {
+  // 同步更新两端布局，保证切换时位置一致
+  item.layout.desktop.x = x
+  item.layout.desktop.y = y
+  item.layout.mobile.x = x
+  item.layout.mobile.y = y
+}
+
+const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
+  // 同步更新两端尺寸与位置
+  item.layout.desktop.x = x
+  item.layout.desktop.y = y
+  item.layout.desktop.w = w
+  item.layout.desktop.h = h
+
+  item.layout.mobile.x = x
+  item.layout.mobile.y = y
+  item.layout.mobile.w = w
+  item.layout.mobile.h = h
+}
+
 const handleSelect = (id: string, e: MouseEvent) => {
   if (e.ctrlKey) {
     const newSet = new Set(state.selectedIds)
@@ -215,8 +268,12 @@ const syncRichTextContent = () => {
   state.items.forEach((item) => {
     if (item.component === 'RichTextEditor') {
       const inst = componentRefs.value[item.id]
-      if (inst && inst.doc) {
-        ; (item.config as RichTextConfig).content = inst.doc.toJSON()
+      if (inst) {
+        if (typeof inst.getDocJSON === 'function') {
+          ; (item.config as RichTextConfig).content = inst.getDocJSON()
+        } else if (inst.doc && typeof inst.doc.toJSON === 'function') {
+          ; (item.config as RichTextConfig).content = inst.doc.toJSON()
+        }
       }
     }
   })
@@ -237,17 +294,17 @@ const updateCanvasWidth = () => {
 }
 
 const applyMobileLayout = () => {
-  if (isMobile.value && canvasWidth.value > 0) {
+  if (mobileMode.value && canvasWidth.value > 0) {
     const margin = MOBILE_MARGIN
     state.items.forEach(item => {
-      item.x = margin
-      item.w = canvasWidth.value - 2 * margin
+      item.layout.mobile.x = margin
+      item.layout.mobile.w = canvasWidth.value - 2 * margin
     })
   }
 }
 
 // 监听移动端状态变化，切换布局
-watch(isMobile, (newVal) => {
+watch(mobileMode, (newVal) => {
   if (newVal) {
     nextTick(() => {
       updateCanvasWidth()
@@ -259,7 +316,7 @@ watch(isMobile, (newVal) => {
 // 窗口 resize 时更新宽度并重新布局（若在移动端）
 const onResize = () => {
   updateCanvasWidth()
-  if (isMobile.value) {
+  if (mobileMode.value) {
     applyMobileLayout()
   }
 }
@@ -269,18 +326,18 @@ const addRichText = () => {
   const id = generateId()
   const newItem: CanvasItem = {
     id,
-    x: nextX,
-    y: nextY,
-    w: 400,
-    h: 300,
     component: 'RichTextEditor',
     config: { content: null },
+    layout: {
+      desktop: { x: nextX, y: nextY, w: 400, h: 300 },
+      mobile: { x: nextX, y: nextY, w: 400, h: 300 },
+    },
   }
   state.items.push(newItem)
-  if (isMobile.value && canvasWidth.value > 0) {
+  if (mobileMode.value && canvasWidth.value > 0) {
     const margin = MOBILE_MARGIN
-    newItem.x = margin
-    newItem.w = canvasWidth.value - 2 * margin
+    newItem.layout.mobile.x = margin
+    newItem.layout.mobile.w = canvasWidth.value - 2 * margin
   }
   nextX += STEP
   nextY += STEP
@@ -294,10 +351,6 @@ const addCodeBlock = () => {
   const id = generateId()
   const newItem: CanvasItem = {
     id,
-    x: nextX,
-    y: nextY,
-    w: 400,
-    h: 250,
     component: 'EditableCodeBlock',
     config: {
       code: '// 在此编写代码',
@@ -305,12 +358,16 @@ const addCodeBlock = () => {
       minWidth: '300px',
       minHeight: '200px',
     },
+    layout: {
+      desktop: { x: nextX, y: nextY, w: 400, h: 250 },
+      mobile: { x: nextX, y: nextY, w: 400, h: 250 },
+    },
   }
   state.items.push(newItem)
-  if (isMobile.value && canvasWidth.value > 0) {
+  if (mobileMode.value && canvasWidth.value > 0) {
     const margin = MOBILE_MARGIN
-    newItem.x = margin
-    newItem.w = canvasWidth.value - 2 * margin
+    newItem.layout.mobile.x = margin
+    newItem.layout.mobile.w = canvasWidth.value - 2 * margin
   }
   nextX += STEP
   nextY += STEP
@@ -323,27 +380,58 @@ const addCodeBlock = () => {
 // ---------- 保存 / 加载 ----------
 const save = () => {
   syncRichTextContent()
-  localStorage.setItem('canvasData', JSON.stringify(state.items))
+  // 保存时不持久化 mobile 的宽高（让移动端宽度在运行时根据画布宽度计算）
+  const serializable = state.items.map((it) => ({
+    id: it.id,
+    component: it.component,
+    config: it.config,
+    layout: {
+      desktop: { ...it.layout.desktop },
+      // 仅保存 mobile 的位置，不保存 w/h
+      mobile: { x: it.layout.mobile.x, y: it.layout.mobile.y },
+    },
+  }))
+  localStorage.setItem('canvasData', JSON.stringify(serializable))
 }
 
-const load = () => {
+const load = async () => {
   const raw = localStorage.getItem('canvasData')
   if (raw) {
-    state.items = JSON.parse(raw)
-    nextTick(() => {
-      if (isMobile.value) {
-        updateCanvasWidth()
-        applyMobileLayout()
+    const parsed = JSON.parse(raw)
+    // 兼容旧数据结构：如果没有 layout 字段，则将顶层 x/y/w/h 转为 layout.desktop 和 layout.mobile
+    const converted = parsed.map((it: any) => {
+      if (it.layout && it.layout.desktop && it.layout.mobile) return it
+      const x = typeof it.x === 'number' ? it.x : (it.layout?.desktop?.x ?? 20)
+      const y = typeof it.y === 'number' ? it.y : (it.layout?.desktop?.y ?? 20)
+      const w = typeof it.w === 'number' ? it.w : (it.layout?.desktop?.w ?? 400)
+      const h = typeof it.h === 'number' ? it.h : (it.layout?.desktop?.h ?? 300)
+      return {
+        id: it.id ?? generateId(),
+        component: it.component,
+        config: it.config ?? it.config,
+        layout: {
+          desktop: { x, y, w, h },
+          mobile: { x, y, w, h },
+        },
       }
-      state.items.forEach((item) => {
-        if (item.component === 'RichTextEditor') {
-          const inst = componentRefs.value[item.id]
-          const content = (item.config as RichTextConfig).content
-          if (inst && content) {
-            inst.importJSON?.(content)
-          }
+    })
+    state.items = converted
+    await nextTick()
+    await nextTick()
+    if (mobileMode.value) {
+      updateCanvasWidth()
+      applyMobileLayout()
+    }
+    state.items.forEach((item) => {
+      if (item.component === 'RichTextEditor') {
+        const inst = componentRefs.value[item.id]
+        const content = (item.config as RichTextConfig).content
+        if (inst && content) {
+          // 尽量调用编辑器提供的导入方法
+          inst.importJSON?.(content)
+          // 若编辑器接受 `doc` prop，prop 已在渲染时传入
         }
-      })
+      }
     })
   }
 }
@@ -364,7 +452,7 @@ onMounted(() => {
   load()
   nextTick(() => {
     updateCanvasWidth()
-    if (isMobile.value) {
+    if (mobileMode.value) {
       applyMobileLayout()
     }
   })
