@@ -9,41 +9,50 @@
       {{ isEditMode ? '切换到只读' : '切换到编辑' }}
     </v-btn>
 
-    <div class="canvas">
+    <div class="canvas border border-grey-lighten-2"
+         style="position: relative; width: calc(100% - 112px); height: 100%; left: 56px; overflow: visible !important; background: transparent;">
       <template v-for="item in state.items" :key="item.id" class="drag-wrapper"
-        :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
-        <VueDraggableResizable :x="item.x" :y="item.y" :w="item.w" :h="item.h" :min-width="100" :min-height="100"
-          :is-conflict-check="true" :snap="true" :snap-tolerance="10" parent=".canvas" :active-on-top="true"
-          @dragstop="(x, y) => { item.x = x; item.y = y }" drag-handle=".drag-handle"
-          @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }" :disabled="!isEditMode">
-          <div class="block-container"
-            style="height:100%; width:100%; position:relative; overflow:visible; background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
-
+                :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
+        <VueDraggableResizable :x="item.x" :y="item.y" :w="item.w" :h="item.h"
+                               :min-width="100" :min-height="100"
+                               :is-conflict-check="true" :snap="true" :snap-tolerance="10"
+                               parent=".canvas" :active-on-top="true"
+                               @dragstop="(x, y) => { item.x = x; item.y = y }"
+                               drag-handle=".drag-handle"
+                               @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }"
+                               :disabled="!isEditMode">
+          <div class="block-container bg-white elevation-1 rounded"
+               style="height:100%; width:100%; position:relative; overflow:visible;">
             <!-- 左上角：名称 + 图标 -->
-            <div v-if="isEditMode" class="drag-handle" @mousedown="(e) => handleSelect(item.id, e)"
-              style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; background:#f5f5f5; border-radius:4px 4px 0 0; border:1px solid #e0e0e0; border-bottom:0; z-index:10; white-space:nowrap;">
-              <v-icon size="16" color="grey-darken-2" :icon="mdiDragVertical" />
-              <span style="font-size:12px; color:#666; user-select:none; margin-left:4px;">
+            <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2 border-b-0"
+                     color="grey-lighten-4" rounded="t"
+                     style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
+                     @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+              <v-icon size="16" color="grey-darken-2" :icon="mdiDragVertical" class="mr-1" />
+              <span class="text-caption text-grey-darken-2 user-select-none">
                 {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
               </span>
-            </div>
+            </v-sheet>
 
             <!-- 右上角：选中指示器 -->
             <transition name="pop-up">
-              <div v-if="isEditMode && state.selectedIds.has(item.id)" class="drag-handle"
-                @mousedown="(e) => handleSelect(item.id, e)"
-                style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; background:#f5f5f5; border-radius:4px 4px 0 0; border:1px solid #e0e0e0; border-bottom:0; z-index:10;">
-                <div style="width:12px; height:12px; border-radius:50%;"
-                  :style="{ backgroundColor: String(primaryColor) }"></div>
-              </div>
+              <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
+                       class="drag-handle border border-grey-lighten-2 border-b-0"
+                       color="grey-lighten-4" rounded="t"
+                       style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
+                       @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+                <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+              </v-sheet>
             </transition>
 
             <!-- 内容区域 -->
-            <div style="background-color: transparent; height:100%; width:100%; padding:4px; box-sizing:border-box;">
-              <component style="height:100%;" :is="componentMap[item.component as keyof typeof componentMap]"
-                :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
-                @update:model-value="(val: string) => updateCode(item.id, val)"
-                @update:language="(lang: string) => updateLanguage(item.id, lang)" />
+            <div style="height:100%; width:100%; padding:4px; box-sizing:border-box;">
+              <component style="height:100%;"
+                         :is="componentMap[item.component as keyof typeof componentMap]"
+                         :ref="(el) => setComponentRef(item.id, el)"
+                         v-bind="getComponentProps(item)"
+                         @update:model-value="(val: string) => updateCode(item.id, val)"
+                         @update:language="(lang: string) => updateLanguage(item.id, lang)" />
             </div>
           </div>
         </VueDraggableResizable>
