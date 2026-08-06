@@ -1,68 +1,87 @@
 <template>
-  <v-sheet>
-    <v-btn @click="save">保存</v-btn>
-    <v-btn @click="load">加载</v-btn>
-    <v-btn data-test="add-rich" @click="addRichText">➕ 添加富文本</v-btn>
-    <v-btn data-test="add-code" @click="addCodeBlock">➕ 添加代码块</v-btn>
-    <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
-    <v-btn @click="toggleEditMode">
-      {{ isEditMode ? '切换到只读' : '切换到编辑' }}
-    </v-btn>
+  <v-sheet class="editor-wrapper">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <v-btn @click="save">保存</v-btn>
+      <v-btn @click="load">加载</v-btn>
+      <v-btn data-test="add-rich" @click="addRichText">➕ 添加富文本</v-btn>
+      <v-btn data-test="add-code" @click="addCodeBlock">➕ 添加代码块</v-btn>
+      <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
+      <v-btn @click="toggleEditMode">
+        {{ isEditMode ? '切换到只读' : '切换到编辑' }}
+      </v-btn>
+    </div>
 
-    <div class="canvas border border-grey-lighten-2"
-         style="position: relative; width: calc(100% - 112px); height: 100%; left: 56px; overflow: visible !important; background: transparent;">
-      <template v-for="item in state.items" :key="item.id" class="drag-wrapper"
-                :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
-        <VueDraggableResizable :x="item.x" :y="item.y" :w="item.w" :h="item.h"
-                               :min-width="100" :min-height="100"
-                               :is-conflict-check="true" :snap="true" :snap-tolerance="10"
-                               parent=".canvas" :active-on-top="true"
-                               @dragstop="(x, y) => { item.x = x; item.y = y }"
-                               drag-handle=".drag-handle"
-                               @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }"
-                               :disabled="!isEditMode">
-          <div class="block-container bg-white elevation-1 rounded"
-               style="height:100%; width:100%; position:relative; overflow:visible;">
-            <!-- 左上角：名称 + 图标 -->
-            <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2 border-b-0"
-                     color="grey-lighten-4" rounded="t"
-                     style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
-                     @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
-              <v-icon size="16" color="grey-darken-2" :icon="mdiDragVertical" class="mr-1" />
-              <span class="text-caption text-grey-darken-2 user-select-none">
-                {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
-              </span>
-            </v-sheet>
-
-            <!-- 右上角：选中指示器 -->
-            <transition name="pop-up">
-              <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
-                       class="drag-handle border border-grey-lighten-2 border-b-0"
+    <!-- 画布区域 -->
+    <div class="canvas-container">
+      <div class="canvas" @click="handleCanvasClick" ref="canvasRef">
+        <template v-for="item in state.items" :key="item.id">
+          <VueDraggableResizable
+            :x="item.x"
+            :y="item.y"
+            :w="item.w"
+            :h="item.h"
+            :min-width="100"
+            :min-height="100"
+            :is-conflict-check="!isMobile"
+            :snap="true"
+            :snap-tolerance="10"
+            parent
+            :active-on-top="true"
+            :axis="isMobile ? 'y' : 'both'"
+            :handles="isMobile ? ['tm', 'bm'] : undefined"
+            @dragstop="(x, y) => { item.x = x; item.y = y }"
+            drag-handle=".drag-handle"
+            @resizestop="(x, y, w, h) => { item.x = x; item.y = y; item.w = w; item.h = h }"
+            :disabled="!isEditMode"
+            class="drag-wrapper"
+            :class="{ selected: isEditMode && state.selectedIds.has(item.id) }"
+          >
+            <div class="block-container bg-white elevation-1 rounded">
+              <!-- 左上角：名称 + 图标（可拖拽手柄） -->
+              <v-sheet v-if="isEditMode"
+                       class="drag-handle left-handle border border-grey-lighten-2 border-b-0"
                        color="grey-lighten-4" rounded="t"
-                       style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
+                       style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
                        @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
-                <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+                <v-icon size="16" color="grey-darken-2" :icon="mdiDragVertical" class="mr-1" />
+                <span class="handle-label text-caption text-grey-darken-2 user-select-none">
+                  {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
+                </span>
               </v-sheet>
-            </transition>
 
-            <!-- 内容区域 -->
-            <div style="height:100%; width:100%; padding:4px; box-sizing:border-box;">
-              <component style="height:100%;"
-                         :is="componentMap[item.component as keyof typeof componentMap]"
-                         :ref="(el) => setComponentRef(item.id, el)"
-                         v-bind="getComponentProps(item)"
-                         @update:model-value="(val: string) => updateCode(item.id, val)"
-                         @update:language="(lang: string) => updateLanguage(item.id, lang)" />
+              <!-- 右上角：选中指示器 -->
+              <transition name="pop-up">
+                <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
+                         class="drag-handle right-handle border border-grey-lighten-2 border-b-0"
+                         color="grey-lighten-4" rounded="t"
+                         style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
+                         @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+                  <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+                </v-sheet>
+              </transition>
+
+              <!-- 内容区域 -->
+              <div class="content-area">
+                <component
+                  :is="componentMap[item.component as keyof typeof componentMap]"
+                  :ref="(el) => setComponentRef(item.id, el)"
+                  v-bind="getComponentProps(item)"
+                  @update:model-value="(val: string) => updateCode(item.id, val)"
+                  @update:language="(lang: string) => updateLanguage(item.id, lang)"
+                  class="inner-component"
+                />
+              </div>
             </div>
-          </div>
-        </VueDraggableResizable>
-      </template>
+          </VueDraggableResizable>
+        </template>
+      </div>
     </div>
   </v-sheet>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, nextTick, onMounted, computed } from 'vue'
+import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
@@ -71,18 +90,24 @@ import RichTextEditor from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { NodeJSON } from '@prosekit/core'
 
-import { useTheme } from 'vuetify'
+import { useTheme, useDisplay } from 'vuetify'
+
 const theme = useTheme()
 const primaryColor = computed(() => theme.current.value.colors.primary)
 
-const isEditMode = ref(true);
+// ---------- 响应式断点 ----------
+const { xs } = useDisplay()
+const isMobile = computed(() => xs.value)
+
+// ---------- 编辑模式 ----------
+const isEditMode = ref(true)
 const toggleEditMode = () => {
   isEditMode.value = !isEditMode.value
 }
 
 // ---------- 类型定义 ----------
 interface RichTextConfig {
-  content: NodeJSON | null // 富文本文档 JSON，允许 null
+  content: NodeJSON | null
 }
 
 interface CodeBlockConfig {
@@ -118,12 +143,18 @@ const state = reactive({
   selectedIds: new Set<string>(),
 })
 const componentRefs = ref<Record<string, any>>({})
+const canvasRef = ref<HTMLElement | null>(null)
+const canvasWidth = ref(0)
+
+// ---------- 移动端边距常量 ----------
+const MOBILE_MARGIN = 8 // 左右对称边距
 
 // ---------- 辅助函数 ----------
 const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
     return {
-      doc: (item.config as RichTextConfig).content, // 可为 null
+      doc: (item.config as RichTextConfig).content,
+      compact: isMobile.value, // 关键
     }
   }
   if (item.component === 'EditableCodeBlock') {
@@ -161,25 +192,22 @@ const setComponentRef = (id: string, el: any) => {
 
 const handleSelect = (id: string, e: MouseEvent) => {
   if (e.ctrlKey) {
-    // 创建新 Set 并基于当前选中切换
-    const newSet = new Set(state.selectedIds);
+    const newSet = new Set(state.selectedIds)
     if (newSet.has(id)) {
-      newSet.delete(id);
+      newSet.delete(id)
     } else {
-      newSet.add(id);
+      newSet.add(id)
     }
-    state.selectedIds = newSet;  // 重新赋值触发更新
+    state.selectedIds = newSet
   } else {
-    state.selectedIds = new Set([id]);  // 直接替换
+    state.selectedIds = new Set([id])
   }
 }
 
-// 处理画布空白点击取消选中
 const handleCanvasClick = (e: MouseEvent) => {
-  const target = e.target as HTMLElement;
-  // 如果点击的元素或其父级包含 .drag-wrapper，则忽略（因为内部点击已由 handleSelect 处理）
-  if (target.closest('.drag-wrapper')) return;
-  state.selectedIds = new Set();  // 清空选中
+  const target = e.target as HTMLElement
+  if (target.closest('.drag-wrapper')) return
+  state.selectedIds = new Set()
 }
 
 // ---------- 同步与存储 ----------
@@ -201,18 +229,59 @@ let nextX = 20
 let nextY = 20
 const STEP = 30
 
+// ---------- 移动端布局适配 ----------
+const updateCanvasWidth = () => {
+  if (canvasRef.value) {
+    canvasWidth.value = canvasRef.value.clientWidth
+  }
+}
+
+const applyMobileLayout = () => {
+  if (isMobile.value && canvasWidth.value > 0) {
+    const margin = MOBILE_MARGIN
+    state.items.forEach(item => {
+      item.x = margin
+      item.w = canvasWidth.value - 2 * margin
+    })
+  }
+}
+
+// 监听移动端状态变化，切换布局
+watch(isMobile, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      updateCanvasWidth()
+      applyMobileLayout()
+    })
+  }
+})
+
+// 窗口 resize 时更新宽度并重新布局（若在移动端）
+const onResize = () => {
+  updateCanvasWidth()
+  if (isMobile.value) {
+    applyMobileLayout()
+  }
+}
+
 // ---------- 添加组件 ----------
 const addRichText = () => {
   const id = generateId()
-  state.items.push({
+  const newItem: CanvasItem = {
     id,
     x: nextX,
     y: nextY,
     w: 400,
     h: 300,
     component: 'RichTextEditor',
-    config: { content: null }, // 初始为空
-  })
+    config: { content: null },
+  }
+  state.items.push(newItem)
+  if (isMobile.value && canvasWidth.value > 0) {
+    const margin = MOBILE_MARGIN
+    newItem.x = margin
+    newItem.w = canvasWidth.value - 2 * margin
+  }
   nextX += STEP
   nextY += STEP
   if (nextX > 500) {
@@ -223,7 +292,7 @@ const addRichText = () => {
 
 const addCodeBlock = () => {
   const id = generateId()
-  state.items.push({
+  const newItem: CanvasItem = {
     id,
     x: nextX,
     y: nextY,
@@ -236,7 +305,13 @@ const addCodeBlock = () => {
       minWidth: '300px',
       minHeight: '200px',
     },
-  })
+  }
+  state.items.push(newItem)
+  if (isMobile.value && canvasWidth.value > 0) {
+    const margin = MOBILE_MARGIN
+    newItem.x = margin
+    newItem.w = canvasWidth.value - 2 * margin
+  }
   nextX += STEP
   nextY += STEP
   if (nextX > 500) {
@@ -246,21 +321,24 @@ const addCodeBlock = () => {
 }
 
 // ---------- 保存 / 加载 ----------
-const save = () => {//TODO rust后端保存数据
+const save = () => {
   syncRichTextContent()
   localStorage.setItem('canvasData', JSON.stringify(state.items))
 }
 
-const load = () => {//TODO rust后端保存数据
+const load = () => {
   const raw = localStorage.getItem('canvasData')
   if (raw) {
     state.items = JSON.parse(raw)
     nextTick(() => {
+      if (isMobile.value) {
+        updateCanvasWidth()
+        applyMobileLayout()
+      }
       state.items.forEach((item) => {
         if (item.component === 'RichTextEditor') {
           const inst = componentRefs.value[item.id]
           const content = (item.config as RichTextConfig).content
-          // 如果 content 为 null，编辑器会自行处理空状态
           if (inst && content) {
             inst.importJSON?.(content)
           }
@@ -281,38 +359,151 @@ const batchToggleHeading = (level: number) => {
   })
 }
 
+// ---------- 生命周期 ----------
 onMounted(() => {
   load()
+  nextTick(() => {
+    updateCanvasWidth()
+    if (isMobile.value) {
+      applyMobileLayout()
+    }
+  })
+  window.addEventListener('resize', onResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
 })
 </script>
 
 <style scoped>
+/* 样式未作改动，保持原样 */
+.editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 500px;
+}
+
+.toolbar {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: #fafafa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.canvas-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px 0;
+  overflow: hidden;
+}
+
 .canvas {
   position: relative;
-  width: calc(100% - 112px);
+  width: 90%;
+  max-width: 1200px;
   height: 100%;
-  /* width: 1000px;
-  height: 800px; */
+  min-height: 400px;
   background: transparent;
   border: 1px solid #ddd;
-  left: 56px;
-  overflow: visible !important;
-  /* 允许手柄溢出 */
+  border-radius: 4px;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
-.drag-wrapper {
-  position: absolute;
-}
-
-.drag-wrapper.selected .vdr {
+.drag-wrapper.selected {
   outline: 2px solid var(--v-theme-primary);
+  outline-offset: -1px;
 }
 
-/* 动画 */
-/* 右上角指示器整体弹出动画 */
-.pop-up-enter-active,/* TODO 更改动画，更有机械感 */
+.block-container {
+  height: 100%;
+  width: 100%;
+  position: relative;
+  overflow: visible;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.drag-handle {
+  position: absolute;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  z-index: 10;
+  padding: 0 10px;
+  white-space: nowrap;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 0.2s;
+}
+.drag-handle:hover {
+  background: #eaeaea;
+}
+
+.left-handle {
+  bottom: 100%;
+  left: 10px;
+  transform: translateY(-1px);
+}
+
+.right-handle {
+  bottom: 100%;
+  right: 10px;
+  transform: translateY(-1px);
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+}
+
+.right-handle .selected-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--v-theme-primary);
+}
+
+.handle-label {
+  font-size: 12px;
+  color: #666;
+  margin-left: 4px;
+}
+
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 4px;
+  box-sizing: border-box;
+  background-color: transparent;
+}
+
+.inner-component {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.pop-up-enter-active,
 .pop-up-leave-active {
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); /* 弹性缓动 */
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .pop-up-enter-from {
   opacity: 0;

@@ -1,10 +1,13 @@
 <template>
   <div
     class="editor-wrapper"
+    :class="{ compact: useCompact }"
     :style="{
       color: 'var(--v-theme-on-surface)',
       background: 'var(--v-theme-surface)',
     }"
+    @mousedown.stop
+    @touchstart.stop
   >
     <ProseKit :editor="editor">
       <div ref="editorMount" class="editor-mount" />
@@ -21,11 +24,22 @@ import 'prosekit/pm/view/style/prosemirror.css'
 
 import blockHandle from './extensions/block-handle.vue'
 import dropIndicator from './extensions/drop-indicator.vue'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ProseKit } from '@prosekit/vue'
+import { useDisplay } from 'vuetify'
 
 import { defineExtension } from './extension.ts'
 import { createEditor, NodeJSON } from '@prosekit/core'
+
+interface Props {
+  dir?: 'ltr' | 'rtl'
+  compact?: boolean
+}
+const props = defineProps<Props>()
+
+const { xs } = useDisplay()
+const isMobile = computed(() => xs.value)
+const useCompact = computed(() => props.compact ?? isMobile.value)
 
 const extension = defineExtension()
 const editor = createEditor({ extension })
@@ -34,6 +48,10 @@ const editorMount = ref<HTMLDivElement>()
 onMounted(() => {
   if (editorMount.value) {
     editor.mount(editorMount.value)
+    // 移动端主动聚焦（可选）
+    if (isMobile.value) {
+      setTimeout(() => editor.view?.focus(), 100)
+    }
   }
 })
 
@@ -44,12 +62,9 @@ onUnmounted(() => {
 function insertVueComponent(componentName: string, props: Record<string, any> = {}) {
   const view = editor.view
   if (!view) return
-
-  // 直接使用 view.dom 的宽度（即 ProseMirror 内容区宽度）
   const containerWidth = view.dom.clientWidth || 360
   const defaultWidth = Math.min(360, containerWidth)
   const defaultHeight = 240
-
   editor.commands.insertNode({
     type: 'vueComponent',
     attrs: { componentName, props, width: defaultWidth, height: defaultHeight },
@@ -57,7 +72,6 @@ function insertVueComponent(componentName: string, props: Record<string, any> = 
 }
 
 function toggleHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
-  // 如果当前已经是该级别标题，则切换回段落；否则设置为该级别标题
   const { state } = editor
   const { selection } = state
   const node = selection.$from.node(selection.$from.depth)
@@ -110,6 +124,7 @@ defineExpose({
   border-radius: 4px;
   padding: 0;
 
+  /* 桌面端负边距，为手柄留空间 */
   margin-left: -56px;
   width: calc(100% + 56px);
   padding-left: 56px;
@@ -117,22 +132,43 @@ defineExpose({
   
   height: 100%;
   overflow: auto;
-  min-height: 120px;
   transition: border-color 0.15s ease;
+  touch-action: auto; /* 确保触摸滚动正常 */
+}
+
+/* 移动端紧凑模式：移除负边距 */
+.editor-wrapper.compact {
+  margin-left: 0;
+  width: 100%;
+  padding-left: 0;
+}
+
+.editor-mount {
+  outline: none;
+  height: 100%;          /* 关键：让挂载点撑满父容器 */
+  width: 100%;
+  pointer-events: auto;  /* 确保可交互 */
 }
 
 .editor-mount:focus-within {
   border-color: rgb(var(--v-theme-primary));
 }
 
-.editor-mount {
-  min-height: 100%;
-  outline: none;
-}
-
 .editor-mount :deep(.ProseMirror) {
   padding: 0;
-  min-height: 120px;
   outline: none;
+  height: 100%;          /* 让 ProseMirror 填充整个挂载点 */
+  min-height: 100px;     /* 保底高度，确保可点击 */
+  pointer-events: auto;
+  touch-action: auto;
+}
+
+/* 移动端微调块手柄位置（避免被裁剪或遮挡） */
+@media (max-width: 600px) {
+  .editor-wrapper.compact :deep(.block-handle-positioner) {
+    transform: translateX(4px) scale(0.85);
+    transform-origin: top left;
+    /* 确保手柄在上层但不拦截编辑器点击（默认 pointer-events: auto，但手柄区域很小） */
+  }
 }
 </style>
