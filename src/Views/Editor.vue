@@ -4,12 +4,7 @@
     <div class="toolbar">
       <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn>
-      <v-btn
-        v-for="comp in ADDABLE_COMPONENTS"
-        :key="comp.key"
-        :data-test="comp.addId"
-        @click="addComponent(comp.key)"
-      >
+      <v-btn v-for="comp in ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="addComponent(comp.key)">
         ➕ 添加{{ comp.label }}
       </v-btn>
       <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
@@ -24,73 +19,55 @@
       </v-btn>
     </div>
 
-    <RichTextEditor style="margin: 16px;" v-if="false"/>
+    <RichTextEditor style="margin: 16px;" v-if="false" />
 
     <!-- 画布区域 -->
     <div class="canvas-container">
-      <div class="canvas" @click="handleCanvasClick" @mousedown="startSelection" @mousemove="updateSelection" ref="canvasRef">
+      <div class="canvas" @click="handleCanvasClick" @mousedown="startSelection" @mousemove="updateSelection"
+        @focusin="handleCanvasFocusin" ref="canvasRef">
         <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
-        <VueDraggableResizable
-          v-for="item in state.items"
-          :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
-          :x="layoutOf(item).x"
-            :y="layoutOf(item).y"
-            :w="layoutOf(item).w"
-            :h="layoutOf(item).h"
-            :min-width="(constraintsOf(item).minWidth ?? 0) + 8"
-            :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
-            :max-width="constraintsOf(item).maxWidth ?? null"
-            :max-height="constraintsOf(item).maxHeight ?? null"
-            :is-conflict-check="!mobileMode"
-            :snap="true"
-            :snap-tolerance="10"
-            parent
-            :active-on-top="true"
-            :axis="mobileMode ? 'y' : 'both'"
-            :handles="mobileMode ? ['tm', 'bm'] : undefined"
-            @dragging="(x, y) => onDragging(item, x, y)"
-            @dragstop="(x, y) => onDragStop(item, x, y)"
-            drag-handle=".drag-handle"
-            @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
-            :disabled="!isEditMode"
-            class="drag-wrapper"
-            :class="{ selected: isEditMode && state.selectedIds.has(item.id) }"
-          >
-            <div class="block-container bg-white elevation-1 rounded">
-              <!-- 左上角：名称 + 图标（可拖拽手柄） -->
-              <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2 border-b-0"
-                     color="grey-lighten-4" rounded="t"
-                     style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
-                     @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+        <VueDraggableResizable v-for="item in state.items" :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
+          :data-id="item.id" :z="itemZ(item.id)" :active="isActive(item.id)"
+          :x="layoutOf(item).x" :y="layoutOf(item).y" :w="layoutOf(item).w" :h="layoutOf(item).h"
+          :min-width="(constraintsOf(item).minWidth ?? 0) + 8" :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
+          :max-width="constraintsOf(item).maxWidth ?? null" :max-height="constraintsOf(item).maxHeight ?? null"
+          :is-conflict-check="!mobileMode" :snap="true" :snap-tolerance="10" parent :active-on-top="true"
+          :axis="mobileMode ? 'y' : 'both'" :handles="mobileMode ? ['tm', 'bm'] : undefined"
+          @dragging="(x, y) => onDragging(item, x, y)" @dragstop="(x, y) => onDragStop(item, x, y)"
+          drag-handle=".drag-handle" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
+          :disabled="!isEditMode" class="drag-wrapper"
+          :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
+          <div class="block-container bg-white elevation-1 rounded">
+            <!-- 左上角：名称 + 图标（可拖拽手柄） -->
+            <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2 border-b-0"
+              color="grey-lighten-4" rounded="t"
+              style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
+              @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
               <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
               <span class="text-caption text-grey-darken-2 user-select-none">
                 {{ componentLabelOf(item.component) }}
               </span>
             </v-sheet>
 
-              <!-- 右上角：选中指示器 -->
-              <transition name="pop-up">
-                <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
-                         class="drag-handle right-handle border border-grey-lighten-2 border-b-0"
-                         color="grey-lighten-4" rounded="t"
-                         style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
-                         @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
-                  <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
-                </v-sheet>
-              </transition>
+            <!-- 右上角：选中指示器 -->
+            <transition name="pop-up">
+              <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
+                class="drag-handle right-handle border border-grey-lighten-2 border-b-0" color="grey-lighten-4"
+                rounded="t"
+                style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
+                @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+                <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+              </v-sheet>
+            </transition>
 
-              <!-- 内容区域 -->
-              <div class="content-area">
-                <component
-                  :is="componentMap[item.component as keyof typeof componentMap]"
-                  :ref="(el) => setComponentRef(item.id, el)"
-                  v-bind="getComponentProps(item)"
-                  @update:model-value="(val: string) => updateCode(item.id, val)"
-                  @update:language="(lang: string) => updateLanguage(item.id, lang)"
-                  class="inner-component"
-                />
-              </div>
+            <!-- 内容区域 -->
+            <div class="content-area">
+              <component :is="componentMap[item.component as keyof typeof componentMap]"
+                :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
+                @update:model-value="(val: string) => updateCode(item.id, val)"
+                @update:language="(lang: string) => updateLanguage(item.id, lang)" class="inner-component" />
             </div>
+          </div>
         </VueDraggableResizable>
       </div>
     </div>
@@ -249,6 +226,18 @@ const state = reactive({
   selectedIds: new Set<string>(),
 })
 
+// ---------- 顶层 z-index 管理（内容聚焦时把该块提到最上层）----------
+const zMap = reactive<Record<string, number>>({})
+let zCounter = 0
+const itemZ = (id: string): number => zMap[id] ?? 0
+const bringToTop = (id: string) => {
+  if (zMap[id] === zCounter && zCounter > 0) return // 已是最上层，避免计数器膨胀
+  zMap[id] = ++zCounter
+}
+
+// 选中即激活 VDR（驱动原生缩放手柄显示）
+const isActive = (id: string): boolean => isEditMode.value && state.selectedIds.has(id)
+
 interface ComponentController {
   saveConfig?: () => Partial<WidgetConfig>
   loadConfig?: (config: WidgetConfig) => void
@@ -384,11 +373,12 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
   layout.h = h
 }
 
-const handleSelect = (id: string, e: MouseEvent) => {
+const handleSelect = (id: string, e?: MouseEvent) => {
   const isSelected = state.selectedIds.has(id)
   const selectedCount = state.selectedIds.size
+  const isCtrl = e?.ctrlKey ?? false
 
-  if (e.ctrlKey) {
+  if (isCtrl) {
     const newSet = new Set(state.selectedIds)
     if (newSet.has(id)) {
       newSet.delete(id)
@@ -474,6 +464,19 @@ const handleCanvasClick = (e: MouseEvent) => {
   }
   if (target.closest('.drag-wrapper')) return
   state.selectedIds = new Set()
+}
+
+// 内容物获得焦点时：选中该块并把它提到最上层（显示在最前）
+const handleCanvasFocusin = (e: FocusEvent) => {
+  const target = e.target as HTMLElement
+  const wrapper = target.closest<HTMLElement>('.drag-wrapper')
+  if (!wrapper) return
+  const id = wrapper.dataset.id
+  if (!id || !state.items.some((i) => i.id === id)) return
+  if (isEditMode.value) {
+    handleSelect(id)
+  }
+  bringToTop(id)
 }
 
 // ---------- 同步与存储 ----------
@@ -693,7 +696,7 @@ onUnmounted(() => {
   overflow: visible;
   background: #fff;
   border-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -716,6 +719,7 @@ onUnmounted(() => {
   user-select: none;
   transition: background 0.2s;
 }
+
 .drag-handle:hover {
   background: #eaeaea;
 }
@@ -769,18 +773,22 @@ onUnmounted(() => {
 .pop-up-leave-active {
   transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
 .pop-up-enter-from {
   opacity: 0;
   transform: translateY(12px) scale(0.6);
 }
+
 .pop-up-enter-to {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
+
 .pop-up-leave-from {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
+
 .pop-up-leave-to {
   opacity: 0;
   transform: translateY(12px) scale(0.6);
