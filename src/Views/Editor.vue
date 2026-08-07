@@ -30,8 +30,10 @@
             :y="layoutOf(item).y"
             :w="layoutOf(item).w"
             :h="layoutOf(item).h"
-            :min-width="100"
-            :min-height="100"
+            :min-width="(constraintsOf(item).minWidth ?? 0) + 8"
+            :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
+            :max-width="constraintsOf(item).maxWidth ?? null"
+            :max-height="constraintsOf(item).maxHeight ?? null"
             :is-conflict-check="!mobileMode"
             :snap="true"
             :snap-tolerance="10"
@@ -99,7 +101,8 @@ import 'vue-draggable-resizable-gorkys/style.css'
 
 import { mdiDragVariant } from '@mdi/js'
 import RichTextEditor from '../Controls/BaseIrEditor/RichTextEditor.vue'
-import EditableCodeBlock from '../Controls/EditorPlugin/EditableCodeBlock.vue'
+import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
+import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
 import { NodeJSON } from '@prosekit/core'
 
 import { useTheme, useDisplay } from 'vuetify'
@@ -175,6 +178,28 @@ const componentMap = {
   EditableCodeBlock,
 }
 
+// ---------- 组件尺寸约束 ----------
+// 统一通过组件导出的 `resizeConstraints` 获取最大/最小尺寸（与 vue-component.ts 一致）。
+// 未声明约束的组件回退到画布默认（与原行为一致：min 100，宽高不限）。
+const componentConstraints: Partial<
+  Record<CanvasItem['component'], ResizeConstraints>
+> = {
+  EditableCodeBlock: codeBlockConstraints,
+}
+
+const CANVAS_DEFAULT_CONSTRAINTS: Required<ResizeConstraints> = {
+  minWidth: 100,
+  maxWidth: null,
+  minHeight: 100,
+  maxHeight: null,
+}
+
+const constraintsOf = (item: CanvasItem): Required<ResizeConstraints> => {
+  const raw = componentConstraints[item.component]
+  if (!raw) return CANVAS_DEFAULT_CONSTRAINTS
+  return normalizeConstraints(raw)
+}
+
 // ---------- 响应式状态 ----------
 const state = reactive({
   items: [] as CanvasItem[],
@@ -222,13 +247,14 @@ const getComponentProps = (item: CanvasItem) => {
   }
   if (item.component === 'EditableCodeBlock') {
     const cfg = item.config as CodeBlockConfig
+    const c = constraintsOf(item)
     return {
       modelValue: cfg.code,
       language: cfg.language,
-      minWidth: cfg.minWidth || '300px',
-      minHeight: cfg.minHeight || '200px',
-      maxWidth: cfg.maxWidth || '',
-      maxHeight: cfg.maxHeight || '',
+      minWidth: `${c.minWidth}px`,
+      minHeight: `${c.minHeight}px`,
+      maxWidth: c.maxWidth !== null ? `${c.maxWidth}px` : '',
+      maxHeight: c.maxHeight !== null ? `${c.maxHeight}px` : '',
     }
   }
   return {}

@@ -19,7 +19,16 @@
     </ProseKit>
   </div>
 </template>
+<script lang="ts">
+import type { ResizeConstraints } from '../resizeConstraints'
 
+export const resizeConstraints: ResizeConstraints = {
+  minWidth: 250,
+  maxWidth: null,
+  minHeight: 160,
+  maxHeight: null,
+}
+</script>
 <script setup lang="ts">
 import 'prosekit/basic/style.css'
 import 'prosekit/basic/typography.css'

@@ -55,7 +55,9 @@
   </div>
 </template>
 <script lang="ts">
-export const resizeConstraints = {
+import type { ResizeConstraints } from '../resizeConstraints'
+
+export const resizeConstraints: ResizeConstraints = {
   minWidth: 330,
   maxWidth: null,
   minHeight: 210,

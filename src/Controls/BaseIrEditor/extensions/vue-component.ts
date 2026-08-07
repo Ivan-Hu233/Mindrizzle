@@ -12,15 +12,9 @@ import {
   computed,
 } from 'vue'
 import { mdiArrowBottomRight } from '@mdi/js'
+import { normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints'
 
 // ==================== 类型定义 ====================
-
-type ResizeConstraints = {
-  minWidth?: number | null
-  maxWidth?: number | null
-  minHeight?: number | null
-  maxHeight?: number | null
-}
 
 interface ComponentEntry {
   loader: () => Promise<{
@@ -39,14 +33,6 @@ const componentMap: Record<string, ComponentEntry> = {
   // 在此追加其他组件
 }
 
-// 默认约束（当组件未显式设置时使用）
-const DEFAULT_CONSTRAINTS: Required<ResizeConstraints> = {
-  minWidth: 100,
-  maxWidth: 800,
-  minHeight: 80,
-  maxHeight: 600,
-}
-
 // ==================== 加载与缓存 ====================
 
 const loadedCache = new Map<
@@ -60,18 +46,8 @@ async function loadComponent(name: string) {
   if (!entry) throw new Error(`未知组件：${name}`)
   const module = await entry.loader()
   const comp = module.default
-  const raw = module.resizeConstraints || {}
-  // 处理 null 表示无限制，undefined 回退默认
-  const constraints: Required<ResizeConstraints> = {
-    minWidth:
-      raw.minWidth === undefined ? DEFAULT_CONSTRAINTS.minWidth : raw.minWidth,
-    maxWidth:
-      raw.maxWidth === undefined ? DEFAULT_CONSTRAINTS.maxWidth : raw.maxWidth,
-    minHeight:
-      raw.minHeight === undefined ? DEFAULT_CONSTRAINTS.minHeight : raw.minHeight,
-    maxHeight:
-      raw.maxHeight === undefined ? DEFAULT_CONSTRAINTS.maxHeight : raw.maxHeight,
-  }
+  // 统一通过 normalizeConstraints 处理：undefined → 默认，null → 无限制
+  const constraints = normalizeConstraints(module.resizeConstraints)
   const result = { component: comp, constraints }
   loadedCache.set(name, result)
   return result
