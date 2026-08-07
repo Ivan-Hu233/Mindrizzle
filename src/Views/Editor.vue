@@ -30,8 +30,6 @@
     <div class="canvas-container">
       <div class="canvas" @click="handleCanvasClick" @mousedown="startSelection" @mousemove="updateSelection" ref="canvasRef">
         <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
-        <!-- key 随模式变化：切换桌面/移动端时强制重挂载，
-             避免 VueDraggableResizable 用上一端的 left/right 计算宽度导致拉伸失效 -->
         <VueDraggableResizable
           v-for="item in state.items"
           :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
@@ -78,9 +76,6 @@
                          style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
                          @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
                   <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
-                  <!-- <v-btn icon small color="red" style="margin-left:6px;" @click.stop="deleteItem(item.id)">
-                    <v-icon size="14" :icon="mdiDelete" />
-                  </v-btn> -->
                 </v-sheet>
               </transition>
 
@@ -130,17 +125,16 @@ const mobileButtonLabel = computed(() => {
   return forceMobile.value ? '强制桌面' : '恢复自动布局'
 })
 
+// forceMobile 三态循环：null(自动) -> true(强制移动端) -> false(强制桌面) -> null
+const nextForceMobile = (): boolean | null => {
+  if (forceMobile.value === null) return true
+  if (forceMobile.value === true) return false
+  return null
+}
+
 const toggleMobileSim = () => {
-  // 切换前先同步富文本内容，避免切换模式时组件重挂载导致未保存的内容丢失
-  syncRichTextContent()
-  // cycle: null -> true -> false -> null
-  if (forceMobile.value === null) forceMobile.value = true
-  else if (forceMobile.value === true) forceMobile.value = false
-  else forceMobile.value = null
-  nextTick(() => {
-    updateCanvasWidth()
-    if (mobileMode.value) applyMobileLayout()
-  })
+  syncComponentData() // 模式切换会重挂载组件，先同步组件数据
+  forceMobile.value = nextForceMobile() // 布局刷新由 watch(mobileMode) 统一处理
 }
 
 // ---------- 编辑模式 ----------
@@ -254,7 +248,16 @@ const state = reactive({
   items: [] as CanvasItem[],
   selectedIds: new Set<string>(),
 })
-const componentRefs = ref<Record<string, any>>({})
+
+// 子组件实例引用：每个组件通过 defineExpose 自备保存 / 加载方法，
+// 父组件统一调用 saveConfig / loadConfig，不再按组件类型做特殊处理。
+interface ComponentController {
+  saveConfig?: () => Partial<WidgetConfig>
+  loadConfig?: (config: WidgetConfig) => void
+  toggleHeading?: (level: 1 | 2 | 3 | 4 | 5 | 6) => void
+}
+
+const componentRefs = ref<Record<string, ComponentController | undefined>>({})
 const canvasRef = ref<HTMLElement | null>(null)
 const canvasWidth = ref(0)
 const dragGroupState = ref<{ active: boolean; origins: Record<string, { x: number; y: number }> }>({
@@ -291,7 +294,7 @@ const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
     return {
       doc: (item.config as RichTextConfig).content,
-      compact: mobileMode.value, // 关键
+      compact: mobileMode.value,
     }
   }
   if (item.component === 'EditableCodeBlock') {
@@ -328,12 +331,11 @@ const setComponentRef = (id: string, el: any) => {
   else delete componentRefs.value[id]
 }
 
-// Layout helpers
-const layoutOf = (item: CanvasItem) => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
+// 当前端（桌面/移动端）布局
+const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
 
-// 只更新当前端（桌面/移动端）的布局，双端数据完全分离
 const syncItemPosition = (item: CanvasItem, x: number, y: number) => {
-  const layout = mobileMode.value ? item.layout.mobile : item.layout.desktop
+  const layout = layoutOf(item)
   layout.x = x
   layout.y = y
 }
@@ -346,9 +348,6 @@ const getSelectedItemIds = (item: CanvasItem) => {
 }
 
 const onDragging = (item: CanvasItem, x: number, y: number) => {
-  // 拖拽基准始终取当前端布局，保证双端互不影响
-  const activeLayout = (it: CanvasItem) => (mobileMode.value ? it.layout.mobile : it.layout.desktop)
-
   if (!dragGroupState.value.active) {
     dragGroupState.value = {
       active: true,
@@ -356,20 +355,20 @@ const onDragging = (item: CanvasItem, x: number, y: number) => {
         getSelectedItemIds(item).map((id) => {
           const target = state.items.find((it) => it.id === id)
           if (!target) return [id, { x: 0, y: 0 }]
-          return [id, { x: activeLayout(target).x, y: activeLayout(target).y }]
+          return [id, { x: layoutOf(target).x, y: layoutOf(target).y }]
         }),
       ),
     }
   }
 
-  const targetOrigin = dragGroupState.value.origins[item.id] ?? { x: activeLayout(item).x, y: activeLayout(item).y }
+  const targetOrigin = dragGroupState.value.origins[item.id] ?? { x: layoutOf(item).x, y: layoutOf(item).y }
   const dx = x - targetOrigin.x
   const dy = y - targetOrigin.y
 
   getSelectedItemIds(item).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
     if (!target) return
-    const origin = dragGroupState.value.origins[id] ?? { x: activeLayout(target).x, y: activeLayout(target).y }
+    const origin = dragGroupState.value.origins[id] ?? { x: layoutOf(target).x, y: layoutOf(target).y }
     syncItemPosition(target, origin.x + dx, origin.y + dy)
   })
 }
@@ -380,8 +379,7 @@ const onDragStop = (item: CanvasItem, x: number, y: number) => {
 }
 
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
-  // 只更新当前端（桌面/移动端）的布局，双端数据完全分离
-  const layout = mobileMode.value ? item.layout.mobile : item.layout.desktop
+  const layout = layoutOf(item)
   layout.x = x
   layout.y = y
   layout.w = w
@@ -481,17 +479,13 @@ const handleCanvasClick = (e: MouseEvent) => {
 }
 
 // ---------- 同步与存储 ----------
-const syncRichTextContent = () => {
+// 统一调用每个组件自定义的 saveConfig，把组件内部数据同步回 item.config
+const syncComponentData = () => {
   state.items.forEach((item) => {
-    if (item.component === 'RichTextEditor') {
-      const inst = componentRefs.value[item.id]
-      if (inst) {
-        if (typeof inst.getDocJSON === 'function') {
-          ; (item.config as RichTextConfig).content = inst.getDocJSON()
-        } else if (inst.doc && typeof inst.doc.toJSON === 'function') {
-          ; (item.config as RichTextConfig).content = inst.doc.toJSON()
-        }
-      }
+    const inst = componentRefs.value[item.id]
+    const saved = inst?.saveConfig?.()
+    if (saved) {
+      item.config = { ...item.config, ...saved } as WidgetConfig
     }
   })
 }
@@ -510,40 +504,36 @@ const updateCanvasWidth = () => {
   }
 }
 
-const applyMobileLayout = () => {
-  if (mobileMode.value && canvasWidth.value > 0) {
-    const margin = MOBILE_MARGIN
-    state.items.forEach(item => {
-      const desktop = item.layout.desktop
-      const mobile = item.layout.mobile
-      mobile.x = margin
-      mobile.w = canvasWidth.value - 2 * margin
-      // 移动端宽度始终按画布宽度拉伸计算；
-      // 若位置/高度缺失（旧数据未持久化），从桌面布局补齐，避免回退到组件默认值
-      if (mobile.y == null) mobile.y = desktop.y
-      if (mobile.h == null) mobile.h = desktop.h
-    })
-  }
+// 把单个块的移动端宽度按画布拉伸（x 贴左，宽度占满画布减去左右边距）
+const stretchMobileWidth = (item: CanvasItem) => {
+  const mobile = item.layout.mobile
+  mobile.x = MOBILE_MARGIN
+  mobile.w = canvasWidth.value - 2 * MOBILE_MARGIN
 }
 
-// 监听移动端状态变化，切换布局
-// flush: 'pre' 保证回调在组件重渲染（重挂载）之前执行，
-// 此时旧的富文本编辑器仍挂载，可先同步内容防止丢失
-watch(mobileMode, () => {
-  syncRichTextContent()
-  nextTick(() => {
-    updateCanvasWidth()
-    if (mobileMode.value) applyMobileLayout()
+// 应用移动端布局：宽度始终按画布拉伸；位置/高度缺失时（旧数据）从桌面布局补齐
+const applyMobileLayout = () => {
+  if (!mobileMode.value || canvasWidth.value <= 0) return
+  state.items.forEach(item => {
+    stretchMobileWidth(item)
+    const { desktop, mobile } = item.layout
+    if (mobile.y == null) mobile.y = desktop.y
+    if (mobile.h == null) mobile.h = desktop.h
   })
+}
+
+const refreshLayout = () => {
+  updateCanvasWidth()
+  if (mobileMode.value) applyMobileLayout()
+}
+
+// flush:'pre'：在组件重挂载前执行，先同步富文本内容
+watch(mobileMode, () => {
+  syncComponentData()
+  nextTick(refreshLayout)
 }, { flush: 'pre' })
 
-// 窗口 resize 时更新宽度并重新布局（若在移动端）
-const onResize = () => {
-  updateCanvasWidth()
-  if (mobileMode.value) {
-    applyMobileLayout()
-  }
-}
+const onResize = () => refreshLayout()
 
 // ---------- 添加组件 ----------
 // 统一入口：根据注册表 ADDABLE_COMPONENTS 生成对应组件实例
@@ -562,9 +552,7 @@ const addComponent = (key: CanvasItem['component']) => {
   }
   state.items.push(newItem)
   if (mobileMode.value && canvasWidth.value > 0) {
-    const margin = MOBILE_MARGIN
-    newItem.layout.mobile.x = margin
-    newItem.layout.mobile.w = canvasWidth.value - 2 * margin
+    stretchMobileWidth(newItem)
   }
   nextX += STEP
   nextY += STEP
@@ -576,15 +564,14 @@ const addComponent = (key: CanvasItem['component']) => {
 
 // ---------- 保存 / 加载 ----------
 const save = () => {
-  syncRichTextContent()
-  // 移动端宽度不持久化（运行时按画布宽度拉伸计算），但位置与高度需要保存
+  syncComponentData()
+  // 移动端不持久化宽度（运行时按画布拉伸），只存位置与高度
   const serializable = state.items.map((it) => ({
     id: it.id,
     component: it.component,
     config: it.config,
     layout: {
       desktop: { ...it.layout.desktop },
-      // 仅保存 mobile 的位置与高度；宽度在运行时根据画布宽度计算（拉伸）
       mobile: { x: it.layout.mobile.x, y: it.layout.mobile.y, h: it.layout.mobile.h },
     },
   }))
@@ -611,25 +598,15 @@ const load = async () => {
     applyMobileLayout()
   }
   state.items.forEach((item) => {
-    if (item.component === 'RichTextEditor') {
-      const inst = componentRefs.value[item.id]
-      const content = (item.config as RichTextConfig).content
-      if (inst && content) {
-        // 尽量调用编辑器提供的导入方法
-        inst.importJSON?.(content)
-      }
-    }
+    // 调用每个组件自定义的 loadConfig 恢复数据
+    componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
 }
 
 // ---------- 批量操作 ----------
-const batchToggleHeading = (level: number) => {
-  const ids = Array.from(state.selectedIds)
-  ids.forEach((id) => {
-    const inst = componentRefs.value[id]
-    if (inst && typeof inst.toggleHeading === 'function') {
-      inst.toggleHeading(level)
-    }
+const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
+  Array.from(state.selectedIds).forEach((id) => {
+    componentRefs.value[id]?.toggleHeading?.(level)
   })
 }
 
@@ -645,12 +622,7 @@ const deleteSelected = () => {
 // ---------- 生命周期 ----------
 onMounted(() => {
   load()
-  nextTick(() => {
-    updateCanvasWidth()
-    if (mobileMode.value) {
-      applyMobileLayout()
-    }
-  })
+  nextTick(refreshLayout)
   window.addEventListener('resize', onResize)
   window.addEventListener('mousemove', updateSelection)
   window.addEventListener('mouseup', finishSelection)
@@ -664,7 +636,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 样式未作改动，保持原样 */
 .editor-wrapper {
   display: flex;
   flex-direction: column;

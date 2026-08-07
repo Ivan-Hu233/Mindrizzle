@@ -376,6 +376,18 @@ onBeforeUnmount(() => {
     styleElement = null;
   }
 });
+
+// 组件自有的保存 / 加载方法：父组件统一调用，不再按组件类型特殊处理
+defineExpose({
+  saveConfig() {
+    return { code: internalCode.value, language: currentLanguage.value };
+  },
+  loadConfig(config: { code?: string; language?: string }) {
+    if (config?.code != null) internalCode.value = config.code;
+    if (config?.language != null) currentLanguage.value = config.language;
+    nextTick(renderHighlight);
+  },
+});
 </script>
 
 <style scoped>

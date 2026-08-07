@@ -139,6 +139,13 @@ defineExpose({
   getDocJSON() {
     return editor.state.doc.toJSON()
   },
+  // 组件自有的保存 / 加载方法：父组件统一调用，不再按组件类型特殊处理
+  saveConfig() {
+    return { content: editor.state.doc.toJSON() }
+  },
+  loadConfig(config: { content?: NodeJSON | null }) {
+    if (config?.content) editor.setContent(config.content as NodeJSON)
+  },
 })
 </script>
 
