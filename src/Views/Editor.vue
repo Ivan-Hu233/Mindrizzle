@@ -80,7 +80,7 @@ import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
 import { mdiDragVariant } from '@mdi/js'
-import RichTextEditor from '../Controls/BaseIrEditor/RichTextEditor.vue'
+import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
 import { NodeJSON } from '@prosekit/core'
@@ -128,10 +128,6 @@ interface RichTextConfig {
 interface CodeBlockConfig {
   code: string
   language: string
-  minWidth?: string
-  minHeight?: string
-  maxWidth?: string
-  maxHeight?: string
 }
 
 type WidgetConfig = RichTextConfig | CodeBlockConfig
@@ -185,8 +181,6 @@ const ADDABLE_COMPONENTS: AddableComponentMeta[] = [
     defaultConfig: () => ({
       code: '// 在此编写代码',
       language: 'javascript',
-      minWidth: '300px',
-      minHeight: '200px',
     }),
     defaultSize: { w: 400, h: 250 },
   },
@@ -204,6 +198,7 @@ const componentLabelOf = (key: CanvasItem['component']) =>
 const componentConstraints: Partial<
   Record<CanvasItem['component'], ResizeConstraints>
 > = {
+  RichTextEditor: richTextConstraints,
   EditableCodeBlock: codeBlockConstraints,
 }
 
@@ -286,14 +281,9 @@ const getComponentProps = (item: CanvasItem) => {
   }
   if (item.component === 'EditableCodeBlock') {
     const cfg = item.config as CodeBlockConfig
-    const c = constraintsOf(item)
     return {
       modelValue: cfg.code,
       language: cfg.language,
-      minWidth: `${c.minWidth}px`,
-      minHeight: `${c.minHeight}px`,
-      maxWidth: c.maxWidth !== null ? `${c.maxWidth}px` : '',
-      maxHeight: c.maxHeight !== null ? `${c.maxHeight}px` : '',
     }
   }
   return {}

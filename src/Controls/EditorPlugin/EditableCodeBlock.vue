@@ -1,13 +1,5 @@
 <template>
-  <div
-    class="code-editor-container"
-    :style="{
-      minWidth,
-      minHeight,
-      maxWidth: maxWidth || 'none',
-      maxHeight: maxHeight || 'none'
-    }"
-  >
+  <v-sheet class="code-editor-container">
     <!-- 工具栏 -->
     <div class="toolbar">
       <v-select
@@ -35,7 +27,7 @@
         ref="textareaRef"
         v-model="internalCode"
         class="edit-layer"
-        :style="{ caretColor: primaryColor }"
+        :style="{ caretColor: String(primaryColor) }"
         spellcheck="false"
         @scroll="syncScroll"
         @input="onInput"
@@ -52,7 +44,7 @@
     >
       代码已复制到剪贴板
     </v-snackbar>
-  </div>
+  </v-sheet>
 </template>
 <script lang="ts">
 import type { ResizeConstraints } from '../resizeConstraints'
@@ -69,6 +61,12 @@ import { ref, onMounted, watch, nextTick, computed, onBeforeUnmount } from 'vue'
 import { useTheme } from 'vuetify';
 import { mdiContentCopy } from '@mdi/js';
 import hljs from 'highlight.js/lib/core';
+
+// ----- 本地导入主题样式 -----
+import githubCss from 'highlight.js/styles/github.css?raw';
+import atomDarkCss from 'highlight.js/styles/atom-one-dark.css?raw';
+
+import { info, warn, error as logError } from '@tauri-apps/plugin-log';
 
 // ----- 注册语言（大幅扩充）-----
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -111,12 +109,6 @@ hljs.registerLanguage('ruby', ruby);
 hljs.registerLanguage('swift', swift);
 hljs.registerLanguage('kotlin', kotlin);
 
-// ----- 本地导入主题样式 -----
-import githubCss from 'highlight.js/styles/github.css?raw';
-import atomDarkCss from 'highlight.js/styles/atom-one-dark.css?raw';
-
-import { info , error as logError } from '@tauri-apps/plugin-log';
-
 // ----- Vuetify 主题 -----
 const theme = useTheme();
 const isDark = computed(() => theme.global.name.value === 'dark');
@@ -124,9 +116,9 @@ const primaryColor = computed(() => theme.global.current.value.colors.primary);
 
 // ----- 动态注入样式标签 -----
 const styleId = 'hljs-theme-local';
-let styleElement = null;
+let styleElement: HTMLStyleElement | null = null;
 
-const applyTheme = (dark) => {
+const applyTheme = (dark: boolean) => {
   if (!styleElement) {
     styleElement = document.createElement('style');
     styleElement.id = styleId;
@@ -162,7 +154,6 @@ const languageOptions = [
   { title: 'Kotlin', value: 'kotlin' },
 ];
 
-// ----- Props（新增 maxWidth/maxHeight）-----
 const props = defineProps({
   modelValue: {
     type: String,
@@ -171,22 +162,6 @@ const props = defineProps({
   language: {
     type: String,
     default: 'plaintext',
-  },
-  minWidth: {
-    type: String,
-    default: '300px',
-  },
-  minHeight: {
-    type: String,
-    default: '200px',
-  },
-  maxWidth: {
-    type: String,
-    default: '',
-  },
-  maxHeight: {
-    type: String,
-    default: '',
   },
 });
 
@@ -198,9 +173,9 @@ const currentLanguage = ref(props.language);
 const snackbar = ref(false);
 
 // ----- 引用 -----
-const highlightRef = ref(null);
-const textareaRef = ref(null);
-const wrapperRef = ref(null);
+const highlightRef = ref<HTMLElement | null>(null);
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const wrapperRef = ref<HTMLElement | null>(null);
 
 // ----- 高亮渲染 -----
 const renderHighlight = () => {
@@ -217,7 +192,7 @@ const renderHighlight = () => {
     }
     codeElement.innerHTML = highlighted.value;
   } catch (error) {
-    warn('高亮失败，使用纯文本:', error);
+    warn('高亮失败，使用纯文本: ' + (error instanceof Error ? error.message : String(error)));
     codeElement.textContent = code;
   }
 };
@@ -265,18 +240,19 @@ const copyCode = async () => {
     }
     snackbar.value = true;
   } catch (err) {
-    logError('复制失败:', err);
-    alert('复制失败，请手动复制代码。\n错误信息：' + err.message);
+    const message = err instanceof Error ? err.message : String(err);
+    logError('复制失败: ' + message);
+    alert('复制失败，请手动复制代码。\n错误信息：' + message);
   }
 };
 
 // ----- 自动补全括号/引号 -----
-const handleKeydown = (event) => {
+const handleKeydown = (event: KeyboardEvent) => {
   const textarea = textareaRef.value;
   if (!textarea) return;
 
   const key = event.key;
-  const pairs = {
+  const pairs: Record<string, string> = {
     '(': ')',
     '[': ']',
     '{': '}',
@@ -349,7 +325,7 @@ watch(
 );
 
 // ----- 容器尺寸变化时重新同步滚动 -----
-const resizeObserver = ref(null);
+const resizeObserver = ref<ResizeObserver | null>(null);
 onMounted(() => {
   nextTick(() => {
     renderHighlight();
@@ -453,7 +429,6 @@ defineExpose({
   min-height: 120px;
 
 
-  vertical-align: baseline;
   font-variant-ligatures: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -484,7 +459,6 @@ defineExpose({
   background: transparent !important;
   padding: 0;
   border: none;
-  vertical-align: baseline;
 }
 
 
