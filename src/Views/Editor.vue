@@ -4,8 +4,14 @@
     <div class="toolbar">
       <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn>
-      <v-btn data-test="add-rich" @click="addRichText">➕ 添加富文本</v-btn>
-      <v-btn data-test="add-code" @click="addCodeBlock">➕ 添加代码块</v-btn>
+      <v-btn
+        v-for="comp in ADDABLE_COMPONENTS"
+        :key="comp.key"
+        :data-test="comp.addId"
+        @click="addComponent(comp.key)"
+      >
+        ➕ 添加{{ comp.label }}
+      </v-btn>
       <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
       <v-btn @click="toggleEditMode">
         {{ isEditMode ? '切换到只读' : '切换到编辑' }}
@@ -57,7 +63,7 @@
                      @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
               <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
               <span class="text-caption text-grey-darken-2 user-select-none">
-                {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
+                {{ componentLabelOf(item.component) }}
               </span>
             </v-sheet>
 
@@ -177,6 +183,45 @@ const componentMap = {
   RichTextEditor,
   EditableCodeBlock,
 }
+
+// ---------- 可添加组件注册表 ----------
+// 新增可添加组件时只需在此注册（key 需对应 componentMap 的键），
+// 工具栏按钮、添加逻辑、显示名称会自动生效，无需再写单独的 add 方法。
+interface AddableComponentMeta {
+  key: CanvasItem['component']
+  label: string
+  addId: string
+  defaultConfig: () => WidgetConfig
+  defaultSize: { w: number; h: number }
+}
+
+const ADDABLE_COMPONENTS: AddableComponentMeta[] = [
+  {
+    key: 'RichTextEditor',
+    label: '富文本',
+    addId: 'add-rich',
+    defaultConfig: () => ({ content: null }),
+    defaultSize: { w: 400, h: 300 },
+  },
+  {
+    key: 'EditableCodeBlock',
+    label: '代码块',
+    addId: 'add-code',
+    defaultConfig: () => ({
+      code: '// 在此编写代码',
+      language: 'javascript',
+      minWidth: '300px',
+      minHeight: '200px',
+    }),
+    defaultSize: { w: 400, h: 250 },
+  },
+]
+
+const componentMetaOf = (key: CanvasItem['component']) =>
+  ADDABLE_COMPONENTS.find((c) => c.key === key)
+
+const componentLabelOf = (key: CanvasItem['component']) =>
+  componentMetaOf(key)?.label ?? key
 
 // ---------- 组件尺寸约束 ----------
 // 统一通过组件导出的 `resizeConstraints` 获取最大/最小尺寸（与 vue-component.ts 一致）。
@@ -491,45 +536,18 @@ const onResize = () => {
 }
 
 // ---------- 添加组件 ----------
-const addRichText = () => {
+// 统一入口：根据注册表 ADDABLE_COMPONENTS 生成对应组件实例
+const addComponent = (key: CanvasItem['component']) => {
+  const meta = componentMetaOf(key)
+  if (!meta) return
   const id = generateId()
   const newItem: CanvasItem = {
     id,
-    component: 'RichTextEditor',
-    config: { content: null },
+    component: key,
+    config: meta.defaultConfig(),
     layout: {
-      desktop: { x: nextX, y: nextY, w: 400, h: 300 },
-      mobile: { x: nextX, y: nextY, w: 400, h: 300 },
-    },
-  }
-  state.items.push(newItem)
-  if (mobileMode.value && canvasWidth.value > 0) {
-    const margin = MOBILE_MARGIN
-    newItem.layout.mobile.x = margin
-    newItem.layout.mobile.w = canvasWidth.value - 2 * margin
-  }
-  nextX += STEP
-  nextY += STEP
-  if (nextX > 500) {
-    nextX = 20
-    nextY += 50
-  }
-}
-
-const addCodeBlock = () => {
-  const id = generateId()
-  const newItem: CanvasItem = {
-    id,
-    component: 'EditableCodeBlock',
-    config: {
-      code: '// 在此编写代码',
-      language: 'javascript',
-      minWidth: '300px',
-      minHeight: '200px',
-    },
-    layout: {
-      desktop: { x: nextX, y: nextY, w: 400, h: 250 },
-      mobile: { x: nextX, y: nextY, w: 400, h: 250 },
+      desktop: { x: nextX, y: nextY, ...meta.defaultSize },
+      mobile: { x: nextX, y: nextY, ...meta.defaultSize },
     },
   }
   state.items.push(newItem)
