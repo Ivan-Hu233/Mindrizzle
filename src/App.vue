@@ -65,7 +65,7 @@ const newFileRef = shallowRef(false)
         ">
         <v-app-bar-nav-icon @click.stop="menuRef = !menuRef" />
         <span data-tauri-drag-region class="text-white" style="flex: 1; font-size: 1.25rem; margin-left: 5px;">
-          Nope
+          OmniJot
         </span>
         <v-btn :icon="mdiPlus" @click="newFileRef = !newFileRef" />
         <v-btn :icon="mdiMagnify" />

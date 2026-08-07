@@ -1,7 +1,7 @@
 use platform_dirs::{UserDirs};
 
 pub fn get_hn_save_dir() -> std::path::PathBuf{
-  let path = UserDirs::new().unwrap().document_dir.join("Nope");
+  let path = UserDirs::new().unwrap().document_dir.join("OmniJot");
   if !path.exists(){
     std::fs::create_dir(&path).unwrap();
   }
