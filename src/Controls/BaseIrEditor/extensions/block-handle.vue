@@ -26,6 +26,16 @@ const hoveredBlock = ref<{ node: unknown; pos: number } | null>(null)
 const activeHover = ref<{ node: unknown; pos: number } | null>(null)
 function onBlockStateChange(event: Event) {
   const detail = (event as CustomEvent).detail
+  // 拖拽进行中：不触发 popup/高亮（用 body 类作全局标志，跨编辑器生效）
+  if (document.body.classList.contains('block-handle-dragging')) {
+    activeHover.value = null
+    if (detail) {
+      const poser = findPositionerElement()
+      const store = poser ? getBlockHandleStore(poser) : null
+      store?.hoverState?.set(undefined)
+    }
+    return
+  }
   activeHover.value = detail
   if (detail) hoveredBlock.value = detail
 }
@@ -89,33 +99,104 @@ function ensureEditorLeaveListener(view: any) {
   view.dom.addEventListener('pointerleave', onEditorPointerLeave)
 }
 
-watch(activeHover, () => {
-  highlightRect.value = null
-  const hover = activeHover.value
-  if (!hover) return
+// 行顶部被滚动裁剪时，popup 需要下移的偏移量（让 popup 紧贴高亮可见区）
+const popupShiftPx = ref(0)
 
-  let view: any = null
+function getEditorView(): any {
   try {
-    view = props.editor?.view
+    return props.editor?.view
   } catch {
-    view = null
+    return null
   }
+}
+function getBlockEl(pos: number): HTMLElement | null {
+  const view = getEditorView()
+  if (!view?.dom) return null
+  try {
+    return view.nodeDOM(pos) as HTMLElement | null
+  } catch {
+    return null
+  }
+}
+function getScrollEl(): HTMLElement | null {
+  const view = getEditorView()
+  if (!view?.dom) return null
+  return (view.dom as HTMLElement).closest('.editor-scroll') as HTMLElement | null
+}
+function isCompact(): boolean {
+  const view = getEditorView()
+  return !!view?.dom && !!(view.dom as HTMLElement).closest('.editor-wrapper.compact')
+}
+
+// 统一计算：高亮（跟随真实 hover，裁剪到滚动区可见范围）+ 行顶部是否被裁剪。
+// hover 变化和滚动时都会调用，保证高亮/放置位置与滚动同步。
+function updateHoverUi() {
+  // 拖拽进行中不更新高亮/偏移（popup 与高亮已全局隐藏）
+  const draggingActive = document.body.classList.contains('block-handle-dragging')
+  const hover = draggingActive ? null : activeHover.value
+  const compact = isCompact()
+  const scrollEl = getScrollEl()
+
+  // 高亮
+  highlightRect.value = null
+  if (hover && compact) {
+    const blockEl = getBlockEl(hover.pos)
+    if (blockEl && typeof blockEl.getBoundingClientRect === 'function') {
+      const r = blockEl.getBoundingClientRect()
+      if (!(r.width === 0 && r.height === 0)) {
+        if (scrollEl) {
+          const sr = scrollEl.getBoundingClientRect()
+          const left = Math.max(r.left, sr.left)
+          const right = Math.min(r.right, sr.right)
+          const top = Math.max(r.top, sr.top)
+          const bottom = Math.min(r.bottom, sr.bottom)
+          if (right > left && bottom > top) {
+            highlightRect.value = { left, top, width: right - left, height: bottom - top }
+          }
+        } else {
+          highlightRect.value = { left: r.left, top: r.top, width: r.width, height: r.height }
+        }
+      }
+    }
+  }
+
+  // 行顶部被裁剪的偏移（popup 由 hoveredBlock 驱动，故用 hoveredBlock 判断）。
+  // 让 popup 从“块顶部上方”下移到“高亮可见区上方”，紧贴高亮区域。
+  const hb = hoveredBlock.value
+  popupShiftPx.value = 0
+  if (hb && scrollEl) {
+    const blockEl = getBlockEl(hb.pos)
+    if (blockEl) {
+      const br = blockEl.getBoundingClientRect()
+      const sr = scrollEl.getBoundingClientRect()
+      popupShiftPx.value = br.top < sr.top ? Math.round(sr.top - br.top) : 0
+    }
+  }
+}
+
+// 滚动时保持高亮/放置同步
+let scrollBound = false
+let scrollBoundEl: HTMLElement | null = null
+function ensureScrollListener() {
+  const scrollEl = getScrollEl()
+  if (scrollBound || !scrollEl) return
+  scrollBound = true
+  scrollBoundEl = scrollEl
+  scrollEl.addEventListener('scroll', updateHoverUi, { passive: true })
+}
+
+watch(activeHover, () => {
+  const hover = activeHover.value
+  if (!hover) {
+    updateHoverUi()
+    return
+  }
+  const view = getEditorView()
   if (!view?.dom) return
   ensureEditorLeaveListener(view)
+  ensureScrollListener()
   cancelEditorLeave()
-  // 仅移动端（compact 模式）高亮行
-  if (!(view.dom as HTMLElement).closest('.editor-wrapper.compact')) return
-
-  let blockEl: HTMLElement | null = null
-  try {
-    blockEl = view.nodeDOM(hover.pos) as HTMLElement | null
-  } catch {
-    blockEl = null
-  }
-  if (!blockEl || typeof blockEl.getBoundingClientRect !== 'function') return
-  const r = blockEl.getBoundingClientRect()
-  if (r.width === 0 && r.height === 0) return
-  highlightRect.value = { left: r.left, top: r.top, width: r.width, height: r.height }
+  updateHoverUi()
 })
 
 // ---------- 手柄显示方向 ----------
@@ -136,8 +217,10 @@ const handlePlacement = computed<'left' | 'right' | 'top'>(() => {
     editorDom = null
   }
 
-  // 移动端：行上方
-  if (editorDom?.closest('.editor-wrapper.compact')) return 'top'
+  // 移动端：行上方；行顶部被裁剪时通过 --block-handle-shift 把 popup 下移紧贴高亮区
+  if (editorDom?.closest('.editor-wrapper.compact')) {
+    return 'top'
+  }
 
   // 桌面端：按画布水平位置决定左右
   const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
@@ -262,9 +345,19 @@ function onDragPointerDown(e: PointerEvent) {
   // 记录拖拽源
   dragSource = { editor, node, from: block.pos, to: block.pos + node.nodeSize }
   dragging = true
+  // 拖拽进行中：body 加类，全局抑制所有 popup/高亮（跨编辑器）
+  document.body.classList.add('block-handle-dragging')
   // 拖拽期间隐藏行高亮，避免与拖拽选区框重叠
   isDragging.value = true
   highlightRect.value = null
+  // 拖拽期间隐藏 popup（手柄不再显示），并停止 keepAlive 避免它重新打开
+  popupKeep.value = false
+  stopKeepAlive()
+  const poser = findPositionerElement()
+  if (poser) {
+    const store = getBlockHandleStore(poser)
+    store?.hoverState?.set(undefined)
+  }
   createDragGhost(node, e.clientX, e.clientY)
   // window 级监听：pointermove 在任意浏览器（含 WebKitGTK）都稳定触发；
   // 注意 mouse.down 后部分环境（含自动化）不再派发 mousemove，所以用 pointermove。
@@ -368,6 +461,7 @@ function cleanupDrag() {
   if (!dragging) return
   dragging = false
   isDragging.value = false
+  document.body.classList.remove('block-handle-dragging')
   dragSource = null
   removeGhost()
   removeIndicator()
@@ -381,14 +475,10 @@ function cleanupDrag() {
 function createDragGhost(node: any, x: number, y: number) {
   removeGhost()
   ghostEl = document.createElement('div')
-  // 简洁的“蓝框 + 文字”预览：不用整块克隆（整块是满宽、带白色半透明背景，
-  // 跟随鼠标会回流导致鬼畜），改为纯文本 + 固定最大宽度不回流，
-  // 蓝框样式与 ProseMirror 的 NodeSelection（.ProseMirror-selectednode）一致。
   ghostEl.style.cssText = [
     'position:fixed;pointer-events:none;z-index:9999;',
     'background:transparent;',
     'outline:2px solid #8cf;',
-    'border-radius:3px;',
     'padding:3px 10px;',
     'max-width:280px;',
     'white-space:pre-wrap;',
@@ -444,6 +534,7 @@ onUnmounted(() => {
       view?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
     } catch { /* noop */ }
   }
+  scrollBoundEl?.removeEventListener('scroll', updateHoverUi)
 })
 </script>
 
@@ -452,6 +543,7 @@ onUnmounted(() => {
     <BlockHandlePositioner
       :placement="handlePlacement"
       :class="['block-handle-positioner', `placement-${handlePlacement}`]"
+      :style="{ '--block-handle-shift': popupShiftPx + 'px' }"
     ><!--TODO 未来或许可以把这个单独分离出来成为一个窗口?-->
       <BlockHandlePopup
         class="block-handle-popup"
@@ -521,7 +613,10 @@ onUnmounted(() => {
 }
 
 .block-handle-popup {
-  background-color: rgba(var(--v-theme-primary), 0.06);
+  background-color: color-mix(in srgb, rgb(var(--v-theme-surface)) 90%, rgb(var(--v-theme-on-surface)) 10%);
+  /* 背景模糊：避免被后面的文本/内容影响辨识度 */
+  /* backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%); */
   border-radius: 6px;
   margin-right: 12px;
   display: inline-flex;
@@ -633,5 +728,15 @@ onUnmounted(() => {
   box-shadow: inset 0 2px 0 0 rgba(var(--v-theme-primary), 0.45);
   pointer-events: none;
   z-index: 9999;
+}
+
+/* 拖拽进行中：全局隐藏所有 block-handle popup 与行高亮（body 类由拖拽开始/结束控制） */
+body.block-handle-dragging .block-handle-popup {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+body.block-handle-dragging .block-handle-line-highlight {
+  display: none !important;
 }
 </style>

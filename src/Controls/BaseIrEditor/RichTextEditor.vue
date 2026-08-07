@@ -10,7 +10,9 @@
     @touchstart.stop
   >
     <ProseKit :editor="editor">
-      <div ref="editorMount" class="editor-mount" />
+      <div class="editor-scroll">
+        <div ref="editorMount" class="editor-mount" />
+      </div>
       <blockHandle :editor="editor" />
       <!-- teleport 到 body，避免 .vdr 的 transform 祖先让 position:fixed 定位基准偏移 -->
       <Teleport to="body">
@@ -108,8 +110,9 @@ defineExpose({
   border: 1px solid transparent;
   border-radius: 4px;
   margin: 0px;
-  /* 桌面端负边距：左右各预留空白区，供 block-handle popup 在行左/行右侧显示，
-     避免被 overflow:auto 裁剪（右侧延伸比左侧略大，容纳右侧手柄） */
+  /* 桌面端负边距：左右各预留空白区，供 block-handle popup 在行左/行右侧显示。
+     滚动与裁剪交给内部 .editor-scroll（宽度=文本区，滚动条紧贴文本右侧），
+     这里 overflow:visible 让 popup 能进入左右 gutter 而不触发滚动条。 */
   margin-left: -64px;
   margin-right: -80px;
   padding-left: 64px;
@@ -118,9 +121,18 @@ defineExpose({
   box-sizing: content-box;
   
   height: 100%;
-  overflow: auto;
+  overflow: visible;
   transition: border-color 0.15s ease;
   touch-action: auto; /* 确保触摸滚动正常 */
+}
+
+/* 真正的滚动容器：宽度与文本区一致（不进入左右 gutter），
+   横向/纵向滚动条都紧贴富文本编辑区内部右侧，不因 popup gutter 偏移。 */
+.editor-scroll {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
 }
 
 /* 移动端紧凑模式：移除负边距 */
@@ -137,7 +149,9 @@ defineExpose({
 
 .editor-mount {
   outline: none;
-  height: 100%;          /* 关键：让挂载点撑满父容器 */
+  /* 高度随内容增长（不再固定 100%）：否则内容超出 PM 盒子（滚动到底部）的行
+     会被 ProseKit 的 hover 判定为“不在 view.dom 内”，无法弹出 popup */
+  min-height: 100%;
   width: 100%;
   pointer-events: auto;  /* 确保可交互 */
 }
@@ -156,10 +170,20 @@ defineExpose({
 }
 
 /* 移动端：popup 显示在行上方（由 block-handle 的 placement='top' 控制定位）。
-   这里仅对手柄稍作缩小，避免在窄屏上显得过大。
+   移动端手柄稍放大、按钮更大，便于触屏点击/拖拽。
    直接绑定 compact 类（而非媒体查询），保证强制移动端/紧凑模式同样生效。 */
 .editor-wrapper.compact :deep(.block-handle-popup) {
-  transform: scale(0.9);
+  transform: translateY(var(--block-handle-shift, 0px)) scale(1.1);
   transform-origin: center bottom;
+}
+.editor-wrapper.compact :deep(.block-handle-btn) {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+}
+.editor-wrapper.compact :deep(.block-handle-btn svg) {
+  width: 22px;
+  height: 22px;
 }
 </style>
