@@ -11,10 +11,10 @@
   >
     <ProseKit :editor="editor">
       <div ref="editorMount" class="editor-mount" />
-      <blockHandle />
+      <blockHandle :editor="editor" />
       <!-- teleport 到 body，避免 .vdr 的 transform 祖先让 position:fixed 定位基准偏移 -->
       <Teleport to="body">
-        <dropIndicator />
+        <RowDropIndicator :editor="editor" />
       </Teleport>
     </ProseKit>
   </div>
@@ -35,7 +35,7 @@ import 'prosekit/basic/typography.css'
 import 'prosekit/pm/view/style/prosemirror.css'
 
 import blockHandle from './extensions/block-handle.vue'
-import dropIndicator from './extensions/drop-indicator.vue'
+import RowDropIndicator from './extensions/RowDropIndicator.vue'
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { ProseKit } from '@prosekit/vue'
 import { useDisplay } from 'vuetify'
