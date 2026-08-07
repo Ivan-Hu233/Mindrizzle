@@ -49,16 +49,15 @@
           >
             <div class="block-container bg-white elevation-1 rounded">
               <!-- 左上角：名称 + 图标（可拖拽手柄） -->
-              <v-sheet v-if="isEditMode"
-                       class="drag-handle left-handle border border-grey-lighten-2 border-b-0"
-                       color="grey-lighten-4" rounded="t"
-                       style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
-                       @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
-                <v-icon size="16" color="grey-darken-2" :icon="mdiDragVertical" class="mr-1" />
-                <span class="handle-label text-caption text-grey-darken-2 user-select-none">
-                  {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
-                </span>
-              </v-sheet>
+              <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2 border-b-0"
+                     color="grey-lighten-4" rounded="t"
+                     style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
+                     @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+              <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
+              <span class="text-caption text-grey-darken-2 user-select-none">
+                {{ item.component === 'RichTextEditor' ? '富文本' : '代码块' }}
+              </span>
+            </v-sheet>
 
               <!-- 右上角：选中指示器 -->
               <transition name="pop-up">
@@ -98,7 +97,7 @@ import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch } from
 import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
-import { mdiDragVertical } from '@mdi/js'
+import { mdiDragVariant } from '@mdi/js'
 import RichTextEditor from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { NodeJSON } from '@prosekit/core'

@@ -140,9 +140,9 @@ defineExpose({
   border-radius: 4px;
   margin: 0px;
   /* 桌面端负边距，为手柄留空间 */
-  margin-left: -56px;
-  padding-left: 56px;
-  width: calc(100% + 112px);
+  margin-left: -64px;
+  padding-left: 64px;
+  width: 100%;
   box-sizing: content-box;
   
   height: 100%;
