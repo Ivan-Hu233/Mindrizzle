@@ -76,49 +76,6 @@ onUnmounted(() => {
   editor.unmount()
 })
 
-function insertVueComponent(componentName: string, props: Record<string, any> = {}) {
-  const view = editor.view
-  if (!view) return
-  const containerWidth = view.dom.clientWidth || 360
-  const defaultWidth = Math.min(360, containerWidth)
-  const defaultHeight = 240
-  editor.commands.insertNode({
-    type: 'vueComponent',
-    attrs: { componentName, props, width: defaultWidth, height: defaultHeight },
-  })
-}
-
-function toggleHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
-  const { state } = editor
-  const { selection } = state
-  const node = selection.$from.node(selection.$from.depth)
-  if (node && node.type.name === 'heading' && node.attrs.level === level) {
-    editor.commands.setParagraph()
-  } else {
-    editor.commands.setHeading({ level })
-  }
-}
-
-function insertMathInline(latex: string) {
-  const { view } = editor
-  const { state } = view
-  const node = state.schema.nodes.mathInline?.create({}, state.schema.text(latex))
-  if (!node) return
-  const tr = state.tr.replaceSelectionWith(node)
-  view.dispatch(tr)
-  view.focus()
-}
-
-function insertMathBlock(latex: string) {
-  const { view } = editor
-  const { state } = view
-  const node = state.schema.nodes.mathBlock?.create({}, state.schema.text(latex))
-  if (!node) return
-  const tr = state.tr.replaceSelectionWith(node)
-  view.dispatch(tr)
-  view.focus()
-}
-
 function importJSON(json: NodeJSON) {
   editor.setContent(json)
 }
@@ -131,10 +88,6 @@ watch(() => props.doc, (v) => {
 defineExpose({
   commands: editor.commands,
   doc: editor.state.doc,
-  insertVueComponent,
-  toggleHeading,
-  insertMathInline,
-  insertMathBlock,
   importJSON,
   getDocJSON() {
     return editor.state.doc.toJSON()

@@ -249,12 +249,10 @@ const state = reactive({
   selectedIds: new Set<string>(),
 })
 
-// 子组件实例引用：每个组件通过 defineExpose 自备保存 / 加载方法，
-// 父组件统一调用 saveConfig / loadConfig，不再按组件类型做特殊处理。
 interface ComponentController {
   saveConfig?: () => Partial<WidgetConfig>
   loadConfig?: (config: WidgetConfig) => void
-  toggleHeading?: (level: 1 | 2 | 3 | 4 | 5 | 6) => void
+  commands?: Record<string, (...args: any[]) => unknown>
 }
 
 const componentRefs = ref<Record<string, ComponentController | undefined>>({})
@@ -606,7 +604,7 @@ const load = async () => {
 // ---------- 批量操作 ----------
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   Array.from(state.selectedIds).forEach((id) => {
-    componentRefs.value[id]?.toggleHeading?.(level)
+    componentRefs.value[id]?.commands?.toggleHeading?.(level)
   })
 }
 
