@@ -12,7 +12,10 @@
     <ProseKit :editor="editor">
       <div ref="editorMount" class="editor-mount" />
       <blockHandle />
-      <dropIndicator />
+      <!-- teleport 到 body，避免 .vdr 的 transform 祖先让 position:fixed 定位基准偏移 -->
+      <Teleport to="body">
+        <dropIndicator />
+      </Teleport>
     </ProseKit>
   </div>
 </template>

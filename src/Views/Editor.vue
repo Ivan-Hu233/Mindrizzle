@@ -18,6 +18,8 @@
       </v-btn>
     </div>
 
+    <RichTextEditor style="margin: 16px;" v-if="false"/>
+
     <!-- 画布区域 -->
     <div class="canvas-container">
       <div class="canvas" @click="handleCanvasClick" @mousedown="startSelection" @mousemove="updateSelection" ref="canvasRef">

@@ -32,7 +32,10 @@ const props = defineProps<Props>()
             <path :d="mdiPlus" />
           </svg>
         </BlockHandleAdd>
-        <BlockHandleDraggable class="block-handle-btn block-handle-drag">
+        <BlockHandleDraggable
+          class="block-handle-btn block-handle-drag"
+          @dragstart.stop
+        >
           <svg
             viewBox="0 0 24 24"
             width="20"
@@ -55,6 +58,7 @@ const props = defineProps<Props>()
   height: min-content;
   z-index: 50;
   transition: transform 0.1s ease-out;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -66,7 +70,9 @@ const props = defineProps<Props>()
 .block-handle-popup {
   background-color: rgba(var(--v-theme-on-surface), 0.06);
   border-radius: 3px;
+  margin-right: 4px;
   display: flex;
+  pointer-events: auto;
   box-sizing: border-box;
   transition: opacity 0.1s, scale 0.1s;
   transform-origin: var(--transform-origin, center);
@@ -96,6 +102,8 @@ const props = defineProps<Props>()
 }
 
 .block-handle-btn {
+  position: relative;
+  z-index: 1;
   height: 24px;
   width: 24px;
   cursor: pointer;
@@ -116,6 +124,7 @@ const props = defineProps<Props>()
 }
 
 .block-handle-drag {
+  z-index: 1;
   cursor: grab;
 }
 
