@@ -108,9 +108,12 @@ defineExpose({
   border: 1px solid transparent;
   border-radius: 4px;
   margin: 0px;
-  /* 桌面端负边距，为手柄留空间 */
+  /* 桌面端负边距：左右各预留空白区，供 block-handle popup 在行左/行右侧显示，
+     避免被 overflow:auto 裁剪（右侧延伸比左侧略大，容纳右侧手柄） */
   margin-left: -64px;
+  margin-right: -80px;
   padding-left: 64px;
+  padding-right: 80px;
   width: 100%;
   box-sizing: content-box;
   
@@ -123,8 +126,13 @@ defineExpose({
 /* 移动端紧凑模式：移除负边距 */
 .editor-wrapper.compact {
   margin-left: 0;
+  margin-right: 0;
+  margin-top: -44px;
   width: 100%;
-  padding-left: 0;
+  padding: 44px 0 0 0;
+  box-sizing: border-box;
+  /* 顶部留白：移动端 block-handle popup 显示在行上方，首行上方的 popup
+     需要这 44px 空间才不会被 overflow:auto 裁剪/隐藏 */
 }
 
 .editor-mount {
@@ -147,12 +155,11 @@ defineExpose({
   touch-action: auto;
 }
 
-/* 移动端微调块手柄位置（避免被裁剪或遮挡） */
-@media (max-width: 600px) {
-  .editor-wrapper.compact :deep(.block-handle-positioner) {
-    transform: translateX(4px) scale(0.85);
-    transform-origin: top left;
-    /* 确保手柄在上层但不拦截编辑器点击（默认 pointer-events: auto，但手柄区域很小） */
-  }
+/* 移动端：popup 显示在行上方（由 block-handle 的 placement='top' 控制定位）。
+   这里仅对手柄稍作缩小，避免在窄屏上显得过大。
+   直接绑定 compact 类（而非媒体查询），保证强制移动端/紧凑模式同样生效。 */
+.editor-wrapper.compact :deep(.block-handle-popup) {
+  transform: scale(0.9);
+  transform-origin: center bottom;
 }
 </style>

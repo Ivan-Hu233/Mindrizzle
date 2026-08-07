@@ -8,7 +8,7 @@ import {
   BlockHandleRoot,
 } from 'prosekit/vue/block-handle'
 import type { Editor } from '@prosekit/core'
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, computed, watch } from 'vue'
 import { NodeSelection } from 'prosekit/pm/state'
 
 interface Props {
@@ -22,10 +22,133 @@ const props = defineProps<Props>()
 // hover 离开时会触发 detail=null，但为了拖拽需要在鼠标移到手柄时仍能拿到被拖块，
 // 因此只在有值时更新（保留最后一次 hover 的块）。
 const hoveredBlock = ref<{ node: unknown; pos: number } | null>(null)
+// 跟随真实 hover 状态（含离开时的 null），用于驱动移动端“行上侧高亮”
+const activeHover = ref<{ node: unknown; pos: number } | null>(null)
 function onBlockStateChange(event: Event) {
   const detail = (event as CustomEvent).detail
+  activeHover.value = detail
   if (detail) hoveredBlock.value = detail
 }
+
+// ---------- 移动端行高亮 ----------
+// 给 popup 所应用的行（块）整行加淡色背景高亮 + 上侧强调，作为 popup 与该行的视觉连接。
+// 相比单纯的顶部细线更直观、不易误解（细线容易被当成光标/滚动条之类）。
+// 注意：不能给 ProseMirror 块元素加 class——会触发 PM mutation observer 重渲染，
+// 导致 popup 参考元素的 DOM 被替换/断开、popup 定位失效（飞到屏幕外）。
+// 所以这里只“读”块的 rect，用 teleport 到 body 的 fixed 元素来画高亮。
+const highlightRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
+const highlightStyle = computed(() => {
+  if (!highlightRect.value) return {}
+  const { left, top, width, height } = highlightRect.value
+  return { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }
+})
+
+// 拖拽中不显示高亮，避免与拖拽的选区框（NodeSelection 外框）重叠
+const isDragging = ref(false)
+
+// 鼠标快速移出编辑器时，高亮/popup 不应延迟消失：
+// ProseKit 的 hover 扩展有 200ms throttle + 180ms 失效缓冲（共约 380ms 才清 hoverState）。
+// 这里监听编辑器内容 DOM 的 pointerleave，鼠标真正离开时在短缓冲后立即清除。
+// 短缓冲是为了给“从块移到 popup（两者之间有间隙）”留时间，避免直接清导致闪烁。
+let editorLeaveBound = false
+let editorLeaveTimer: any = null
+function onEditorPointerLeave() {
+  if (editorLeaveTimer) return
+  editorLeaveTimer = setTimeout(() => {
+    editorLeaveTimer = null
+    // 立即清除高亮（不等 ProseKit 的 state-change）
+    highlightRect.value = null
+    // 立即关闭 popup（跳过 ProseKit 的 throttle + 缓冲延迟）
+    const poser = findPositionerElement()
+    if (poser) {
+      const store = getBlockHandleStore(poser)
+      store?.hoverState?.set(undefined)
+    }
+  }, 100)
+}
+function cancelEditorLeave() {
+  if (editorLeaveTimer) {
+    clearTimeout(editorLeaveTimer)
+    editorLeaveTimer = null
+  }
+}
+function findPositionerElement(): HTMLElement | null {
+  let view: any = null
+  try {
+    view = props.editor?.view
+  } catch {
+    view = null
+  }
+  if (!view?.dom) return null
+  const wrapper = (view.dom as HTMLElement).closest('.editor-wrapper')
+  return wrapper ? wrapper.querySelector('.block-handle-positioner') : null
+}
+function ensureEditorLeaveListener(view: any) {
+  if (editorLeaveBound || !view?.dom) return
+  editorLeaveBound = true
+  view.dom.addEventListener('pointerleave', onEditorPointerLeave)
+}
+
+watch(activeHover, () => {
+  highlightRect.value = null
+  const hover = activeHover.value
+  if (!hover) return
+
+  let view: any = null
+  try {
+    view = props.editor?.view
+  } catch {
+    view = null
+  }
+  if (!view?.dom) return
+  ensureEditorLeaveListener(view)
+  cancelEditorLeave()
+  // 仅移动端（compact 模式）高亮行
+  if (!(view.dom as HTMLElement).closest('.editor-wrapper.compact')) return
+
+  let blockEl: HTMLElement | null = null
+  try {
+    blockEl = view.nodeDOM(hover.pos) as HTMLElement | null
+  } catch {
+    blockEl = null
+  }
+  if (!blockEl || typeof blockEl.getBoundingClientRect !== 'function') return
+  const r = blockEl.getBoundingClientRect()
+  if (r.width === 0 && r.height === 0) return
+  highlightRect.value = { left: r.left, top: r.top, width: r.width, height: r.height }
+})
+
+// ---------- 手柄显示方向 ----------
+// 桌面端：根据所在 VueDraggableResizable（.drag-wrapper）相对画布（.canvas）的
+// 水平位置决定 popup 显示在行的左侧还是右侧——块在画布左半 → 显示在行右侧；
+// 右半 → 显示在行左侧（popup 始终朝向画布内侧，避免被画布/容器边缘裁剪）。
+// 移动端（RichTextEditor 处于 compact 模式）：popup 显示在行上方。
+const handlePlacement = computed<'left' | 'right' | 'top'>(() => {
+  const fallback: 'left' | 'right' = props.dir === 'rtl' ? 'right' : 'left'
+  // 依赖 hoveredBlock：每次 hover 变化时重新计算（拖动/移动块后方向仍正确）
+  if (!hoveredBlock.value) return fallback
+
+  // 编辑器可能尚未挂载（view 访问会抛 “Editor is not mounted”），需保护
+  let editorDom: HTMLElement | null = null
+  try {
+    editorDom = props.editor?.view?.dom as HTMLElement | null
+  } catch {
+    editorDom = null
+  }
+
+  // 移动端：行上方
+  if (editorDom?.closest('.editor-wrapper.compact')) return 'top'
+
+  // 桌面端：按画布水平位置决定左右
+  const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
+  const canvas = editorDom?.closest('.canvas') as HTMLElement | null
+  if (!widget || !canvas) return fallback
+  const widgetRect = widget.getBoundingClientRect()
+  const canvasRect = canvas.getBoundingClientRect()
+  const widgetCenter = widgetRect.left + widgetRect.width / 2
+  const canvasCenter = canvasRect.left + canvasRect.width / 2
+  return widgetCenter < canvasCenter ? 'right' : 'left'
+})
 
 // 鼠标进入 popup（手柄）时保持显示：ProseKit 会在 hoverState 失效（约 180ms
 // 缓冲）后自动关闭 popup，导致鼠标一移到手柄上 popup 就消失、无法点击/拖拽。
@@ -49,12 +172,9 @@ function getBlockHandleStore(el?: any): any {
 }
 
 function onPopupEnter() {
+  // 鼠标进入 popup（手柄）：取消“移出编辑器”的待清除定时，保留高亮与 popup
+  cancelEditorLeave()
   popupKeep.value = true
-  // 鼠标已进入 popup（手柄），但 ProseKit 的 hoverState 会在约 180ms 缓冲后失效，
-  // 导致 ADD / 拖拽手柄失效、popup 关闭。直接 store.hoverState.set 会被失效计时器
-  // 清掉，正确做法是向块派发假的 pointermove，让 useHoverExtension 自己重新设置
-  // hoverState（它会 clearTimeout 失效计时）。由于它有 200ms throttle，用 keepAlive
-  // 周期重试直到成功。
   startKeepAlive()
 }
 function onPopupLeave(e: Event) {
@@ -62,8 +182,7 @@ function onPopupLeave(e: Event) {
   stopKeepAlive()
   const store = getBlockHandleStore(e.target)
   if (store) {
-    // 清理：避免 hoverState 残留导致 popup 一直显示。
-    // 若鼠标实际是移回块上，ProseKit 的 hover 扩展会立刻重新设置。
+    // 避免 hoverState 残留导致 popup 一直显示。
     store.hoverState.set(undefined)
   }
 }
@@ -143,6 +262,9 @@ function onDragPointerDown(e: PointerEvent) {
   // 记录拖拽源
   dragSource = { editor, node, from: block.pos, to: block.pos + node.nodeSize }
   dragging = true
+  // 拖拽期间隐藏行高亮，避免与拖拽选区框重叠
+  isDragging.value = true
+  highlightRect.value = null
   createDragGhost(node, e.clientX, e.clientY)
   // window 级监听：pointermove 在任意浏览器（含 WebKitGTK）都稳定触发；
   // 注意 mouse.down 后部分环境（含自动化）不再派发 mousemove，所以用 pointermove。
@@ -245,6 +367,7 @@ function moveBlockAcrossEditors(
 function cleanupDrag() {
   if (!dragging) return
   dragging = false
+  isDragging.value = false
   dragSource = null
   removeGhost()
   removeIndicator()
@@ -257,20 +380,26 @@ function cleanupDrag() {
 /** 创建跟随鼠标的拖拽 ghost（块预览）。 */
 function createDragGhost(node: any, x: number, y: number) {
   removeGhost()
-  let dom: any = null
-  try {
-    dom = dragSource?.editor.view.nodeDOM(dragSource!.from)
-  } catch { /* noop */ }
   ghostEl = document.createElement('div')
-  ghostEl.style.cssText = 'position:fixed;pointer-events:none;opacity:0.8;z-index:9999;background:#fff;'
-  if (dom && typeof dom.cloneNode === 'function') {
-    ghostEl.appendChild((dom as HTMLElement).cloneNode(true) as HTMLElement)
-  } else {
-    ghostEl.textContent = node.textContent || ' '
-  }
+  // 简洁的“蓝框 + 文字”预览：不用整块克隆（整块是满宽、带白色半透明背景，
+  // 跟随鼠标会回流导致鬼畜），改为纯文本 + 固定最大宽度不回流，
+  // 蓝框样式与 ProseMirror 的 NodeSelection（.ProseMirror-selectednode）一致。
+  ghostEl.style.cssText = [
+    'position:fixed;pointer-events:none;z-index:9999;',
+    'background:transparent;',
+    'outline:2px solid #8cf;',
+    'border-radius:3px;',
+    'padding:3px 10px;',
+    'max-width:280px;',
+    'white-space:pre-wrap;',
+    'word-break:break-word;',
+    'overflow:hidden;',
+    'box-sizing:border-box;',
+  ].join('')
+  ghostEl.textContent = node.textContent || ' '
   document.body.appendChild(ghostEl)
-  ghostEl.style.left = `${x + 10}px`
-  ghostEl.style.top = `${y + 10}px`
+  ghostEl.style.left = `${x + 12}px`
+  ghostEl.style.top = `${y + 12}px`
 }
 function removeGhost() {
   if (ghostEl) {
@@ -308,14 +437,21 @@ function removeIndicator() {
 onUnmounted(() => {
   stopKeepAlive()
   cleanupDrag()
+  cancelEditorLeave()
+  if (editorLeaveBound) {
+    try {
+      const view = props.editor?.view
+      view?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
+    } catch { /* noop */ }
+  }
 })
 </script>
 
 <template>
   <BlockHandleRoot @state-change="onBlockStateChange">
     <BlockHandlePositioner
-      :placement="props.dir === 'rtl' ? 'right' : 'left'"
-      class="block-handle-positioner"
+      :placement="handlePlacement"
+      :class="['block-handle-positioner', `placement-${handlePlacement}`]"
     ><!--TODO 未来或许可以把这个单独分离出来成为一个窗口?-->
       <BlockHandlePopup
         class="block-handle-popup"
@@ -333,9 +469,6 @@ onUnmounted(() => {
             <path :d="mdiPlus" />
           </svg>
         </BlockHandleAdd>
-        <!-- 拖拽手柄：用自定义指针拖拽（pointerdown/mousemove/mouseup），
-             不依赖 HTML5 DnD（WebKitGTK 对 dragover/drop 支持不完整）。
-             preventDefault 阻止原生 dragstart。 -->
         <BlockHandleDraggable
           class="block-handle-btn block-handle-drag"
           @pointerdown.prevent="onDragPointerDown"
@@ -352,6 +485,11 @@ onUnmounted(() => {
       </BlockHandlePopup>
     </BlockHandlePositioner>
   </BlockHandleRoot>
+
+  <!-- 移动端行高亮：teleport 到 body，避免被 .vdr transform / overflow 裁剪 -->
+  <Teleport to="body">
+    <div v-if="highlightRect && !isDragging" class="block-handle-line-highlight" :style="highlightStyle" />
+  </Teleport>
 </template>
 
 <style scoped>
@@ -364,11 +502,16 @@ onUnmounted(() => {
   transition: transform 0.1s ease-out;
   pointer-events: none;
   inset: auto;
-  /* ProseKit 用 floating-ui 注入 transform: translate(-8px, 1px)，
-     把手柄定位到块左侧。但定位容器 .inner-component 有 overflow:auto，
-     popup 左端会因 -8px 溢出容器左边界而被裁剪（显示不全）。
-     这里用 margin-left 精确抵消 -8px，让 popup 完整显示在容器内。 */
   margin-left: 8px;
+}
+
+/* right / top 放置时不需要抵消 -8px（floating-ui 的 translate 为正值或垂直方向） */
+.block-handle-positioner.placement-right{
+  margin-right: 8px;
+}
+.block-handle-positioner.placement-top {
+  margin-left: 0;
+  margin-top: 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -378,7 +521,7 @@ onUnmounted(() => {
 }
 
 .block-handle-popup {
-  background-color: rgba(var(--v-theme-on-surface), 0.06);
+  background-color: rgba(var(--v-theme-primary), 0.06);
   border-radius: 6px;
   margin-right: 12px;
   display: inline-flex;
@@ -393,6 +536,20 @@ onUnmounted(() => {
   scale: 1;
   position: relative;
   z-index: 1;
+}
+
+/* right 放置：块在 popup 左侧，改为左侧留白 */
+.block-handle-positioner.placement-right .block-handle-popup {
+  margin-right: 0;
+  margin-left: 12px;
+}
+
+/* top 放置：块在 popup 下方，仅下方留白（水平居中） */
+.block-handle-positioner.placement-top .block-handle-popup {
+  margin-right: 0;
+  margin-bottom: 12px;
+  border-bottom-left-radius: 0px;
+  border-bottom-right-radius: 0px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -463,5 +620,18 @@ onUnmounted(() => {
 
 .block-handle-drag:active {
   cursor: grabbing;
+}
+
+/* 移动端行高亮（teleport 到 body 的 fixed 元素）：
+   整行淡色背景 + 上侧加粗强调，明确标示 popup 所应用的行 */
+.block-handle-line-highlight {
+  position: fixed;
+  left: 0;
+  top: 0;
+  border-radius: 4px;
+  background: rgba(var(--v-theme-primary), 0.07);
+  box-shadow: inset 0 2px 0 0 rgba(var(--v-theme-primary), 0.45);
+  pointer-events: none;
+  z-index: 9999;
 }
 </style>
