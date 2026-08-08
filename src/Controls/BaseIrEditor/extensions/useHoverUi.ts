@@ -85,30 +85,46 @@ export function useHoverUi(options: {
   // ---- 鼠标移出编辑器立即关闭 ----
   // ProseKit 的 hover 有 200ms 节流 + 180ms 失效缓冲（共约 380ms）才清 hoverState，
   // 这里监听内容 DOM 的 pointerleave，短缓冲后直接清，避免 popup/高亮延迟消失。
-  // let leaveTimer: ReturnType<typeof setTimeout> | null = null
+  let leaveTimer: ReturnType<typeof setTimeout> | null = null
   let leaveBound = false
   let scrollBoundEl: HTMLElement | null = null
+  let wrapperBoundEl: HTMLElement | null = null
 
-  // function onEditorPointerLeave() {
-  //   if (leaveTimer) return
-  //   leaveTimer = setTimeout(() => {
-  //     leaveTimer = null
-  //     highlightRect.value = null
-  //     clearStoreHover(view(), getStore)
-  //   }, 100) // 短缓冲：给“从块移到 popup（两者有间隙）”留时间，避免闪烁
-  // }
-  // function cancelLeave() {
-  //   if (leaveTimer) {
-  //     clearTimeout(leaveTimer)
-  //     leaveTimer = null
-  //   }
-  // }
+  // 鼠标移出编辑器内容 DOM 时，短缓冲后主动清 hoverState。
+  function onEditorPointerLeave() {
+    if (leaveTimer) return
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null
+      highlightRect.value = null
+      clearHoverViaExtension()
+    }, 100)
+  }
+
+  // 鼠标离开整个编辑器区域（内容 + popup gutter）时强制清理。
+  // 覆盖「快速移过 popup 触发 keepAlive 后移出」的残留路径——此时仅靠 view.dom 的
+  // pointerleave→clearHoverViaExtension 会被 keepAlive 的周期假 pointermove 重新设回，
+  // 必须显式 stopKeepAlive + 关 popupKeep 才能真正清掉。
+  function onWrapperPointerLeave() {
+    cancelLeave()
+    suppressUI()
+  }
+  function cancelLeave() {
+    if (leaveTimer) {
+      clearTimeout(leaveTimer)
+      leaveTimer = null
+    }
+  }
 
   function ensureLeaveListener() {
     const dom = view()?.dom
     if (leaveBound || !dom) return
     leaveBound = true
-    // dom.addEventListener('pointerleave', onEditorPointerLeave)
+    dom.addEventListener('pointerleave', onEditorPointerLeave)
+    const wrapper = dom.closest('.editor-wrapper') as HTMLElement | null
+    if (wrapper) {
+      wrapperBoundEl = wrapper
+      wrapper.addEventListener('pointerleave', onWrapperPointerLeave)
+    }
   }
   function ensureScrollListener() {
     const scrollEl = getScrollEl(view())
@@ -125,7 +141,7 @@ export function useHoverUi(options: {
     if (!view()?.dom) return
     ensureLeaveListener()
     ensureScrollListener()
-    // cancelLeave()
+    cancelLeave()
     updateHoverUi()
   })
 
@@ -160,7 +176,7 @@ export function useHoverUi(options: {
   }
 
   function onPopupEnter() {
-    // cancelLeave() // 取消“移出编辑器”的待清除定时，保留高亮与 popup
+    cancelLeave() // 取消“移出编辑器”的待清除定时，保留高亮与 popup
     popupKeep.value = true
     startKeepAlive()
   }
@@ -197,8 +213,9 @@ export function useHoverUi(options: {
 
   onUnmounted(() => {
     stopKeepAlive()
-    // cancelLeave()
-    // if (leaveBound) view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
+    cancelLeave()
+    if (leaveBound) view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
+    wrapperBoundEl?.removeEventListener('pointerleave', onWrapperPointerLeave)
     scrollBoundEl?.removeEventListener('scroll', updateHoverUi)
   })
 
