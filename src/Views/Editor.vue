@@ -33,8 +33,8 @@
           :max-width="constraintsOf(item).maxWidth ?? null" :max-height="constraintsOf(item).maxHeight ?? null"
           :is-conflict-check="!mobileMode" :snap="true" :snap-tolerance="10" :active-on-top="true"
           :axis="mobileMode ? 'y' : 'both'" :handles="mobileMode ? ['tm', 'bm'] : undefined"
-          @dragging="(x, y) => onDragging(item, x, y)" @dragstop="(x, y) => onDragStop(item, x, y)"
-          drag-handle=".drag-handle" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
+          :draggable="false" drag-handle=".drag-handle"
+          @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
           :disabled="!isEditMode" class="drag-wrapper"
           :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
           <div class="block-container bg-white elevation-1 rounded">
@@ -43,7 +43,7 @@
               :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
               color="grey-lighten-4" :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
               :style="handleBarStyle(item, { left: '10px', padding: '0 10px', display: 'flex', alignItems: 'center', cursor: 'grab', whiteSpace: 'nowrap' })"
-              @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+              @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
               <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
               <span class="text-caption text-grey-darken-2 user-select-none">
                 {{ componentLabelOf(item.component) }}
@@ -57,7 +57,7 @@
                 :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }" color="grey-lighten-4"
                 :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
                 :style="handleBarStyle(item, { right: '10px', width: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab' })"
-                @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
+                @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
                 <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
               </v-sheet>
             </transition>
@@ -265,6 +265,56 @@ const canvasStyle = computed<CSSProperties>(() => ({
   transform: `translate(${pan.x}px, ${pan.y}px)`,
 }))
 
+// ---------- 拖动块到视口边缘时画布自动平移（方向与 block-handle 拖段落一致）----------
+// 鼠标靠上/左边缘 → 画布内容下移/右移（露出上方/左侧）；靠下/右 → 上移/左移。
+const AUTOPAN_EDGE = 60 // 距视口边缘多少 px 触发
+const AUTOPAN_MAX = 8 // 每帧最大平移 px
+const autoPan = reactive({ active: false })
+const lastMouse = { x: 0, y: 0 }
+
+const updateMousePos = (e: MouseEvent) => {
+  lastMouse.x = e.clientX
+  lastMouse.y = e.clientY
+}
+
+const autoPanTick = () => {
+  if (!autoPan.active) return
+  const cont = canvasContainerRef.value
+  if (cont) {
+    const r = cont.getBoundingClientRect()
+    let vx = 0
+    let vy = 0
+    if (lastMouse.x < r.left + AUTOPAN_EDGE) vx = Math.min(r.left + AUTOPAN_EDGE - lastMouse.x, AUTOPAN_MAX)
+    else if (lastMouse.x > r.right - AUTOPAN_EDGE) vx = -Math.min(lastMouse.x - (r.right - AUTOPAN_EDGE), AUTOPAN_MAX)
+    if (lastMouse.y < r.top + AUTOPAN_EDGE) vy = Math.min(r.top + AUTOPAN_EDGE - lastMouse.y, AUTOPAN_MAX)
+    else if (lastMouse.y > r.bottom - AUTOPAN_EDGE) vy = -Math.min(lastMouse.y - (r.bottom - AUTOPAN_EDGE), AUTOPAN_MAX)
+    if (vx !== 0 || vy !== 0) {
+      if (!mobileMode.value) pan.x += vx
+      pan.y += vy
+      // 同步补偿被拖拽块坐标：块屏幕位置 = 块坐标 + pan，
+      // 鼠标停住时自动平移也不会让块偏离鼠标（与 onCustomDragMove 公式一致）
+      Object.keys(customDragGroup).forEach((id) => {
+        const target = state.items.find((it) => it.id === id)
+        if (!target) return
+        const layout = layoutOf(target)
+        layout.x -= vx
+        layout.y -= vy
+      })
+    }
+  }
+  requestAnimationFrame(autoPanTick)
+}
+
+const startAutoPan = () => {
+  if (autoPan.active) return
+  autoPan.active = true
+  requestAnimationFrame(autoPanTick)
+}
+
+const stopAutoPan = () => {
+  autoPan.active = false
+}
+
 const startPan = (e: MouseEvent) => {
   if (e.button !== 2) return // 仅右键拖拽平移（不依赖 Vue 的 .right 修饰符，兼容性更稳）
   // 右键菜单已全局禁用，任意位置（含块上）右键拖拽都平移
@@ -302,10 +352,17 @@ const stopPan = () => {
 
 // 界面禁用右键菜单（窗口级全局）：避免右键拖拽平移时弹出原生菜单
 const preventContextMenu = (e: Event) => e.preventDefault()
-const dragGroupState = ref<{ active: boolean; origins: Record<string, { x: number; y: number }> }>({
-  active: false,
-  origins: {},
-})
+
+// 供编辑器内 block-handle 拖拽段落时驱动画布自动平移（useBlockDrag 派发该事件）
+const onCanvasPanEvent = (e: Event) => {
+  const detail = (e as CustomEvent<{ dx?: number; dy?: number }>).detail
+  if (!detail) return
+  const dx = Number(detail.dx) || 0
+  const dy = Number(detail.dy) || 0
+  if (dx === 0 && dy === 0) return
+  if (!mobileMode.value) pan.x += dx
+  pan.y += dy
+}
 const selectionBox = ref<{ x: number; y: number; w: number; h: number } | null>(null)
 const selectionState = reactive({
   active: false,
@@ -390,12 +447,6 @@ const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSPropert
   }
 }
 
-const syncItemPosition = (item: CanvasItem, x: number, y: number) => {
-  const layout = layoutOf(item)
-  layout.x = x
-  layout.y = y
-}
-
 const getSelectedItemIds = (item: CanvasItem) => {
   const selected = state.selectedIds.has(item.id) && state.selectedIds.size > 1
     ? Array.from(state.selectedIds)
@@ -403,35 +454,64 @@ const getSelectedItemIds = (item: CanvasItem) => {
   return selected
 }
 
-const onDragging = (item: CanvasItem, x: number, y: number) => {
-  if (!dragGroupState.value.active) {
-    dragGroupState.value = {
-      active: true,
-      origins: Object.fromEntries(
-        getSelectedItemIds(item).map((id) => {
-          const target = state.items.find((it) => it.id === id)
-          if (!target) return [id, { x: 0, y: 0 }]
-          return [id, { x: layoutOf(target).x, y: layoutOf(target).y }]
-        }),
-      ),
-    }
-  }
+// ---------- 自定义块拖拽：块跟随鼠标；画布平移自动补偿（无需 hack VDR 内部）----------
+// 块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)，因此鼠标动块就动、画布平移块自动补偿。
+const customDrag = reactive({
+  active: false,
+  startClientX: 0,
+  startClientY: 0,
+  panStartX: 0,
+  panStartY: 0,
+})
+let customDragGroup: Record<string, { x: number; y: number }> = {}
 
-  const targetOrigin = dragGroupState.value.origins[item.id] ?? { x: layoutOf(item).x, y: layoutOf(item).y }
-  const dx = x - targetOrigin.x
-  const dy = y - targetOrigin.y
-
+const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
+  if (e.button !== 0) return
+  if (!isEditMode.value) return
+  handleSelect(item.id, e)
+  customDrag.active = true
+  customDrag.startClientX = e.clientX
+  customDrag.startClientY = e.clientY
+  customDrag.panStartX = pan.x
+  customDrag.panStartY = pan.y
+  // 记录多选组的初始世界坐标
+  customDragGroup = {}
   getSelectedItemIds(item).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
+    if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+  })
+  window.addEventListener('pointermove', onCustomDragMove)
+  window.addEventListener('pointerup', onCustomDragUp)
+  window.addEventListener('mousemove', onCustomDragMove)
+  window.addEventListener('mouseup', onCustomDragUp)
+  e.preventDefault()
+  startAutoPan() // 拖到视口边缘时画布自动平移
+}
+
+const onCustomDragMove = (e: MouseEvent) => {
+  if (!customDrag.active) return
+  const dx = e.clientX - customDrag.startClientX
+  const dy = e.clientY - customDrag.startClientY
+  // 画布平移补偿：块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)
+  const panDx = pan.x - customDrag.panStartX
+  const panDy = pan.y - customDrag.panStartY
+  Object.keys(customDragGroup).forEach((id) => {
+    const target = state.items.find((it) => it.id === id)
     if (!target) return
-    const origin = dragGroupState.value.origins[id] ?? { x: layoutOf(target).x, y: layoutOf(target).y }
-    syncItemPosition(target, origin.x + dx, origin.y + dy)
+    const origin = customDragGroup[id]
+    const layout = layoutOf(target)
+    layout.x = mobileMode.value ? origin.x : origin.x + dx - panDx
+    layout.y = origin.y + dy - panDy
   })
 }
 
-const onDragStop = (item: CanvasItem, x: number, y: number) => {
-  dragGroupState.value = { active: false, origins: {} }
-  syncItemPosition(item, x, y)
+const onCustomDragUp = () => {
+  customDrag.active = false
+  window.removeEventListener('pointermove', onCustomDragMove)
+  window.removeEventListener('pointerup', onCustomDragUp)
+  window.removeEventListener('mousemove', onCustomDragMove)
+  window.removeEventListener('mouseup', onCustomDragUp)
+  stopAutoPan()
 }
 
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
@@ -754,6 +834,8 @@ onMounted(() => {
   window.addEventListener('mousemove', updatePan)
   window.addEventListener('mouseup', stopPan)
   window.addEventListener('contextmenu', preventContextMenu)
+  window.addEventListener('mousemove', updateMousePos)
+  window.addEventListener('omnijot:canvas-pan', onCanvasPanEvent)
 })
 
 onUnmounted(() => {
@@ -764,6 +846,8 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', updatePan)
   window.removeEventListener('mouseup', stopPan)
   window.removeEventListener('contextmenu', preventContextMenu)
+  window.removeEventListener('mousemove', updateMousePos)
+  window.removeEventListener('omnijot:canvas-pan', onCanvasPanEvent)
 })
 </script>
 

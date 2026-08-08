@@ -84,7 +84,27 @@ export function useBlockDrag(options: {
     return false
   }
 
-  // 拖拽期间的帧循环：每帧做一次便宜的自动滚动检查；
+  // 画布（.canvas-container 视口）边缘自动平移：把段落拖到画布边缘时画布跟着滚。
+  // 方向：鼠标靠上/左边缘 → 画布（内容）向下/右移（露出上方/左侧）；靠下/右 → 向上/左移。
+  // 与 autoScroll（编辑器滚动区滚动）互补；通过事件驱动 Editor.vue 里的 pan。
+  const CANVAS_PAN_EDGE = 60 // 距画布视口边缘多少 px 触发
+  const CANVAS_PAN_MAX = 8 // 每帧最大平移 px
+  function panCanvas(x: number, y: number): boolean {
+    const canvasEl = document.querySelector('.canvas-container') as HTMLElement | null
+    if (!canvasEl) return false
+    const r = canvasEl.getBoundingClientRect()
+    let dx = 0
+    let dy = 0
+    if (x < r.left + CANVAS_PAN_EDGE) dx = Math.min(r.left + CANVAS_PAN_EDGE - x, CANVAS_PAN_MAX)
+    else if (x > r.right - CANVAS_PAN_EDGE) dx = -Math.min(x - (r.right - CANVAS_PAN_EDGE), CANVAS_PAN_MAX)
+    if (y < r.top + CANVAS_PAN_EDGE) dy = Math.min(r.top + CANVAS_PAN_EDGE - y, CANVAS_PAN_MAX)
+    else if (y > r.bottom - CANVAS_PAN_EDGE) dy = -Math.min(y - (r.bottom - CANVAS_PAN_EDGE), CANVAS_PAN_MAX)
+    if (!dx && !dy) return false
+    window.dispatchEvent(new CustomEvent('omnijot:canvas-pan', { detail: { dx, dy } }))
+    return true
+  }
+
+  // 拖拽期间的帧循环：每帧做一次便宜的自动滚动/画布平移检查；
   // 落点/指示器只在鼠标移动（needsIndicator）或发生滚动导致内容变化时重算，避免每帧 posAtCoords 卡顿。
   function ensureDragLoop() {
     if (rafId) return
@@ -94,7 +114,8 @@ export function useBlockDrag(options: {
     rafId = 0
     if (!active || !source) return
     const scrolled = autoScroll(lastX, lastY)
-    if (needsIndicator || scrolled) {
+    const panned = panCanvas(lastX, lastY)
+    if (needsIndicator || scrolled || panned) {
       needsIndicator = false
       updateDropIndicator(lastX, lastY)
     }
