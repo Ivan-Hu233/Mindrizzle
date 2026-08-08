@@ -426,7 +426,12 @@ const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSPropert
     bottom: bottom ? '-28px' : 'auto',
     height: '28px',
     zIndex: 10,
-    transform: bottom ? 'translateY(1px)' : 'translateY(-1px)',
+    // 不用内联 transform：内联样式优先级高于 Vue transition 的 class，
+    // 会把滑出动画的 transform（translate）压成只剩 opacity 生效。
+    // 改 CSS 变量：--handle-y（贴边 ±1px 微调）+ --handle-slide（从块内滑出的方向），
+    // CSS 统一读取并组合进动画。
+    '--handle-y': bottom ? '1px' : '-1px',
+    '--handle-slide': bottom ? '-28px' : '28px',
     ...extra,
   }
 }
@@ -943,6 +948,8 @@ defineExpose({
   box-sizing: border-box;
   user-select: none;
   transition: background 0.2s;
+  /* 贴边 ±1px 微调由内联 --handle-y 变量提供（替代原内联 transform） */
+  transform: translateY(var(--handle-y, -1px));
 }
 
 /* 上方空间不够时手柄放块下方：描边与圆角翻转到底部 */
@@ -959,16 +966,15 @@ defineExpose({
 .left-handle {
   bottom: 100%;
   left: 10px;
-  transform: translateY(-1px);
 }
 
 .right-handle {
   bottom: 100%;
   right: 10px;
-  transform: translateY(-1px);
   width: 28px;
   justify-content: center;
   padding: 0;
+  z-index: 10;
 }
 
 .right-handle .selected-dot {
@@ -992,6 +998,11 @@ defineExpose({
   padding: 4px;
   box-sizing: border-box;
   background-color: transparent;
+  /* 让内容层盖住“从内部滑出”的手柄：手柄在块内滑出阶段（z-index:10）位于内容
+     （z-index:15）之下，不遮挡内容；滑出块外后与内容不重叠，正常可见。
+     须低于缩放手柄 .handle 的 z-index:20，保证缩放手柄仍可点。 */
+  position: relative;
+  z-index: 15;
 }
 
 .inner-component {
@@ -1006,23 +1017,25 @@ defineExpose({
   transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* 选中指示器从块内部滑出：top 放置时初始在块内顶部（下移 28px）滑出到块上方；
+   bottom 放置时反向（上移 28px）滑出到块下方。--handle-slide 由 handleBarStyle 提供。 */
 .pop-up-enter-from {
   opacity: 0;
-  transform: translateY(12px) scale(0.6);
+  transform: translateY(calc(var(--handle-y, 0px) + var(--handle-slide, 28px)));
 }
 
 .pop-up-enter-to {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(var(--handle-y, 0px));
 }
 
 .pop-up-leave-from {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(var(--handle-y, 0px));
 }
 
 .pop-up-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.6);
+  transform: translateY(calc(var(--handle-y, 0px) + var(--handle-slide, 28px)));
 }
 </style>
