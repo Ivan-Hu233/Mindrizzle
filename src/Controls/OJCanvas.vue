@@ -236,7 +236,8 @@ const panSession = reactive({
 })
 
 const canvasStyle = computed<CSSProperties>(() => ({
-  transform: `translate(${pan.x}px, ${pan.y}px)`,
+  // pan 取整：transform 落在亚像素位置会让整层内容被浏览器亚像素渲染而发虚
+  transform: `translate(${Math.round(pan.x)}px, ${Math.round(pan.y)}px)`,
 }))
 
 // 点阵背景放在视口容器上（保证任何位置不露白），但 background-position 随 pan 平移，
@@ -269,8 +270,8 @@ const autoPanTick = () => {
     if (lastMouse.y < r.top + AUTOPAN_EDGE) vy = Math.min(r.top + AUTOPAN_EDGE - lastMouse.y, AUTOPAN_MAX)
     else if (lastMouse.y > r.bottom - AUTOPAN_EDGE) vy = -Math.min(lastMouse.y - (r.bottom - AUTOPAN_EDGE), AUTOPAN_MAX)
     if (vx !== 0 || vy !== 0) {
-      if (!mobileMode.value) pan.x += vx
-      pan.y += vy
+      if (!mobileMode.value) pan.x += Math.round(vx)
+      pan.y += Math.round(vy)
       // 同步补偿被拖拽块坐标：块屏幕位置 = 块坐标 + pan，
       // 鼠标停住时自动平移也不会让块偏离鼠标（与 onCustomDragMove 公式一致）。
       // 移动端锁水平：横向自动平移与横向补偿一并跳过，仅竖向滚动。
@@ -278,8 +279,8 @@ const autoPanTick = () => {
         const target = state.items.find((it) => it.id === id)
         if (!target) return
         const layout = layoutOf(target)
-        if (!mobileMode.value) layout.x -= vx
-        layout.y -= vy
+        if (!mobileMode.value) layout.x -= Math.round(vx)
+        layout.y -= Math.round(vy)
       })
     }
   }
@@ -320,9 +321,10 @@ const updatePan = (e: MouseEvent) => {
   if (!panSession.active) return
   const nx = panSession.startPanX + (e.clientX - panSession.startClientX)
   const ny = panSession.startPanY + (e.clientY - panSession.startClientY)
+  // 取整避免亚像素平移导致界面模糊（触摸/缩放屏下 clientX 可能为小数）
   // 移动端只需竖直方向无限移动，水平方向锁定（不随平移移动）
-  pan.x = mobileMode.value ? 0 : nx
-  pan.y = ny
+  pan.x = mobileMode.value ? 0 : Math.round(nx)
+  pan.y = Math.round(ny)
 }
 
 const stopPan = () => {
@@ -341,8 +343,9 @@ const onCanvasPanEvent = (e: Event) => {
   const dx = Number(detail.dx) || 0
   const dy = Number(detail.dy) || 0
   if (dx === 0 && dy === 0) return
-  if (!mobileMode.value) pan.x += dx
-  pan.y += dy
+  // 取整避免块段落拖拽触发的画布平移落亚像素
+  if (!mobileMode.value) pan.x += Math.round(dx)
+  pan.y += Math.round(dy)
 }
 const selectionBox = ref<{ x: number; y: number; w: number; h: number } | null>(null)
 const selectionState = reactive({
@@ -481,8 +484,9 @@ const onCustomDragMove = (e: MouseEvent) => {
     if (!target) return
     const origin = customDragGroup[id]
     const layout = layoutOf(target)
-    layout.x = mobileMode.value ? origin.x : origin.x + dx - panDx
-    layout.y = origin.y + dy - panDy
+    // 块坐标取整，保证块屏幕位置（= 块坐标 + pan）始终落在整数像素上
+    layout.x = mobileMode.value ? origin.x : Math.round(origin.x + dx - panDx)
+    layout.y = Math.round(origin.y + dy - panDy)
   })
 }
 
@@ -497,10 +501,11 @@ const onCustomDragUp = () => {
 
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
   const layout = layoutOf(item)
-  layout.x = x
-  layout.y = y
-  layout.w = w
-  layout.h = h
+  // 缩放结果取整，避免块落在亚像素上发虚
+  layout.x = Math.round(x)
+  layout.y = Math.round(y)
+  layout.w = Math.round(w)
+  layout.h = Math.round(h)
 }
 
 const handleSelect = (id: string, e?: MouseEvent) => {
@@ -712,10 +717,11 @@ const save = () => {
   // 保存为「pan=0 时块的屏幕位置」：世界坐标 + 平移 = 保存时块在视口内的位置，
   // 加载后平移归零从原点查看，保证保存时可见的块打开时仍可见。
   const toSaveRect = (r: Rect) => ({
-    x: r.x + pan.x,
-    y: r.y + pan.y,
-    w: r.w,
-    h: r.h,
+    // 保存时取整：保证加载后块坐标是整数，打开即清晰
+    x: Math.round(r.x + pan.x),
+    y: Math.round(r.y + pan.y),
+    w: Math.round(r.w),
+    h: Math.round(r.h),
   })
   // 移动端不持久化宽度（运行时按画布拉伸），只存位置与高度
   const serializable = state.items.map((it) => ({
@@ -724,7 +730,7 @@ const save = () => {
     config: it.config,
     layout: {
       desktop: toSaveRect(it.layout.desktop),
-      mobile: { x: 0, y: it.layout.mobile.y + pan.y, h: it.layout.mobile.h },
+      mobile: { x: 0, y: Math.round(it.layout.mobile.y + pan.y), h: Math.round(it.layout.mobile.h) },
     },
   }))
   return JSON.stringify(serializable)
