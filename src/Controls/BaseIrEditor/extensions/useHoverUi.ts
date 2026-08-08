@@ -11,8 +11,9 @@ export function useHoverUi(options: {
   editor: Editor | null
   hoveredBlock: Ref<HoveredBlock | null>
   activeHover: Ref<HoveredBlock | null>
+  placement: Ref<'left' | 'right' | 'top'>
 }) {
-  const { editor, hoveredBlock, activeHover } = options
+  const { editor, hoveredBlock, activeHover, placement } = options
   const view = () => getView(editor)
 
   // ---- 移动端行高亮 ----
@@ -27,6 +28,10 @@ export function useHoverUi(options: {
 
   // 行顶部被滚动裁剪时，popup 下移的偏移量（让 popup 紧贴高亮可见区）
   const popupShiftPx = ref(0)
+  // 右侧 popup 的水平补偿：垂直滚动条会让文本右缘左移（clientWidth 变小），
+  // 而 popup 锚定文本右缘，导致右侧 popup 随滚动条出现而偏移、与左侧不再对称。
+  // 补偿滚动条宽度，让右侧 popup 始终贴齐块的外边缘（与左侧对称）。
+  const popupHShiftPx = ref(0)
 
   // ---- popup 常驻（keepAlive）----
   const popupKeep = ref(false)
@@ -70,6 +75,11 @@ export function useHoverUi(options: {
         popupShiftPx.value = br.top < sr.top ? Math.round(sr.top - br.top) : 0
       }
     }
+
+    // 右侧 popup 水平补偿（仅 placement-right 需要；left/top 锚定边不受滚动条影响）
+    popupHShiftPx.value = placement.value === 'right' && scrollEl
+      ? scrollEl.offsetWidth - scrollEl.clientWidth
+      : 0
   }
 
   // ---- 鼠标移出编辑器立即关闭 ----
@@ -192,5 +202,5 @@ export function useHoverUi(options: {
     scrollBoundEl?.removeEventListener('scroll', updateHoverUi)
   })
 
-  return { highlightRect, highlightStyle, popupShiftPx, popupKeep, onPopupEnter, onPopupLeave, suppressUI }
+  return { highlightRect, highlightStyle, popupShiftPx, popupHShiftPx, popupKeep, onPopupEnter, onPopupLeave, suppressUI }
 }

@@ -665,14 +665,13 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 20px 0;
+  padding: 26px 0px 0px 0px;
   overflow: hidden;
 }
 
 .canvas {
   position: relative;
-  width: 90%;
-  max-width: 1200px;
+  width: 100%;
   height: 100%;
   min-height: 400px;
   background: transparent;

@@ -34,6 +34,7 @@ const {
   highlightRect,
   highlightStyle,
   popupShiftPx,
+  popupHShiftPx,
   popupKeep,
   onPopupEnter,
   onPopupLeave,
@@ -42,6 +43,7 @@ const {
   editor: props.editor ?? null,
   hoveredBlock,
   activeHover,
+  placement: handlePlacement,
 })
 const { isDragging, onDragPointerDown } = useBlockDrag({
   editor: props.editor ?? null,
@@ -55,7 +57,7 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
     <BlockHandlePositioner
       :placement="handlePlacement"
       :class="['block-handle-positioner', `placement-${handlePlacement}`]"
-      :style="{ '--block-handle-shift': popupShiftPx + 'px' }"
+      :style="{ '--block-handle-shift': popupShiftPx + 'px', '--block-handle-hshift': popupHShiftPx + 'px' }"
     >
       <BlockHandlePopup
         class="block-handle-popup"
@@ -142,10 +144,13 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   z-index: 1;
 }
 
-/* right 放置：块在 popup 左侧，改为左侧留白 */
+/* right 放置：块在 popup 左侧，改为左侧留白。
+   水平补偿 --block-handle-hshift：滚动条出现时文本右缘左移，会让右侧 popup 偏移、
+   与左侧不对称；这里按滚动条宽度把 popup 向右推回，保持贴齐块外边缘。 */
 .block-handle-positioner.placement-right .block-handle-popup {
   margin-right: 0;
   margin-left: -6px;
+  transform: translateX(var(--block-handle-hshift, 0px));
 }
 
 /* top 放置：块在 popup 下方，仅下方留白（水平居中） */
@@ -224,8 +229,6 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   cursor: grabbing;
 }
 
-/* 移动端行高亮（teleport 到 body 的 fixed 元素）：
-   整行淡色背景 + 上侧加粗强调，明确标示 popup 所应用的行 */
 .block-handle-line-highlight {
   position: fixed;
   left: 0;
