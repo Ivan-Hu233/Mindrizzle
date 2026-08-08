@@ -48,8 +48,10 @@ export function useHoverUi(options: {
     // 高亮：块 rect 与滚动区可见 rect 求交集，完全不可见则不显示。
     // 高亮带上缘的 2px 强调小条方向由 block-handle 模板按 placement 翻转：
     // popup 在行下方时（placement-bottom）小条翻到高亮下缘（反转，与上方对称）。
+    // 移动端（compact）与桌面端退化到 top/bottom 时都显示行高亮；
+    // 桌面端正常 left/right 放置不需要（popup 贴在行旁即可定位）。
     highlightRect.value = null
-    if (hover && isCompactView(view())) {
+    if (hover && (isCompactView(view()) || placement.value === 'top' || placement.value === 'bottom')) {
       const r = getBlockEl(view(), hover.pos)?.getBoundingClientRect()
       if (r && !(r.width === 0 && r.height === 0)) {
         if (scrollEl) {

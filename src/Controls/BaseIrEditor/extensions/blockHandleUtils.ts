@@ -55,6 +55,24 @@ export function getPopupHeight(view: any): number {
   return h > 0 ? h : 35
 }
 
+/** 取 block-handle popup 的实际渲染宽度（桌面约 54px）。关闭时 popup 是 display:none
+ *  无法量宽：临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）。
+ *  用于桌面端判断左右可用空间是否放得下 popup。 */
+export function getPopupWidth(view: any): number {
+  const popup = view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-popup') as HTMLElement | null
+  if (!popup) return 64
+  const prevDisplay = popup.style.display
+  const prevVisibility = popup.style.visibility
+  if (prevDisplay !== 'inline-flex') {
+    popup.style.display = 'inline-flex'
+    popup.style.visibility = 'hidden'
+  }
+  const w = popup.getBoundingClientRect().width
+  popup.style.display = prevDisplay
+  popup.style.visibility = prevVisibility
+  return w > 0 ? w : 64
+}
+
 /** 是否移动端紧凑模式（RichTextEditor compact 类）。 */
 export function isCompactView(view: any): boolean {
   return !!view?.dom?.closest('.editor-wrapper.compact')

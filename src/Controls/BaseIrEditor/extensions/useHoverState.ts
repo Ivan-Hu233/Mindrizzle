@@ -3,7 +3,7 @@
 
 import { computed, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
-import { clearStoreHover, getBlockEl, getClipBottom, getClipTop, getPopupHeight, getView, isCompactView } from './blockHandleUtils'
+import { clearStoreHover, getBlockEl, getClipBottom, getClipTop, getPopupHeight, getPopupWidth, getView, isCompactView } from './blockHandleUtils'
 
 export interface HoveredBlock {
   node: unknown
@@ -65,7 +65,31 @@ export function useHoverState(
     if (!widget || !container) return fallback
     const w = widget.getBoundingClientRect()
     const c = container.getBoundingClientRect()
-    return w.left + w.width / 2 < c.left + c.width / 2 ? 'right' : 'left'
+    // 首选侧：朝向画布内侧（块在左半 → 行右，右半 → 行左）
+    const preferred: 'left' | 'right' = w.left + w.width / 2 < c.left + c.width / 2 ? 'right' : 'left'
+
+    // 桌面端左右空间都放不下 popup 时，退化为上下放置（与移动端一致）。
+    // 左右空间用整块边界 w（popup 显示在块外侧 gutter，块边界即可用空间；
+    // 不用文本行 nodeDOM，避免 nodeDOM(pos) 在部分情况下取不到元素）；
+    // 上下空间优先用文本行 blockEl（贴合行），取不到时退化为整块。
+    // 桌面端 top/bottom 不放大：只有 compact（移动端）才 scale(1.1)，
+    // 因此这里退化时 popup 大小与左右放置一致（正常尺寸）。
+    const needX = getPopupWidth(view) + COMPACT_POPUP_GAP
+    const spaceLeft = w.left - c.left
+    const spaceRight = c.right - w.right
+    if (spaceLeft < needX && spaceRight < needX) {
+      const blockEl = getBlockEl(view, hoveredBlock.value.pos)
+      const br = blockEl?.getBoundingClientRect()
+      const top = br ? br.top : w.top
+      const bottom = br ? br.bottom : w.bottom
+      const needY = getPopupHeight(view) + COMPACT_POPUP_GAP
+      const spaceAbove = top - getClipTop(view)
+      const spaceBelow = getClipBottom(view) - bottom
+      if (spaceAbove >= needY) return 'top'
+      if (spaceBelow >= needY) return 'bottom'
+      return spaceAbove >= spaceBelow ? 'top' : 'bottom'
+    }
+    return preferred
   })
 
   return { hoveredBlock, activeHover, handlePlacement, onBlockStateChange }

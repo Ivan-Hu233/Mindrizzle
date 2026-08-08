@@ -180,6 +180,13 @@ defineExpose({
 .editor-wrapper.compact :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
   transform-origin: center top;
 }
+
+/* 桌面端 top/bottom 放置（左右空间都不够时的退化）：保持桌面正常大小
+   （不放大——放大只针对移动端 compact），仅应用垂直裁剪补偿 --block-handle-shift。 */
+.editor-wrapper:not(.compact) :deep(.block-handle-positioner.placement-top .block-handle-popup),
+.editor-wrapper:not(.compact) :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
+  transform: translateY(var(--block-handle-shift, 0px));
+}
 .editor-wrapper.compact :deep(.block-handle-btn) {
   width: 28px;
   height: 28px;
