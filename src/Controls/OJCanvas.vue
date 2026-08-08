@@ -227,6 +227,48 @@ const canvasWidth = ref(0)
 // 点阵背景固定在视口容器上，视口内任何位置视觉都是画布、任何位置右键都能拖拽平移。
 const pan = reactive({ x: 0, y: 0 })
 const isPanning = ref(false)
+
+// ---------- 画布原点偏移（Origin Rebasing）：避免数据溢出 ----------
+// 块的存储坐标（layout）保持在小范围。当坐标过大时把画布原点重定位：
+// 所有块坐标整体平移（layout -= offset）、原点偏移记入 origin（origin += offset）。
+// 屏幕位置 = 存储坐标 + origin + pan：重定位后 (layout-offset)+(origin+offset)+pan 不变；
+// pan 不变 → 点阵（background-position=pan）不跳、块不突然移动，完全无感。
+const origin = reactive({ x: 0, y: 0 })
+
+// 无感重定位：offset 为新的原点位置（存储坐标系），取整保证坐标仍是整数。
+// 移动端锁水平：块 x 恒 0（stretch 固定），水平原点不参与，仅竖直方向重定位；
+// 竖直同时平移 desktop 与 mobile 布局，保证切换模式后位置一致。
+const rebaseOrigin = (offset: { x: number; y: number }) => {
+  const dx = Math.round(offset.x) || 0
+  const dy = Math.round(offset.y) || 0
+  if (!dx && !dy) return
+  const effDx = mobileMode.value ? 0 : dx
+  state.items.forEach((item) => {
+    item.layout.desktop.x -= effDx
+    item.layout.desktop.y -= dy
+    item.layout.mobile.y -= dy
+  })
+  origin.x += effDx
+  origin.y += dy
+}
+
+// 块坐标绝对值超过阈值时，把原点移到块群包围盒中心（保持坐标小且无感）
+const ORIGIN_REBASE_THRESHOLD = 1_000_000
+const maybeRebaseOrigin = () => {
+  if (state.items.length === 0) return
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  state.items.forEach((it) => {
+    const l = it.layout.desktop
+    if (l.x < minX) minX = l.x
+    if (l.y < minY) minY = l.y
+    if (l.x > maxX) maxX = l.x
+    if (l.y > maxY) maxY = l.y
+  })
+  const maxAbs = Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minY), Math.abs(maxY))
+  if (maxAbs <= ORIGIN_REBASE_THRESHOLD) return
+  rebaseOrigin({ x: (minX + maxX) / 2, y: (minY + maxY) / 2 })
+}
+
 const panSession = reactive({
   active: false,
   startClientX: 0,
@@ -236,8 +278,8 @@ const panSession = reactive({
 })
 
 const canvasStyle = computed<CSSProperties>(() => ({
-  // pan 取整：transform 落在亚像素位置会让整层内容被浏览器亚像素渲染而发虚
-  transform: `translate(${Math.round(pan.x)}px, ${Math.round(pan.y)}px)`,
+  // pan + origin 取整：transform 落在亚像素位置会让整层内容被浏览器亚像素渲染而发虚
+  transform: `translate(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px)`,
 }))
 
 // 点阵背景放在视口容器上（保证任何位置不露白），但 background-position 随 pan 平移，
@@ -331,6 +373,7 @@ const stopPan = () => {
   if (!panSession.active) return
   panSession.active = false
   isPanning.value = false
+  maybeRebaseOrigin() // 平移结束：坐标过大时无感重定位原点
 }
 
 // 界面禁用右键菜单（窗口级全局）：避免右键拖拽平移时弹出原生菜单
@@ -413,9 +456,9 @@ const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mob
 // 手柄高 28px，需要块上方留出这么多空间。块贴近画布顶部（上方放不下）时，
 // 把拖拽手柄与选中指示器从块上方挪到块下方，避免被画布容器裁剪。
 const HANDLE_HEIGHT = 28
-// 手柄是否放块下方取决于「块在视口内的位置」（世界坐标 + 平移）：贴近视口顶部时放下方
+// 手柄是否放块下方取决于「块在视口内的位置」（存储坐标 + 原点 + 平移）：贴近视口顶部时放下方
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
-  layoutOf(item).y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
+  layoutOf(item).y + origin.y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
 
 // 手柄横条的内联定位样式：上方放不下时贴块底部（bottom:-28px），否则贴块顶部
 const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSProperties => {
@@ -502,6 +545,7 @@ const onCustomDragUp = () => {
   window.removeEventListener('mousemove', onCustomDragMove)
   window.removeEventListener('mouseup', onCustomDragUp)
   stopAutoPan()
+  maybeRebaseOrigin() // 拖拽结束：坐标过大时无感重定位原点
 }
 
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
@@ -566,8 +610,9 @@ const startSelection = (e: MouseEvent) => {
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  selectionState.startX = e.clientX - rect.left
-  selectionState.startY = e.clientY - rect.top
+  // 选择框坐标转存储坐标（减 origin）：块 layout 也是存储坐标，两者同一参考系
+  selectionState.startX = e.clientX - rect.left - origin.x
+  selectionState.startY = e.clientY - rect.top - origin.y
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
@@ -578,8 +623,8 @@ const updateSelection = (e: MouseEvent) => {
   const rect = canvasRef.value?.getBoundingClientRect()
   if (!rect) return
   e.preventDefault()
-  selectionState.currentX = e.clientX - rect.left
-  selectionState.currentY = e.clientY - rect.top
+  selectionState.currentX = e.clientX - rect.left - origin.x
+  selectionState.currentY = e.clientY - rect.top - origin.y
   updateSelectionBox()
 }
 
@@ -680,7 +725,15 @@ const refreshLayout = () => {
 // flush:'pre'：在组件重挂载前执行，先同步富文本内容
 watch(mobileMode, () => {
   syncComponentData()
-  if (mobileMode.value) pan.x = 0 // 移动端锁水平：切换时归零水平平移，避免块水平偏移
+  if (mobileMode.value) {
+    // 移动端锁水平：把水平原点偏移并入桌面布局并归零，块始终贴左（屏幕 x=0）；
+    // 切换回桌面时 desktop 已含该偏移，位置不变，无感。
+    if (origin.x) {
+      state.items.forEach((it) => { it.layout.desktop.x += origin.x })
+      origin.x = 0
+    }
+    pan.x = 0 // 移动端锁水平：切换时归零水平平移，避免块水平偏移
+  }
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
@@ -692,9 +745,9 @@ const addComponent = (key: CanvasItem['component']) => {
   const meta = componentMetaOf(key)
   if (!meta) return
   const id = generateId()
-  // 新块放在当前视口可见处：世界坐标 = 视口内偏移 - 平移（屏幕位置 = 世界 + pan = 偏移）
-  const baseX = nextX - pan.x
-  const baseY = nextY - pan.y
+  // 新块放在当前视口可见处：存储坐标 = 视口内偏移 - 原点 - 平移（屏幕位置 = 存储 + 原点 + pan = 偏移）
+  const baseX = nextX - pan.x - origin.x
+  const baseY = nextY - pan.y - origin.y
   const newItem: CanvasItem = {
     id,
     component: key,
@@ -719,12 +772,28 @@ const addComponent = (key: CanvasItem['component']) => {
 // ---------- 保存 / 加载 ----------
 const save = () => {
   syncComponentData()
-  // 保存为「pan=0 时块的屏幕位置」：世界坐标 + 平移 = 保存时块在视口内的位置，
-  // 加载后平移归零从原点查看，保证保存时可见的块打开时仍可见。
+  // 归一化原点（避免数据溢出）：以「绝对屏幕位置 = 存储坐标 + origin + pan」的
+  // 块群包围盒中心为新原点，保存的坐标相对该中心（小值），并记录新原点 origin。
+  // 加载时用 origin 还原，视觉完全不变（块不动、点阵不跳）。
+  const absOf = (r: Rect) => ({ x: r.x + origin.x + pan.x, y: r.y + origin.y + pan.y })
+  let cx = 0, cy = 0
+  if (state.items.length) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    state.items.forEach((it) => {
+      const a = absOf(it.layout.desktop)
+      if (a.x < minX) minX = a.x
+      if (a.y < minY) minY = a.y
+      if (a.x > maxX) maxX = a.x
+      if (a.y > maxY) maxY = a.y
+    })
+    cx = Math.round((minX + maxX) / 2)
+    cy = Math.round((minY + maxY) / 2)
+  }
+  // 保存为「相对新原点 cx,cy 的坐标」：绝对屏幕位置 - 新原点
   const toSaveRect = (r: Rect) => ({
     // 保存时取整：保证加载后块坐标是整数，打开即清晰
-    x: Math.round(r.x + pan.x),
-    y: Math.round(r.y + pan.y),
+    x: Math.round(r.x + origin.x + pan.x - cx),
+    y: Math.round(r.y + origin.y + pan.y - cy),
     w: Math.round(r.w),
     h: Math.round(r.h),
   })
@@ -735,10 +804,10 @@ const save = () => {
     config: it.config,
     layout: {
       desktop: toSaveRect(it.layout.desktop),
-      mobile: { x: 0, y: Math.round(it.layout.mobile.y + pan.y), h: Math.round(it.layout.mobile.h) },
+      mobile: { x: 0, y: Math.round(it.layout.mobile.y + origin.y + pan.y - cy), h: Math.round(it.layout.mobile.h) },
     },
   }))
-  return JSON.stringify(serializable)
+  return JSON.stringify({ origin: { x: cx, y: cy }, items: serializable })
 }
 
 // 归一化从 localStorage 读出的单个条目：
@@ -774,15 +843,20 @@ const load = async (raw: string) => {
   } catch {
     return // 数据损坏：静默跳过，不阻塞画布
   }
-  // 兼容旧格式（纯 CanvasItem[] 数组）与中间版（{ pan, items } 对象）
+  // 兼容旧格式（纯 CanvasItem[] 数组）与中间版（{ pan, items } 对象）与新版（{ origin, items }）
   if (Array.isArray(parsed)) {
     state.items = parsed.map(normalizeLoadedItem)
+    origin.x = 0
+    origin.y = 0
   } else if (parsed && Array.isArray(parsed.items)) {
     state.items = parsed.items.map(normalizeLoadedItem)
+    // 新版保存了归一化原点：加载后用它还原视觉位置；旧数据无 origin 则归零
+    origin.x = typeof parsed.origin?.x === 'number' ? parsed.origin.x : 0
+    origin.y = typeof parsed.origin?.y === 'number' ? parsed.origin.y : 0
   } else {
     return
   }
-  // 保存的坐标是 pan=0 时的世界坐标，加载后归零平移从原点查看内容
+  // 保存的坐标是归一化后的存储坐标（相对 origin），加载后归零平移从原点查看内容
   pan.x = 0
   pan.y = 0
   await nextTick()
@@ -843,6 +917,7 @@ onUnmounted(() => {
 defineExpose({
   state,
   pan,
+  origin,
   isPanning,
   canvasStyle,
   containerStyle,
@@ -863,6 +938,7 @@ defineExpose({
   addComponent,
   save,
   load,
+  rebaseOrigin,
   batchToggleHeading,
   deleteSelected,
 })
