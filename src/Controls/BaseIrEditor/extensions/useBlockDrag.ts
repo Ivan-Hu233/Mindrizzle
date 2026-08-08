@@ -33,8 +33,13 @@ export function useBlockDrag(options: {
   // 拖拽中「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect），
   // 用 rAF 合并到每帧最多一次，避免每次 mousemove 都触发 layout 重排造成拖拽卡顿。
   let rafId = 0
-  let pendingX = 0
-  let pendingY = 0
+  let lastX = 0
+  let lastY = 0
+  // 鼠标坐标是否有变化（变化才重算落点/指示器，配合自动滚动触发重算）
+  let needsIndicator = false
+  // 自动滚动：拖到富文本滚动区上下边缘时的边缘带宽度与最大每帧滚动像素
+  const SCROLL_EDGE = 48
+  const SCROLL_MAX_SPEED = 28
 
   // 通过鼠标坐标找到所在的编辑器实例（支持跨编辑器拖拽）
   function findEditorAt(x: number, y: number): Editor | null {
@@ -48,6 +53,52 @@ export function useBlockDrag(options: {
       comp = comp.parent
     }
     return null
+  }
+
+  // 通过鼠标坐标找到所在的富文本滚动容器（.editor-scroll，用于自动滚动）
+  function findScrollElAt(x: number, y: number): HTMLElement | null {
+    const el = document.elementFromPoint(x, y)
+    if (!el?.closest) return null
+    return el.closest('.editor-scroll') as HTMLElement | null
+  }
+
+  // 拖拽到滚动区上下边缘时自动滚动（返回本帧是否发生了滚动）
+  function autoScroll(x: number, y: number): boolean {
+    const scrollEl = findScrollElAt(x, y)
+    if (!scrollEl) return false
+    const r = scrollEl.getBoundingClientRect()
+    const inTop = y > r.top && y < r.top + SCROLL_EDGE
+    const inBottom = y < r.bottom && y > r.bottom - SCROLL_EDGE
+    if (!inTop && !inBottom) return false
+    // 越贴近边缘滚得越快
+    const dist = inTop ? y - r.top : r.bottom - y
+    const step = Math.max(2, Math.round(SCROLL_MAX_SPEED * (1 - dist / SCROLL_EDGE)))
+    if (inTop && scrollEl.scrollTop > 0) {
+      scrollEl.scrollTop -= step
+      return true
+    }
+    if (inBottom && scrollEl.scrollTop < scrollEl.scrollHeight - scrollEl.clientHeight) {
+      scrollEl.scrollTop += step
+      return true
+    }
+    return false
+  }
+
+  // 拖拽期间的帧循环：每帧做一次便宜的自动滚动检查；
+  // 落点/指示器只在鼠标移动（needsIndicator）或发生滚动导致内容变化时重算，避免每帧 posAtCoords 卡顿。
+  function ensureDragLoop() {
+    if (rafId) return
+    rafId = requestAnimationFrame(dragLoop)
+  }
+  function dragLoop() {
+    rafId = 0
+    if (!active || !source) return
+    const scrolled = autoScroll(lastX, lastY)
+    if (needsIndicator || scrolled) {
+      needsIndicator = false
+      updateDropIndicator(lastX, lastY)
+    }
+    ensureDragLoop()
   }
 
   function onDragPointerDown(e: PointerEvent) {
@@ -71,6 +122,9 @@ export function useBlockDrag(options: {
     document.body.classList.add('block-handle-dragging') // 全局抑制所有 popup/高亮
     suppressUI() // 关闭当前 popup / 高亮 / keepAlive
     createGhost(node, e.clientX, e.clientY)
+    lastX = e.clientX
+    lastY = e.clientY
+    ensureDragLoop() // 立即启动帧循环（含自动滚动）
     // window 级监听：mouse.down 后部分环境不再派发 mousemove，但 pointermove 稳定
     window.addEventListener('pointermove', onDragMove)
     window.addEventListener('mousemove', onDragMove)
@@ -85,16 +139,11 @@ export function useBlockDrag(options: {
       ghostEl.style.left = `${e.clientX + 10}px`
       ghostEl.style.top = `${e.clientY + 10}px`
     }
-    // 落点 / 指示器计算较重：合并到 rAF，每帧最多一次
-    pendingX = e.clientX
-    pendingY = e.clientY
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
-        rafId = 0
-        if (!active || !source) return
-        updateDropIndicator(pendingX, pendingY)
-      })
-    }
+    // 坐标变化：下一帧重算落点/指示器（自动滚动触发时也会重算）
+    lastX = e.clientX
+    lastY = e.clientY
+    needsIndicator = true
+    ensureDragLoop()
   }
 
   // 在目标编辑器上显示/隐藏插入指示器（自绘 position:fixed 线，viewport 坐标）

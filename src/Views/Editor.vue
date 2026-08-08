@@ -268,9 +268,6 @@ const selectionBoxStyle = computed(() => {
   }
 })
 
-// ---------- 移动端边距常量 ----------
-const MOBILE_MARGIN = 8 // 左右对称边距
-
 // ---------- 辅助函数 ----------
 const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
@@ -516,11 +513,11 @@ const updateCanvasWidth = () => {
   }
 }
 
-// 把单个块的移动端宽度按画布拉伸（x 贴左，宽度占满画布减去左右边距）
+// 把单个块的移动端宽度按画布拉伸（x 贴左，宽度占满整个画布，无左右边距）
 const stretchMobileWidth = (item: CanvasItem) => {
   const mobile = item.layout.mobile
-  mobile.x = MOBILE_MARGIN
-  mobile.w = canvasWidth.value - 2 * MOBILE_MARGIN
+  mobile.x = 0
+  mobile.w = canvasWidth.value
 }
 
 // 应用移动端布局：宽度始终按画布拉伸；位置/高度缺失时（旧数据）从桌面布局补齐
