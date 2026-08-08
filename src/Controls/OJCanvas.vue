@@ -910,6 +910,10 @@ defineExpose({
   z-index: 55;
 }
 
+.drag-wrapper :deep(.handle) {
+  z-index: 20;
+}
+
 .block-container {
   height: 100%;
   width: 100%;
