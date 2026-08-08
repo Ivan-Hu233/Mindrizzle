@@ -63,7 +63,7 @@ const editorMount = ref<HTMLDivElement>()
 onMounted(() => {
   if (editorMount.value) {
     editor.mount(editorMount.value)
-    // 移动端主动聚焦（可选）
+    // 移动端主动聚焦
     if (isMobile.value) {
       setTimeout(() => editor.view?.focus(), 100)
     }

@@ -38,13 +38,15 @@ const getErrorMessage = (error: unknown): string => {
 onMounted(async () => {
   await router.isReady()
 
+  // 非 Tauri 环境（纯浏览器调试）下没有 IPC，plugin-log 内部调用 invoke 会抛错
+  if (!isTauri()) return
+
   try {
     const win = getCurrentWindow();
     await win.show();
     info('Tauri 窗口已显示'); // 调试日志
   } catch (error) {
     logError(getErrorMessage(error))
-    info('当前不在 Tauri 环境中，跳过显示');
   }
 });
 
