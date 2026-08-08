@@ -567,19 +567,37 @@ const save = () => {
   localStorage.setItem('canvasData', JSON.stringify(serializable))
 }
 
+// 归一化从 localStorage 读出的单个条目：
+// 兼容「双端布局」重构（commit 7c65209）前的扁平格式（x/y/w/h 在条目顶层、无 layout），
+// 并对缺失的布局/组件/配置用默认值兜底，避免加载旧数据直接崩溃。
+const normalizeLoadedItem = (it: any): CanvasItem => {
+  const component: CanvasItem['component'] = componentMap[it.component as CanvasItem['component']]
+    ? (it.component as CanvasItem['component'])
+    : 'RichTextEditor'
+  const isLegacyFlat = !it.layout && typeof it.x === 'number' && typeof it.y === 'number'
+  const desktop: Rect = isLegacyFlat
+    ? { x: it.x, y: it.y, w: it.w ?? 400, h: it.h ?? 300 }
+    : { x: 0, y: 0, w: 400, h: 300, ...(it.layout?.desktop ?? {}) }
+  const mobile: Rect = { ...desktop, ...(it.layout?.mobile ?? {}) }
+  return {
+    id: typeof it.id === 'string' && it.id ? it.id : generateId(),
+    component,
+    config: (it.config ?? componentMetaOf(component)?.defaultConfig() ?? {}) as WidgetConfig,
+    layout: { desktop, mobile },
+  }
+}
+
 const load = async () => {
   const raw = localStorage.getItem('canvasData')
   if (!raw) return
-  const parsed = JSON.parse(raw)
-  state.items = parsed.map((it: any) => ({
-    id: it.id,
-    component: it.component,
-    config: it.config,
-    layout: {
-      desktop: { ...it.layout.desktop },
-      mobile: { ...it.layout.mobile },
-    },
-  }))
+  let parsed: any
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return // 数据损坏：静默跳过，不阻塞画布
+  }
+  if (!Array.isArray(parsed)) return
+  state.items = parsed.map(normalizeLoadedItem)
   await nextTick()
   await nextTick()
   if (mobileMode.value) {

@@ -4,16 +4,15 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
-import { clearStoreHover, getBlockEl, getScrollEl, getView, isCompactView } from './blockHandleUtils'
+import { getBlockEl, getScrollEl, getView, isCompactView } from './blockHandleUtils'
 import type { HoveredBlock } from './useHoverState'
 
 export function useHoverUi(options: {
   editor: Editor | null
   hoveredBlock: Ref<HoveredBlock | null>
   activeHover: Ref<HoveredBlock | null>
-  getStore: (el?: Element | null) => any
 }) {
-  const { editor, hoveredBlock, activeHover, getStore } = options
+  const { editor, hoveredBlock, activeHover } = options
   const view = () => getView(editor)
 
   // ---- 移动端行高亮 ----
@@ -76,30 +75,30 @@ export function useHoverUi(options: {
   // ---- 鼠标移出编辑器立即关闭 ----
   // ProseKit 的 hover 有 200ms 节流 + 180ms 失效缓冲（共约 380ms）才清 hoverState，
   // 这里监听内容 DOM 的 pointerleave，短缓冲后直接清，避免 popup/高亮延迟消失。
-  let leaveTimer: ReturnType<typeof setTimeout> | null = null
+  // let leaveTimer: ReturnType<typeof setTimeout> | null = null
   let leaveBound = false
   let scrollBoundEl: HTMLElement | null = null
 
-  function onEditorPointerLeave() {
-    if (leaveTimer) return
-    leaveTimer = setTimeout(() => {
-      leaveTimer = null
-      highlightRect.value = null
-      clearStoreHover(view(), getStore)
-    }, 100) // 短缓冲：给“从块移到 popup（两者有间隙）”留时间，避免闪烁
-  }
-  function cancelLeave() {
-    if (leaveTimer) {
-      clearTimeout(leaveTimer)
-      leaveTimer = null
-    }
-  }
+  // function onEditorPointerLeave() {
+  //   if (leaveTimer) return
+  //   leaveTimer = setTimeout(() => {
+  //     leaveTimer = null
+  //     highlightRect.value = null
+  //     clearStoreHover(view(), getStore)
+  //   }, 100) // 短缓冲：给“从块移到 popup（两者有间隙）”留时间，避免闪烁
+  // }
+  // function cancelLeave() {
+  //   if (leaveTimer) {
+  //     clearTimeout(leaveTimer)
+  //     leaveTimer = null
+  //   }
+  // }
 
   function ensureLeaveListener() {
     const dom = view()?.dom
     if (leaveBound || !dom) return
     leaveBound = true
-    dom.addEventListener('pointerleave', onEditorPointerLeave)
+    // dom.addEventListener('pointerleave', onEditorPointerLeave)
   }
   function ensureScrollListener() {
     const scrollEl = getScrollEl(view())
@@ -116,7 +115,7 @@ export function useHoverUi(options: {
     if (!view()?.dom) return
     ensureLeaveListener()
     ensureScrollListener()
-    cancelLeave()
+    // cancelLeave()
     updateHoverUi()
   })
 
@@ -151,14 +150,31 @@ export function useHoverUi(options: {
   }
 
   function onPopupEnter() {
-    cancelLeave() // 取消“移出编辑器”的待清除定时，保留高亮与 popup
+    // cancelLeave() // 取消“移出编辑器”的待清除定时，保留高亮与 popup
     popupKeep.value = true
     startKeepAlive()
   }
   function onPopupLeave() {
     popupKeep.value = false
     stopKeepAlive()
-    clearStoreHover(view(), getStore) // 防 hoverState 残留导致 popup 一直显示
+    clearHoverViaExtension()
+  }
+
+  // ---- 通过扩展路径清除 hoverState（替代直接 store.set(undefined)）----
+  // 不能直接 clearStoreHover：那会绕过 useHoverExtension 内部的 prevHoverState，
+  // 于是鼠标回到同一行时，扩展收到相同 hoverState 会因 isHoverStateEqual 直接
+  // return，store 里仍是 undefined，popup 再也无法出现（即本次修复的问题）。
+  // 正确做法是向内容 DOM 派发「位于所有块之外」的 pointermove + pointerout，
+  // 让 handlePointerEvent 以 null 走一遍扩展自带的失效缓冲（180ms）正常清除：
+  //   - pointermove：清掉 keepAlive 遗留的、指向块 L 的节流尾调用，避免它把失效计时取消
+  //   - pointerout：立即触发一次 null 判定，启动失效计时
+  // 若鼠标在 180ms 内回到某个块（如 popup→行），扩展会取消计时并重新持有该块，popup 保持。
+  function clearHoverViaExtension() {
+    const dom = view()?.dom
+    if (!dom) return
+    const emptyPoint = { bubbles: true, clientX: -9999, clientY: -9999, pointerId: 1 }
+    dom.dispatchEvent(new PointerEvent('pointermove', emptyPoint))
+    dom.dispatchEvent(new PointerEvent('pointerout', emptyPoint))
   }
 
   /** 拖拽开始等场景：整体关闭 popup、高亮与 hoverState。 */
@@ -166,13 +182,13 @@ export function useHoverUi(options: {
     popupKeep.value = false
     stopKeepAlive()
     highlightRect.value = null
-    clearStoreHover(view(), getStore)
+    clearHoverViaExtension()
   }
 
   onUnmounted(() => {
     stopKeepAlive()
-    cancelLeave()
-    if (leaveBound) view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
+    // cancelLeave()
+    // if (leaveBound) view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
     scrollBoundEl?.removeEventListener('scroll', updateHoverUi)
   })
 

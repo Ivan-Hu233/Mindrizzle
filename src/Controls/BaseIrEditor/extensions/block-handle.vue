@@ -42,7 +42,6 @@ const {
   editor: props.editor ?? null,
   hoveredBlock,
   activeHover,
-  getStore,
 })
 const { isDragging, onDragPointerDown } = useBlockDrag({
   editor: props.editor ?? null,
@@ -146,7 +145,7 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
 /* right 放置：块在 popup 左侧，改为左侧留白 */
 .block-handle-positioner.placement-right .block-handle-popup {
   margin-right: 0;
-  margin-left: 12px;
+  margin-left: -6px;
 }
 
 /* top 放置：块在 popup 下方，仅下方留白（水平居中） */
