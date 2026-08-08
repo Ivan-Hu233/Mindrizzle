@@ -30,6 +30,11 @@ export function useBlockDrag(options: {
   let source: DragSource | null = null
   let ghostEl: HTMLElement | null = null
   let indicatorEl: HTMLElement | null = null
+  // 拖拽中「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect），
+  // 用 rAF 合并到每帧最多一次，避免每次 mousemove 都触发 layout 重排造成拖拽卡顿。
+  let rafId = 0
+  let pendingX = 0
+  let pendingY = 0
 
   // 通过鼠标坐标找到所在的编辑器实例（支持跨编辑器拖拽）
   function findEditorAt(x: number, y: number): Editor | null {
@@ -75,14 +80,28 @@ export function useBlockDrag(options: {
 
   function onDragMove(e: MouseEvent) {
     if (!active || !source) return
+    // ghost 跟随鼠标：纯样式写，实时更新（保持拖拽跟手）
     if (ghostEl) {
       ghostEl.style.left = `${e.clientX + 10}px`
       ghostEl.style.top = `${e.clientY + 10}px`
     }
-    // 在目标编辑器上显示插入指示器（自绘 position:fixed 线，viewport 坐标）
-    const target = findEditorAt(e.clientX, e.clientY)
+    // 落点 / 指示器计算较重：合并到 rAF，每帧最多一次
+    pendingX = e.clientX
+    pendingY = e.clientY
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        if (!active || !source) return
+        updateDropIndicator(pendingX, pendingY)
+      })
+    }
+  }
+
+  // 在目标编辑器上显示/隐藏插入指示器（自绘 position:fixed 线，viewport 坐标）
+  function updateDropIndicator(x: number, y: number) {
+    const target = findEditorAt(x, y)
     if (target) {
-      updateIndicator(target.view, findDropPos(target.view, e.clientX, e.clientY))
+      updateIndicator(target.view, findDropPos(target.view, x, y))
     } else {
       hideIndicator()
     }
@@ -151,6 +170,10 @@ export function useBlockDrag(options: {
   function cleanup() {
     if (!active) return
     active = false
+    if (rafId) {
+      cancelAnimationFrame(rafId)
+      rafId = 0
+    }
     isDragging.value = false
     document.body.classList.remove('block-handle-dragging')
     source = null
