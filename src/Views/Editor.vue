@@ -20,7 +20,7 @@
     </div>
     
     <!-- 画布区域（无限画布：右键拖拽空白处平移） -->
-    <div class="canvas-container" ref="canvasContainerRef">
+    <div class="canvas-container" ref="canvasContainerRef" :style="containerStyle">
       <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle"
         @click="handleCanvasClick" @mousedown="onCanvasMouseDown"
         @mousemove="updateSelection" @focusin="handleCanvasFocusin"
@@ -263,6 +263,12 @@ const panSession = reactive({
 
 const canvasStyle = computed<CSSProperties>(() => ({
   transform: `translate(${pan.x}px, ${pan.y}px)`,
+}))
+
+// 点阵背景放在视口容器上（保证任何位置不露白），但 background-position 随 pan 平移，
+// 让点阵跟随画布一起滚动（像真正的无限画布网格）
+const containerStyle = computed<CSSProperties>(() => ({
+  backgroundPosition: `${pan.x}px ${pan.y}px`,
 }))
 
 // ---------- 拖动块到视口边缘时画布自动平移（方向与 block-handle 拖段落一致）----------
@@ -873,9 +879,12 @@ onUnmounted(() => {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #f7f8fa;
-  /* 固定点阵背景：无论平移多远都始终有画布底纹 */
+  background-color: #f7f8fa;
+  /* 点阵背景：background-position 由 containerStyle 动态绑定 pan，随画布平移滚动。
+     必须显式 background-repeat: repeat（某些全局样式会把它重置为 no-repeat，
+     导致 pan 偏移后点阵单元被移出视口、看起来“看不见点了”） */
   background-image: radial-gradient(circle, #e3e6eb 1px, transparent 1px);
+  background-repeat: repeat;
   background-size: 24px 24px;
 }
 
