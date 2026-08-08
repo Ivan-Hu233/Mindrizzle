@@ -3,7 +3,7 @@
 
 import { computed, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
-import { clearStoreHover, getView, isCompactView } from './blockHandleUtils'
+import { clearStoreHover, getBlockEl, getClipBottom, getClipTop, getPopupHeight, getView, isCompactView } from './blockHandleUtils'
 
 export interface HoveredBlock {
   node: unknown
@@ -32,13 +32,30 @@ export function useHoverState(
     if (detail) hoveredBlock.value = detail
   }
 
-  // 手柄放置方向：移动端在行上方；桌面端让 popup 朝向画布内侧（块在左半 → 行右，右半 → 行左）
-  const handlePlacement = computed<'left' | 'right' | 'top'>(() => {
+  // popup 与行之间留出的理想间距；放置判断用 popup 的实际高度 + 该间距
+  const COMPACT_POPUP_GAP = 4
+
+  // 手柄放置方向：移动端默认在行上方；按 popup 实际大小与上下可用空间判断放哪侧
+  // （上方放得下就放上方，否则放下方，两侧都放不下则选空间大的一侧）。桌面端让 popup
+  // 朝向画布内侧（块在左半 → 行右，右半 → 行左）。
+  const handlePlacement = computed<'left' | 'right' | 'top' | 'bottom'>(() => {
     const fallback: 'left' | 'right' = dir === 'rtl' ? 'right' : 'left'
     if (!hoveredBlock.value) return fallback
 
     const view = getView(editor)
-    if (isCompactView(view)) return 'top'
+    if (isCompactView(view)) {
+      const blockEl = getBlockEl(view, hoveredBlock.value.pos)
+      if (blockEl) {
+        const br = blockEl.getBoundingClientRect()
+        const need = getPopupHeight(view) + COMPACT_POPUP_GAP
+        const spaceAbove = br.top - getClipTop(view)
+        const spaceBelow = getClipBottom(view) - br.bottom
+        if (spaceAbove >= need) return 'top'
+        if (spaceBelow >= need) return 'bottom'
+        return spaceAbove >= spaceBelow ? 'top' : 'bottom'
+      }
+      return 'top'
+    }
 
     const editorDom = view?.dom as HTMLElement | null
     const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null

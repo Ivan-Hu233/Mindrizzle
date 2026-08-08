@@ -36,10 +36,11 @@
           :disabled="!isEditMode" class="drag-wrapper"
           :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
           <div class="block-container bg-white elevation-1 rounded">
-            <!-- 左上角：名称 + 图标（可拖拽手柄） -->
-            <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2 border-b-0"
-              color="grey-lighten-4" rounded="t"
-              style="position:absolute; top:-28px; left:10px; height:28px; padding:0 10px; display:flex; align-items:center; cursor:grab; z-index:10; white-space:nowrap;"
+            <!-- 可拖拽手柄 -->
+            <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2"
+              :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
+              color="grey-lighten-4" :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
+              :style="handleBarStyle(item, { left: '10px', padding: '0 10px', display: 'flex', alignItems: 'center', cursor: 'grab', whiteSpace: 'nowrap' })"
               @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
               <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
               <span class="text-caption text-grey-darken-2 user-select-none">
@@ -47,12 +48,13 @@
               </span>
             </v-sheet>
 
-            <!-- 右上角：选中指示器 -->
+            <!-- 选中指示器 -->
             <transition name="pop-up">
               <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
-                class="drag-handle right-handle border border-grey-lighten-2 border-b-0" color="grey-lighten-4"
-                rounded="t"
-                style="position:absolute; top:-28px; right:10px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:grab; z-index:10;"
+                class="drag-handle right-handle border border-grey-lighten-2"
+                :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }" color="grey-lighten-4"
+                :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
+                :style="handleBarStyle(item, { right: '10px', width: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab' })"
                 @mousedown="(e: MouseEvent) => handleSelect(item.id, e)">
                 <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
               </v-sheet>
@@ -73,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
+import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch, type CSSProperties } from 'vue'
 import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
@@ -308,6 +310,27 @@ const setComponentRef = (id: string, el: any) => {
 
 // 当前端（桌面/移动端）布局
 const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
+
+// ---------- 拖拽手柄 / 选中指示器的上下放置 ----------
+// 手柄高 28px，需要块上方留出这么多空间。块贴近画布顶部（上方放不下）时，
+// 把拖拽手柄与选中指示器从块上方挪到块下方，避免被画布容器裁剪。
+const HANDLE_HEIGHT = 28
+const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
+  layoutOf(item).y < HANDLE_HEIGHT ? 'bottom' : 'top'
+
+// 手柄横条的内联定位样式：上方放不下时贴块底部（bottom:-28px），否则贴块顶部
+const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSProperties => {
+  const bottom = handlePlacementOf(item) === 'bottom'
+  return {
+    position: 'absolute',
+    top: bottom ? 'auto' : '-28px',
+    bottom: bottom ? '-28px' : 'auto',
+    height: '28px',
+    zIndex: 10,
+    transform: bottom ? 'translateY(1px)' : 'translateY(-1px)',
+    ...extra,
+  }
+}
 
 const syncItemPosition = (item: CanvasItem, x: number, y: number) => {
   const layout = layoutOf(item)
@@ -723,6 +746,13 @@ onUnmounted(() => {
   box-sizing: border-box;
   user-select: none;
   transition: background 0.2s;
+}
+
+/* 上方空间不够时手柄放块下方：描边与圆角翻转到底部 */
+.drag-handle.handle-bottom {
+  border-top: 0;
+  border-bottom: 1px solid #e0e0e0;
+  border-radius: 0 0 4px 4px;
 }
 
 .drag-handle:hover {

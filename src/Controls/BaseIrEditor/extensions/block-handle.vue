@@ -92,9 +92,10 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
     </BlockHandlePositioner>
   </BlockHandleRoot>
 
-  <!-- 移动端行高亮：teleport 到 body，避免被 .vdr transform / overflow 裁剪 -->
+  <!-- 移动端行高亮：teleport 到 body，避免被 .vdr transform / overflow 裁剪。
+       按 placement 加类，供 CSS 把高亮上缘的强调小条翻转到 popup 所在侧（反转）。 -->
   <Teleport to="body">
-    <div v-if="highlightRect && !isDragging" class="block-handle-line-highlight" :style="highlightStyle" />
+    <div v-if="highlightRect && !isDragging" class="block-handle-line-highlight" :class="`placement-${handlePlacement}`" :style="highlightStyle" />
   </Teleport>
 </template>
 
@@ -118,6 +119,13 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
 .block-handle-positioner.placement-top {
   margin-left: 0;
   margin-top: 16px;
+}
+
+/* bottom 放置：块在 popup 上方，改为上方留白（水平居中）。
+   用负 margin-top 抵消 floating-ui 的 6px offset，让 popup 顶边紧贴行底（与 top 放置对称）。 */
+.block-handle-positioner.placement-bottom {
+  margin-left: 0;
+  margin-top: -4px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -159,6 +167,13 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   margin-bottom: 12px;
   border-bottom-left-radius: 0px;
   border-bottom-right-radius: 0px;
+}
+
+/* bottom 放置：块在 popup 上方，仅上方留白（水平居中） */
+.block-handle-positioner.placement-bottom .block-handle-popup {
+  margin-right: 0;
+  border-top-left-radius: 0px;
+  border-top-right-radius: 0px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -238,6 +253,12 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   box-shadow: inset 0 2px 0 0 rgba(var(--v-theme-primary), 0.45);
   pointer-events: none;
   z-index: 9999;
+}
+
+/* popup 在行下方时（placement-bottom）：强调小条翻转到高亮下缘（反转），
+   与 popup 在行上方时小条在上缘形成对称 */
+.block-handle-line-highlight.placement-bottom {
+  box-shadow: inset 0 -2px 0 0 rgba(var(--v-theme-primary), 0.45);
 }
 
 /* 拖拽进行中：全局隐藏所有 block-handle popup 与行高亮（body 类由拖拽开始/结束控制） */

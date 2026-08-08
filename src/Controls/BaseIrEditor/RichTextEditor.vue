@@ -176,6 +176,10 @@ defineExpose({
   transform: translateY(var(--block-handle-shift, 0px)) scale(1.1);
   transform-origin: center bottom;
 }
+/* bottom 放置（行下方）：缩放原点改为顶部，向下展开 */
+.editor-wrapper.compact :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
+  transform-origin: center top;
+}
 .editor-wrapper.compact :deep(.block-handle-btn) {
   width: 28px;
   height: 28px;

@@ -11,7 +11,7 @@ export function useHoverUi(options: {
   editor: Editor | null
   hoveredBlock: Ref<HoveredBlock | null>
   activeHover: Ref<HoveredBlock | null>
-  placement: Ref<'left' | 'right' | 'top'>
+  placement: Ref<'left' | 'right' | 'top' | 'bottom'>
 }) {
   const { editor, hoveredBlock, activeHover, placement } = options
   const view = () => getView(editor)
@@ -45,7 +45,9 @@ export function useHoverUi(options: {
     const hover = dragging ? null : activeHover.value
     const scrollEl = getScrollEl(view())
 
-    // 高亮：块 rect 与滚动区可见 rect 求交集，完全不可见则不显示
+    // 高亮：块 rect 与滚动区可见 rect 求交集，完全不可见则不显示。
+    // 高亮带上缘的 2px 强调小条方向由 block-handle 模板按 placement 翻转：
+    // popup 在行下方时（placement-bottom）小条翻到高亮下缘（反转，与上方对称）。
     highlightRect.value = null
     if (hover && isCompactView(view())) {
       const r = getBlockEl(view(), hover.pos)?.getBoundingClientRect()
@@ -65,14 +67,20 @@ export function useHoverUi(options: {
       }
     }
 
-    // 顶部被裁剪的偏移：popup 由 hoveredBlock 驱动（最后一次 hover）
+    // 裁剪补偿（仿照向上，上下对称）：
+    // - placement-top：行顶部被滚动区裁掉时，把行上方的 popup 下移贴回可见区顶部；
+    // - placement-bottom：行底部被滚动区裁掉时，把行下方的 popup 上移贴回可见区底部。
     popupShiftPx.value = 0
     const hb = hoveredBlock.value
     if (hb && scrollEl) {
       const br = getBlockEl(view(), hb.pos)?.getBoundingClientRect()
       if (br) {
         const sr = scrollEl.getBoundingClientRect()
-        popupShiftPx.value = br.top < sr.top ? Math.round(sr.top - br.top) : 0
+        if (placement.value === 'top') {
+          popupShiftPx.value = br.top < sr.top ? Math.round(sr.top - br.top) : 0
+        } else if (placement.value === 'bottom') {
+          popupShiftPx.value = br.bottom > sr.bottom ? Math.round(sr.bottom - br.bottom) : 0
+        }
       }
     }
 
