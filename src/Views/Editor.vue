@@ -298,12 +298,13 @@ const autoPanTick = () => {
       if (!mobileMode.value) pan.x += vx
       pan.y += vy
       // 同步补偿被拖拽块坐标：块屏幕位置 = 块坐标 + pan，
-      // 鼠标停住时自动平移也不会让块偏离鼠标（与 onCustomDragMove 公式一致）
+      // 鼠标停住时自动平移也不会让块偏离鼠标（与 onCustomDragMove 公式一致）。
+      // 移动端锁水平：横向自动平移与横向补偿一并跳过，仅竖向滚动。
       Object.keys(customDragGroup).forEach((id) => {
         const target = state.items.find((it) => it.id === id)
         if (!target) return
         const layout = layoutOf(target)
-        layout.x -= vx
+        if (!mobileMode.value) layout.x -= vx
         layout.y -= vy
       })
     }
