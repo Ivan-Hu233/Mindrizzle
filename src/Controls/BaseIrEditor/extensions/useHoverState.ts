@@ -59,10 +59,12 @@ export function useHoverState(
 
     const editorDom = view?.dom as HTMLElement | null
     const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
-    const canvas = editorDom?.closest('.canvas') as HTMLElement | null
-    if (!widget || !canvas) return fallback
+    // 用可见视口(.canvas-container)而非世界层(.canvas)判断“内/外”，
+    // 无限画布下世界层远大于视口，按它判断会恒为同一侧。
+    const container = editorDom?.closest('.canvas-container') as HTMLElement | null
+    if (!widget || !container) return fallback
     const w = widget.getBoundingClientRect()
-    const c = canvas.getBoundingClientRect()
+    const c = container.getBoundingClientRect()
     return w.left + w.width / 2 < c.left + c.width / 2 ? 'right' : 'left'
   })
 

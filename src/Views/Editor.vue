@@ -19,17 +19,19 @@
       </v-btn>
     </div>
     
-    <!-- 画布区域 -->
-    <div class="canvas-container">
-      <div class="canvas" @click="handleCanvasClick" @mousedown="startSelection" @mousemove="updateSelection"
-        @focusin="handleCanvasFocusin" ref="canvasRef">
+    <!-- 画布区域（无限画布：右键拖拽空白处平移） -->
+    <div class="canvas-container" ref="canvasContainerRef">
+      <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle"
+        @click="handleCanvasClick" @mousedown="onCanvasMouseDown"
+        @mousemove="updateSelection" @focusin="handleCanvasFocusin"
+        ref="canvasRef">
         <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
         <VueDraggableResizable v-for="item in state.items" :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
           :data-id="item.id" :z="itemZ(item.id)" :active="isActive(item.id)"
           :x="layoutOf(item).x" :y="layoutOf(item).y" :w="layoutOf(item).w" :h="layoutOf(item).h"
           :min-width="(constraintsOf(item).minWidth ?? 0) + 8" :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
           :max-width="constraintsOf(item).maxWidth ?? null" :max-height="constraintsOf(item).maxHeight ?? null"
-          :is-conflict-check="!mobileMode" :snap="true" :snap-tolerance="10" parent :active-on-top="true"
+          :is-conflict-check="!mobileMode" :snap="true" :snap-tolerance="10" :active-on-top="true"
           :axis="mobileMode ? 'y' : 'both'" :handles="mobileMode ? ['tm', 'bm'] : undefined"
           @dragging="(x, y) => onDragging(item, x, y)" @dragstop="(x, y) => onDragStop(item, x, y)"
           drag-handle=".drag-handle" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)"
@@ -241,7 +243,65 @@ interface ComponentController {
 
 const componentRefs = ref<Record<string, ComponentController | undefined>>({})
 const canvasRef = ref<HTMLElement | null>(null)
+const canvasContainerRef = ref<HTMLElement | null>(null)
 const canvasWidth = ref(0)
+
+// ---------- 无限画布：平移与拖拽 ----------
+// 块的坐标即「世界坐标」（连续实数，可正可负、可任意大），块不受边界约束（VDR 无 parent），
+// 可自由拖动到任意位置（无限放置）。平移 pan 无界：世界层整体 transform 移动 (+pan)，
+// 块屏幕位置 = 世界坐标 + pan，鼠标拖向哪边内容就跟随哪边（跟手）。
+// 点阵背景固定在视口容器上，视口内任何位置视觉都是画布、任何位置右键都能拖拽平移。
+const pan = reactive({ x: 0, y: 0 })
+const isPanning = ref(false)
+const panSession = reactive({
+  active: false,
+  startClientX: 0,
+  startClientY: 0,
+  startPanX: 0,
+  startPanY: 0,
+})
+
+const canvasStyle = computed<CSSProperties>(() => ({
+  transform: `translate(${pan.x}px, ${pan.y}px)`,
+}))
+
+const startPan = (e: MouseEvent) => {
+  if (e.button !== 2) return // 仅右键拖拽平移（不依赖 Vue 的 .right 修饰符，兼容性更稳）
+  // 右键菜单已全局禁用，任意位置（含块上）右键拖拽都平移
+  e.preventDefault()
+  panSession.active = true
+  panSession.startClientX = e.clientX
+  panSession.startClientY = e.clientY
+  panSession.startPanX = pan.x
+  panSession.startPanY = pan.y
+  isPanning.value = true
+}
+
+// 捕获阶段拦截右键 mousedown：确保在任意位置（含块内编辑器 ProseMirror 内部）右键拖拽都能平移，
+// 并阻止编辑器等通过 stopPropagation 拦截右键事件。
+const handleCanvasMouseDownCapture = (e: MouseEvent) => {
+  if (e.button !== 2) return
+  startPan(e)
+  e.stopPropagation()
+}
+
+const updatePan = (e: MouseEvent) => {
+  if (!panSession.active) return
+  const nx = panSession.startPanX + (e.clientX - panSession.startClientX)
+  const ny = panSession.startPanY + (e.clientY - panSession.startClientY)
+  // 移动端只需竖直方向无限移动，水平方向锁定（不随平移移动）
+  pan.x = mobileMode.value ? 0 : nx
+  pan.y = ny
+}
+
+const stopPan = () => {
+  if (!panSession.active) return
+  panSession.active = false
+  isPanning.value = false
+}
+
+// 界面禁用右键菜单（窗口级全局）：避免右键拖拽平移时弹出原生菜单
+const preventContextMenu = (e: Event) => e.preventDefault()
 const dragGroupState = ref<{ active: boolean; origins: Record<string, { x: number; y: number }> }>({
   active: false,
   origins: {},
@@ -312,8 +372,9 @@ const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mob
 // 手柄高 28px，需要块上方留出这么多空间。块贴近画布顶部（上方放不下）时，
 // 把拖拽手柄与选中指示器从块上方挪到块下方，避免被画布容器裁剪。
 const HANDLE_HEIGHT = 28
+// 手柄是否放块下方取决于「块在视口内的位置」（世界坐标 + 平移）：贴近视口顶部时放下方
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
-  layoutOf(item).y < HANDLE_HEIGHT ? 'bottom' : 'top'
+  layoutOf(item).y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
 
 // 手柄横条的内联定位样式：上方放不下时贴块底部（bottom:-28px），否则贴块顶部
 const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSProperties => {
@@ -411,8 +472,15 @@ const updateSelectionBox = () => {
 }
 
 const isRectIntersectingItem = (rect: { x: number; y: number; w: number; h: number }, item: CanvasItem) => {
+  // 选择框与块都在世界坐标参考系下比较
   const itemRect = layoutOf(item)
   return itemRect.x < rect.x + rect.w && itemRect.x + itemRect.w > rect.x && itemRect.y < rect.y + rect.h && itemRect.y + itemRect.h > rect.y
+}
+
+// 画布 mousedown 统一入口：左键负责框选，右键负责平移（两者互斥）
+const onCanvasMouseDown = (e: MouseEvent) => {
+  startSelection(e)
+  startPan(e)
 }
 
 const startSelection = (e: MouseEvent) => {
@@ -508,8 +576,10 @@ const STEP = 30
 
 // ---------- 移动端布局适配 ----------
 const updateCanvasWidth = () => {
-  if (canvasRef.value) {
-    canvasWidth.value = canvasRef.value.clientWidth
+  // 移动端宽度取可见视口(.canvas-container)宽度
+  const container = canvasContainerRef.value ?? canvasRef.value
+  if (container) {
+    canvasWidth.value = container.clientWidth
   }
 }
 
@@ -539,6 +609,7 @@ const refreshLayout = () => {
 // flush:'pre'：在组件重挂载前执行，先同步富文本内容
 watch(mobileMode, () => {
   syncComponentData()
+  if (mobileMode.value) pan.x = 0 // 移动端锁水平：切换时归零水平平移，避免块水平偏移
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
@@ -550,13 +621,16 @@ const addComponent = (key: CanvasItem['component']) => {
   const meta = componentMetaOf(key)
   if (!meta) return
   const id = generateId()
+  // 新块放在当前视口可见处：世界坐标 = 视口内偏移 - 平移（屏幕位置 = 世界 + pan = 偏移）
+  const baseX = nextX - pan.x
+  const baseY = nextY - pan.y
   const newItem: CanvasItem = {
     id,
     component: key,
     config: meta.defaultConfig(),
     layout: {
-      desktop: { x: nextX, y: nextY, ...meta.defaultSize },
-      mobile: { x: nextX, y: nextY, ...meta.defaultSize },
+      desktop: { x: baseX, y: baseY, ...meta.defaultSize },
+      mobile: { x: baseX, y: baseY, ...meta.defaultSize },
     },
   }
   state.items.push(newItem)
@@ -574,14 +648,22 @@ const addComponent = (key: CanvasItem['component']) => {
 // ---------- 保存 / 加载 ----------
 const save = () => {
   syncComponentData()
+  // 保存为「pan=0 时块的屏幕位置」：世界坐标 + 平移 = 保存时块在视口内的位置，
+  // 加载后平移归零从原点查看，保证保存时可见的块打开时仍可见。
+  const toSaveRect = (r: Rect) => ({
+    x: r.x + pan.x,
+    y: r.y + pan.y,
+    w: r.w,
+    h: r.h,
+  })
   // 移动端不持久化宽度（运行时按画布拉伸），只存位置与高度
   const serializable = state.items.map((it) => ({
     id: it.id,
     component: it.component,
     config: it.config,
     layout: {
-      desktop: { ...it.layout.desktop },
-      mobile: { x: it.layout.mobile.x, y: it.layout.mobile.y, h: it.layout.mobile.h },
+      desktop: toSaveRect(it.layout.desktop),
+      mobile: { x: 0, y: it.layout.mobile.y + pan.y, h: it.layout.mobile.h },
     },
   }))
   localStorage.setItem('canvasData', JSON.stringify(serializable))
@@ -599,6 +681,11 @@ const normalizeLoadedItem = (it: any): CanvasItem => {
     ? { x: it.x, y: it.y, w: it.w ?? 400, h: it.h ?? 300 }
     : { x: 0, y: 0, w: 400, h: 300, ...(it.layout?.desktop ?? {}) }
   const mobile: Rect = { ...desktop, ...(it.layout?.mobile ?? {}) }
+  // 坐标兜底：null/undefined 一律归 0，避免拖拽异常数据把块弄丢
+  desktop.x = typeof desktop.x === 'number' ? desktop.x : 0
+  desktop.y = typeof desktop.y === 'number' ? desktop.y : 0
+  mobile.x = typeof mobile.x === 'number' ? mobile.x : 0
+  mobile.y = typeof mobile.y === 'number' ? mobile.y : 0
   return {
     id: typeof it.id === 'string' && it.id ? it.id : generateId(),
     component,
@@ -616,8 +703,17 @@ const load = async () => {
   } catch {
     return // 数据损坏：静默跳过，不阻塞画布
   }
-  if (!Array.isArray(parsed)) return
-  state.items = parsed.map(normalizeLoadedItem)
+  // 兼容旧格式（纯 CanvasItem[] 数组）与中间版（{ pan, items } 对象）
+  if (Array.isArray(parsed)) {
+    state.items = parsed.map(normalizeLoadedItem)
+  } else if (parsed && Array.isArray(parsed.items)) {
+    state.items = parsed.items.map(normalizeLoadedItem)
+  } else {
+    return
+  }
+  // 保存的坐标是 pan=0 时的世界坐标，加载后归零平移从原点查看内容
+  pan.x = 0
+  pan.y = 0
   await nextTick()
   await nextTick()
   if (mobileMode.value) {
@@ -650,15 +746,24 @@ const deleteSelected = () => {
 onMounted(() => {
   load()
   nextTick(refreshLayout)
+  // 捕获监听挂在视口容器上：整个视口（含负坐标区域、世界层外区域）右键拖拽都能平移
+  canvasContainerRef.value?.addEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.addEventListener('resize', onResize)
   window.addEventListener('mousemove', updateSelection)
   window.addEventListener('mouseup', finishSelection)
+  window.addEventListener('mousemove', updatePan)
+  window.addEventListener('mouseup', stopPan)
+  window.addEventListener('contextmenu', preventContextMenu)
 })
 
 onUnmounted(() => {
+  canvasContainerRef.value?.removeEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('mousemove', updateSelection)
   window.removeEventListener('mouseup', finishSelection)
+  window.removeEventListener('mousemove', updatePan)
+  window.removeEventListener('mouseup', stopPan)
+  window.removeEventListener('contextmenu', preventContextMenu)
 })
 </script>
 
@@ -682,23 +787,32 @@ onUnmounted(() => {
 
 .canvas-container {
   flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 26px 0px 0px 0px;
+  position: relative;
   overflow: hidden;
+  background: #f7f8fa;
+  /* 固定点阵背景：无论平移多远都始终有画布底纹 */
+  background-image: radial-gradient(circle, #e3e6eb 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
+/* 无限画布世界层：与视口同尺寸的绝对定位层，transform 由 TS 的 canvasStyle 绑定
+   （translate(pan) 跟随鼠标移动，跟手）。块用世界坐标绝对定位（无边界约束），
+   可溢出层外（overflow visible），超出视口的部分由容器 overflow hidden 裁剪；
+   点阵背景在视口容器上（固定），因此平移无限但背景始终存在。 */
 .canvas {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  min-height: 400px;
-  background: transparent;
-  border: 1px solid #ddd;
-  border-radius: 4px;
   overflow: visible;
-  box-sizing: border-box;
+  cursor: grab;
+  will-change: transform;
+}
+
+.canvas.panning {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .drag-wrapper.selected {
