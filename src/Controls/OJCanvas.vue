@@ -12,7 +12,7 @@
         :snap-tolerance="10" :active-on-top="true" :axis="mobileMode ? 'y' : 'both'"
         :handles="mobileMode ? ['tm', 'bm'] : undefined" :draggable="false" drag-handle=".drag-handle"
         @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" :disabled="!isEditMode" class="drag-wrapper"
-        :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
+        :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
         <div class="block-container bg-white elevation-1 rounded">
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
@@ -425,7 +425,8 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
   return {
     position: 'absolute',
     // 因手柄提升到 .canvas 顶层（已应用 pan+origin 变换），故用块存储坐标直接定位
-    top: `${bottom ? layout.y + layout.h : layout.y - HANDLE_HEIGHT}px`,
+    // 因块选中态有 2px 主题色描边（box-shadow 环），故手柄需让出该宽度以与其对齐
+    top: `${bottom ? layout.y + layout.h + 2 : layout.y - HANDLE_HEIGHT - 2}px`,
     left: `${layout.x + 10}px`,
     height: `${HANDLE_HEIGHT}px`,
     // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 999
@@ -436,8 +437,8 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
     cursor: 'grab',
     whiteSpace: 'nowrap',
     // 因内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
-    // 故改用 CSS 变量 --handle-y（贴边 ±1px 微调）+ --handle-slide（滑出方向）由 CSS 组合进动画
-    '--handle-y': bottom ? '1px' : '-1px',
+    // 故改用 CSS 变量 --handle-y（贴边微调）+ --handle-slide（滑出方向）由 CSS 组合进动画
+    '--handle-y': '0px',
     '--handle-slide': bottom ? '-28px' : '28px',
   }
 }
@@ -635,6 +636,14 @@ const focusBlockContent = (id: string) => {
     const ta = wrapper?.querySelector('textarea') as HTMLElement | null
     if (ta) ta.focus()
   })
+}
+
+// 因 ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
+// 故按 popup 显隐记录所在块 id，以便只隐藏该块 tm（其余缩放手柄不受影响）
+const popupBlockId = ref<string | null>(null)
+const onBlockPopupChange = (e: Event) => {
+  const detail = (e as CustomEvent).detail as { open?: boolean; blockId?: string | null }
+  popupBlockId.value = detail.open && detail.blockId ? detail.blockId : null
 }
 
 // 因需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
@@ -917,6 +926,7 @@ onMounted(() => {
   window.addEventListener('contextmenu', preventContextMenu)
   window.addEventListener('mousemove', updateMousePos)
   window.addEventListener('omnijot:canvas-pan', onCanvasPanEvent)
+  window.addEventListener('omnijot:block-popup', onBlockPopupChange)
 })
 
 onUnmounted(() => {
@@ -929,6 +939,7 @@ onUnmounted(() => {
   window.removeEventListener('contextmenu', preventContextMenu)
   window.removeEventListener('mousemove', updateMousePos)
   window.removeEventListener('omnijot:canvas-pan', onCanvasPanEvent)
+  window.removeEventListener('omnijot:block-popup', onBlockPopupChange)
 })
 
 defineExpose({
@@ -1008,6 +1019,12 @@ defineExpose({
    （--v-theme-primary 为 RGB 分量，需经 rgb() 包裹才能用于 box-shadow） */
 .drag-wrapper.selected {
   box-shadow: 0 0 0 2px rgb(var(--v-theme-primary));
+}
+
+/* 因行高亮 popup 弹出时块顶部正中间缩放手柄（.handle-tm）会插在 popup 上方，
+   故仅在 popup 弹出时隐藏该块 tm（VDR 用内联 display 控制手柄显隐，故需 !important 覆盖） */
+.drag-wrapper.popup-open :deep(.handle-tm) {
+  display: none !important;
 }
 
 .block-container {

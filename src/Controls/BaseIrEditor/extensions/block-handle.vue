@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { mdiPlus, mdiDragVerticalVariant } from '@mdi/js'
 import {
   BlockHandleAdd,
@@ -8,7 +9,7 @@ import {
   BlockHandleRoot,
 } from 'prosekit/vue/block-handle'
 import type { Editor } from '@prosekit/core'
-import { createStoreResolver } from './blockHandleUtils'
+import { createStoreResolver, getView } from './blockHandleUtils'
 import { useHoverState } from './useHoverState'
 import { useHoverUi } from './useHoverUi'
 import { useBlockDrag } from './useBlockDrag'
@@ -46,6 +47,15 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   editor: props.editor ?? null,
   hoveredBlock,
   suppressUI,
+})
+
+// 因行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，故通知画布按 popup 显隐隐藏该块 tm
+watch([activeHover, popupKeep], () => {
+  if(handlePlacement.value != "top") return
+  const open = !!activeHover.value || popupKeep.value
+  const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
+  const blockId = wrapper?.dataset.id ?? null
+  window.dispatchEvent(new CustomEvent('omnijot:block-popup', { detail: { open, blockId } }))
 })
 </script>
 
