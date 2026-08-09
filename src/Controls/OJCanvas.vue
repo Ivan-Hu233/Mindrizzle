@@ -24,22 +24,18 @@
       </VueDraggableResizable>
 
       <!-- 因手柄在块内会被相邻块/compact 编辑器（块间层叠）盖住而点不到，故提升到 .canvas 顶层用块坐标定位 -->
+      <!-- 选中态由块高亮边框标示，不再单独渲染选中指示器 -->
       <template v-for="item in state.items" :key="`handle-${item.id}`">
-        <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
-          :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
-          :style="handleBarStyle(item, 'left')" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
-          <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
-          <span class="text-caption text-grey-darken-2 user-select-none">
-            {{ componentLabelOf(item.component) }}
-          </span>
-        </div>
-        <transition name="pop-up">
-          <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle right-handle"
+        <Transition name="pop-up">
+          <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
             :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
-            :style="handleBarStyle(item, 'right')" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
-            <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+            :style="handleBarStyle(item)" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
+            <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
+            <span class="text-caption text-grey-darken-2 user-select-none">
+              {{ componentLabelOf(item.component) }}
+            </span>
           </div>
-        </transition>
+        </Transition>
       </template>
     </div>
   </v-sheet>
@@ -77,10 +73,7 @@ import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Con
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
 
-import { useTheme, useDisplay } from 'vuetify'
-
-const theme = useTheme()
-const primaryColor = computed(() => theme.current.value.colors.primary)
+import { useDisplay } from 'vuetify'
 
 const { xs } = useDisplay()
 const isMobile = computed(() => xs.value)
@@ -426,20 +419,22 @@ const HANDLE_HEIGHT = 28
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
   layoutOf(item).y + origin.y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
 
-const handleBarStyle = (item: CanvasItem, side: 'left' | 'right'): CSSProperties => {
+const handleBarStyle = (item: CanvasItem): CSSProperties => {
   const layout = layoutOf(item)
   const bottom = handlePlacementOf(item) === 'bottom'
   return {
     position: 'absolute',
     // 因手柄提升到 .canvas 顶层（已应用 pan+origin 变换），故用块存储坐标直接定位
     top: `${bottom ? layout.y + layout.h : layout.y - HANDLE_HEIGHT}px`,
-    left: `${side === 'left' ? layout.x + 10 : layout.x + layout.w - 38}px`,
+    left: `${layout.x + 10}px`,
     height: `${HANDLE_HEIGHT}px`,
     // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 999
     zIndex: 999,
-    ...(side === 'left'
-      ? { padding: '0 10px', display: 'flex', alignItems: 'center', cursor: 'grab', whiteSpace: 'nowrap' }
-      : { width: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab' }),
+    padding: '0 10px',
+    display: 'flex',
+    alignItems: 'center',
+    cursor: 'grab',
+    whiteSpace: 'nowrap',
     // 因内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
     // 故改用 CSS 变量 --handle-y（贴边 ±1px 微调）+ --handle-slide（滑出方向）由 CSS 组合进动画
     '--handle-y': bottom ? '1px' : '-1px',
@@ -997,11 +992,6 @@ defineExpose({
   user-select: none;
 }
 
-.drag-wrapper.selected {
-  outline: 2px solid var(--v-theme-primary);
-  outline-offset: -1px;
-}
-
 .selection-box {
   position: absolute;
   border: 1px dashed var(--v-theme-primary);
@@ -1012,6 +1002,12 @@ defineExpose({
 
 .drag-wrapper :deep(.handle) {
   z-index: 20;
+}
+
+/* 因选中态不再用独立指示器，故用主题色描边高亮选中块
+   （--v-theme-primary 为 RGB 分量，需经 rgb() 包裹才能用于 box-shadow） */
+.drag-wrapper.selected {
+  box-shadow: 0 0 0 2px rgb(var(--v-theme-primary));
 }
 
 .block-container {
@@ -1068,22 +1064,6 @@ defineExpose({
 .left-handle {
   bottom: 100%;
   left: 10px;
-}
-
-.right-handle {
-  bottom: 100%;
-  right: 10px;
-  width: 28px;
-  justify-content: center;
-  padding: 0;
-  z-index: 16;
-}
-
-.right-handle .selected-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background-color: var(--v-theme-primary);
 }
 
 .handle-label {
