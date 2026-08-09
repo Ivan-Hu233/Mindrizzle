@@ -1,7 +1,8 @@
 <template>
-  <v-sheet class="canvas-container" :ref="setCanvasContainerRef" :style="containerStyle">
-    <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" @click="handleCanvasClick"
-      @mousedown="onCanvasMouseDown" @mousemove="updateSelection" @focusin="handleCanvasFocusin" ref="canvasRef">
+  <v-sheet class="canvas-container" :ref="setCanvasContainerRef" :style="containerStyle" @click="handleCanvasClick"
+    @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
+    <!-- 因 .canvas 随 pan 平移后不覆盖整个容器，事件挂容器级才能让任意空白处框选/点击/聚焦生效 -->
+    <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" ref="canvasRef">
       <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
       <VueDraggableResizable v-for="item in state.items" :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
         :data-id="item.id" :z="itemZ(item.id)" :active="isActive(item.id)" :x="layoutOf(item).x" :y="layoutOf(item).y"
@@ -24,7 +25,7 @@
 
       <!-- 因手柄在块内会被相邻块/compact 编辑器（块间层叠）盖住而点不到，故提升到 .canvas 顶层用块坐标定位 -->
       <template v-for="item in state.items" :key="`handle-${item.id}`">
-        <div v-if="isEditMode" class="floating-handle drag-handle"
+        <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
           :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
           :style="handleBarStyle(item, 'left')" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
           <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
@@ -597,16 +598,16 @@ const startSelection = (e: MouseEvent) => {
   if (e.button !== 0) return
   if (target.closest('.drag-wrapper') || target.closest('.drag-handle') || target.closest('.toolbar')) return
 
-  const rect = canvasRef.value?.getBoundingClientRect()
+  const rect = canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
 
   e.preventDefault()
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  // 因选择框坐标需与块 layout 同一参考系（均存储坐标），故减 origin
-  selectionState.startX = e.clientX - rect.left - origin.x
-  selectionState.startY = e.clientY - rect.top - origin.y
+  // 因事件已挂容器级而 .canvas 自带 pan 平移，故换算存储坐标 = 视口 - 容器位置 - pan - origin
+  selectionState.startX = e.clientX - rect.left - pan.x - origin.x
+  selectionState.startY = e.clientY - rect.top - pan.y - origin.y
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
@@ -614,12 +615,47 @@ const startSelection = (e: MouseEvent) => {
 
 const updateSelection = (e: MouseEvent) => {
   if (!selectionState.active) return
-  const rect = canvasRef.value?.getBoundingClientRect()
+  const rect = canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
   e.preventDefault()
-  selectionState.currentX = e.clientX - rect.left - origin.x
-  selectionState.currentY = e.clientY - rect.top - origin.y
+  selectionState.currentX = e.clientX - rect.left - pan.x - origin.x
+  selectionState.currentY = e.clientY - rect.top - pan.y - origin.y
   updateSelectionBox()
+}
+
+const onCanvasMousemove = (e: MouseEvent) => {
+  updateSelection(e)
+  hoverFocusBlock(e)
+}
+
+// 因 hover 选中块后内容物应同步可编辑（光标可直接进入），故聚焦块内编辑器（富文本 ProseMirror 或代码 textarea）
+const focusBlockContent = (id: string) => {
+  nextTick(() => {
+    const wrapper = document.querySelector(`.drag-wrapper[data-id="${id}"]`)
+    const pm = wrapper?.querySelector('.ProseMirror') as HTMLElement | null
+    if (pm) {
+      pm.focus()
+      return
+    }
+    const ta = wrapper?.querySelector('textarea') as HTMLElement | null
+    if (ta) ta.focus()
+  })
+}
+
+// 因需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
+// 故画布 mousemove 时命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
+let lastHoverId: string | null = null
+const hoverFocusBlock = (e: MouseEvent) => {
+  if (!isEditMode.value || e.button !== 0) return
+  if (selectionState.active || customDrag.active) return
+  if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
+  if (state.selectedIds.size > 1) return
+  const id = (e.target as HTMLElement).closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null
+  if (id === lastHoverId) return
+  lastHoverId = id
+  if (!id || !state.items.some((i) => i.id === id)) return
+  state.selectedIds = new Set([id])
+  focusBlockContent(id)
 }
 
 const finishSelection = () => {
@@ -720,8 +756,10 @@ watch(mobileMode, () => {
       state.items.forEach((it) => { it.layout.desktop.x += origin.x })
       origin.x = 0
     }
-    pan.x = 0 // 因移动端锁水平，故切换时归零水平平移，避免块水平偏移
   }
+  // 因移动端浏览滚动残留的 pan.y 会把另一布局画布顶出视口（块跑到视口外），故切换时归零平移（与 load 一致）
+  pan.x = 0
+  pan.y = 0
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
