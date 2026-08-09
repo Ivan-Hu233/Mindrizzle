@@ -29,7 +29,8 @@
         <Transition name="pop-up">
           <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
             :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
-            :style="handleBarStyle(item)" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
+            :data-id="item.id" :style="handleBarStyle(item)"
+            @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
             <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
             <span class="text-caption text-grey-darken-2 user-select-none">
               {{ componentLabelOf(item.component) }}
@@ -646,15 +647,60 @@ const onBlockPopupChange = (e: Event) => {
   popupBlockId.value = detail.open && detail.blockId ? detail.blockId : null
 }
 
+// 因需"鼠标落在哪个块的 VDR 框区域内就聚焦哪个块"（只按框区域判断，不看内容元素），
+// 故用鼠标坐标对每个块的 getBoundingClientRect 做点在矩形内测试；重叠时取 z 最高的块。
+// 因手柄让出 2px 给选中块的 box-shadow 描边，鼠标从内容区平滑移到拖拽栏会先经过这条缝隙，
+// 故缝隙带（手柄朝向块一侧 HANDLE_GAP 内）也命中手柄所属块，避免中途焦点转移到背后组件
+const HANDLE_GAP = 2
+
+const hitHandleGap = (clientX: number, clientY: number): string | null => {
+  let hit: string | null = null
+  state.items.forEach((item) => {
+    if (!state.selectedIds.has(item.id)) return
+    const el = document.querySelector<HTMLElement>(`.floating-handle[data-id="${item.id}"]`)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    if (clientX < r.left || clientX > r.right) return
+    const inGapY = handlePlacementOf(item) === 'top'
+      ? clientY >= r.bottom && clientY <= r.bottom + HANDLE_GAP
+      : clientY <= r.top && clientY >= r.top - HANDLE_GAP
+    if (inGapY) hit = item.id
+  })
+  return hit
+}
+
+// 因手柄提升到顶层、可能被别的块矩形框覆盖，故鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
+const hitTestBlockAt = (e: MouseEvent): string | null => {
+  const handleEl = (e.target as HTMLElement).closest<HTMLElement>('.drag-handle')
+  if (handleEl?.dataset.id) return handleEl.dataset.id
+  const { clientX, clientY } = e
+  const gapHit = hitHandleGap(clientX, clientY)
+  if (gapHit) return gapHit
+  let hitId: string | null = null
+  let hitZ = -Infinity
+  state.items.forEach((item) => {
+    const el = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${item.id}"]`)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return
+    const z = itemZ(item.id)
+    if (z > hitZ) {
+      hitZ = z
+      hitId = item.id
+    }
+  })
+  return hitId
+}
+
 // 因需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
-// 故画布 mousemove 时命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
+// 故画布 mousemove 时按坐标命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
 let lastHoverId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
   if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
   if (state.selectedIds.size > 1) return
-  const id = (e.target as HTMLElement).closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null
+  const id = hitTestBlockAt(e)
   if (id === lastHoverId) return
   lastHoverId = id
   if (!id || !state.items.some((i) => i.id === id)) return
