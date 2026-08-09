@@ -811,6 +811,12 @@ const load = async (raw: string) => {
   await nextTick()
   await nextTick()
   if (mobileMode.value) {
+    // 因移动端块贴左（x 恒 0）而屏幕位置 = 存储坐标 + origin + pan，
+    // 故加载时 origin.x 非 0 会把块水平顶出屏外；并入 desktop.x 并归零（与模式切换 watch 一致）
+    if (origin.x) {
+      state.items.forEach((it) => { it.layout.desktop.x += origin.x })
+      origin.x = 0
+    }
     updateCanvasWidth()
     applyMobileLayout()
   }
