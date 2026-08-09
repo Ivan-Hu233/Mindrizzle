@@ -53,12 +53,13 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   <BlockHandleRoot @state-change="onBlockStateChange">
     <BlockHandlePositioner
       :placement="handlePlacement"
+      :hide="false"
       :class="['block-handle-positioner', `placement-${handlePlacement}`]"
       :style="{ '--block-handle-shift': popupShiftPx + 'px', '--block-handle-hshift': popupHShiftPx + 'px' }"
     >
       <BlockHandlePopup
         class="block-handle-popup"
-        :class="{ 'popup-keep': popupKeep }"
+        :class="{ 'popup-keep': popupKeep, 'forced-open': !!activeHover }"
         @pointerenter="onPopupEnter"
         @pointerleave="onPopupLeave"
       >
@@ -181,6 +182,15 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
 
 /* 因 hoverState 失效时 ProseKit 会隐藏 popup，为使鼠标在手柄上仍可点击 ADD/拖拽，故强制保持显示 */
 .block-handle-popup.popup-keep {
+  opacity: 1 !important;
+  scale: 1 !important;
+  display: inline-flex !important;
+  visibility: visible !important;
+}
+
+/* 因行部分在画布容器外时 ProseKit overlay 判定 anchor 不可见而置 data-state=closed（popup 隐藏），
+   但 hover 已命中（行高亮显示），故 activeHover 时强制显示，位置由 popupShiftPx 贴回可见区 */
+.block-handle-popup.forced-open {
   opacity: 1 !important;
   scale: 1 !important;
   display: inline-flex !important;

@@ -41,32 +41,38 @@ export function useHoverUi(options: {
     if (hover && (isCompactView(view()) || placement.value === 'top' || placement.value === 'bottom')) {
       const r = getBlockEl(view(), hover.pos)?.getBoundingClientRect()
       if (r && !(r.width === 0 && r.height === 0)) {
-        if (scrollEl) {
-          const sr = scrollEl.getBoundingClientRect()
-          const left = Math.max(r.left, sr.left)
-          const right = Math.min(r.right, sr.right)
-          const top = Math.max(r.top, sr.top)
-          const bottom = Math.min(r.bottom, sr.bottom)
-          if (right > left && bottom > top) {
-            highlightRect.value = { left, top, width: right - left, height: bottom - top }
-          }
-        } else {
-          highlightRect.value = { left: r.left, top: r.top, width: r.width, height: r.height }
+        // 因高亮 fixed 到 body 且 z 极高，块被拖到画布外时高亮会盖住工具栏，
+        // 故同时 clamp 到画布容器可见区（工具栏之下）与编辑器滚动容器
+        const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
+        let hlLeft = r.left, hlRight = r.right, hlTop = r.top, hlBottom = r.bottom
+        for (const c of clampEls) {
+          const cr = c.getBoundingClientRect()
+          hlLeft = Math.max(hlLeft, cr.left)
+          hlRight = Math.min(hlRight, cr.right)
+          hlTop = Math.max(hlTop, cr.top)
+          hlBottom = Math.min(hlBottom, cr.bottom)
+        }
+        if (hlRight > hlLeft && hlBottom > hlTop) {
+          highlightRect.value = { left: hlLeft, top: hlTop, width: hlRight - hlLeft, height: hlBottom - hlTop }
         }
       }
     }
 
-    // 因行被滚动区裁掉时 popup 需贴回可见区，故 top 时下移、bottom 时上移（上下对称）
+    // 因行被画布容器/滚动区裁掉时 popup 会定位到可见区外被裁剪而显示不出，
+    // 故按两者交集把 popup 贴回可见区（top 时下移、bottom 时上移），与行高亮 clamp 一致
     popupShiftPx.value = 0
     const hb = hoveredBlock.value
-    if (hb && scrollEl) {
+    if (hb) {
       const br = getBlockEl(view(), hb.pos)?.getBoundingClientRect()
       if (br) {
-        const sr = scrollEl.getBoundingClientRect()
-        if (placement.value === 'top') {
-          popupShiftPx.value = br.top < sr.top ? Math.round(sr.top - br.top) : 0
-        } else if (placement.value === 'bottom') {
-          popupShiftPx.value = br.bottom > sr.bottom ? Math.round(sr.bottom - br.bottom) : 0
+        const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
+        for (const c of clampEls) {
+          const cr = c.getBoundingClientRect()
+          if (placement.value === 'top' && br.top < cr.top) {
+            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(cr.top - br.top))
+          } else if (placement.value === 'bottom' && br.bottom > cr.bottom) {
+            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(cr.bottom - br.bottom))
+          }
         }
       }
     }
