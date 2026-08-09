@@ -13,10 +13,8 @@ const noteSets = ref<
 
 async function loadNoteSets() {
   try {
-    // 获取文件列表
     const fileList = await invoke<string[]>('fetch_file_list');
     trace("已经获得文件列表{" + fileList + "}")
-    // 遍历文件列表
     for (const fileName of fileList) {
       const fileInfo = await invoke<{ title: string; description: string; tag: string }>(
         'get_file_info',

@@ -1,6 +1,3 @@
-// 基于 hover 的 UI：移动端行高亮 + popup 常驻（keepAlive）+ 快速关闭。
-// 通过 pointerleave / scroll 监听，保证高亮随滚动同步、鼠标移出即关闭。
-
 import { computed, ref, watch, onUnmounted } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
@@ -16,9 +13,8 @@ export function useHoverUi(options: {
   const { editor, hoveredBlock, activeHover, placement } = options
   const view = () => getView(editor)
 
-  // ---- 移动端行高亮 ----
-  // 高亮是 teleport 到 body 的 fixed 覆盖层：不能给 PM 块元素加 class，否则会触发
-  // mutation observer 重渲染、替换掉 popup 参考 DOM 导致定位失效（飞到屏幕外）。
+  // 因给 PM 块元素加 class 会触发 mutation observer 重渲染、替换 popup 参考 DOM 导致定位失效，
+  // 故高亮用 teleport 到 body 的 fixed 覆盖层实现
   const highlightRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
   const highlightStyle = computed(() => {
     if (!highlightRect.value) return {}
@@ -26,30 +22,21 @@ export function useHoverUi(options: {
     return { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }
   })
 
-  // 行顶部被滚动裁剪时，popup 下移的偏移量（让 popup 紧贴高亮可见区）
   const popupShiftPx = ref(0)
-  // 右侧 popup 的水平补偿：垂直滚动条会让文本右缘左移（clientWidth 变小），
-  // 而 popup 锚定文本右缘，导致右侧 popup 随滚动条出现而偏移、与左侧不再对称。
-  // 补偿滚动条宽度，让右侧 popup 始终贴齐块的外边缘（与左侧对称）。
+  // 因垂直滚动条使文本右缘左移、右侧 popup 锚定右缘会偏移而不对称，故按滚动条宽度补偿使左右对称
   const popupHShiftPx = ref(0)
 
-  // ---- popup 常驻（keepAlive）----
   const popupKeep = ref(false)
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
 
-  // 统一重算「高亮 rect（钳制到滚动区可见范围）」+「popup 下移偏移」。
-  // hover 与滚动变化时都调用，保证高亮/放置与滚动同步。
   function updateHoverUi() {
-    // 拖拽中不更新（popup 与高亮已被 body 类全局隐藏）
+    // 因拖拽中 popup/高亮已由 body 类全局隐藏，故不更新
     const dragging = document.body.classList.contains('block-handle-dragging')
     const hover = dragging ? null : activeHover.value
     const scrollEl = getScrollEl(view())
 
-    // 高亮：块 rect 与滚动区可见 rect 求交集，完全不可见则不显示。
-    // 高亮带上缘的 2px 强调小条方向由 block-handle 模板按 placement 翻转：
-    // popup 在行下方时（placement-bottom）小条翻到高亮下缘（反转，与上方对称）。
-    // 移动端（compact）与桌面端退化到 top/bottom 时都显示行高亮；
-    // 桌面端正常 left/right 放置不需要（popup 贴在行旁即可定位）。
+    // 因桌面端 left/right 放置时 popup 已贴行旁无需行高亮，故仅 compact 或退化 top/bottom 时显示
+    // （2px 强调小条方向由模板按 placement 翻转）
     highlightRect.value = null
     if (hover && (isCompactView(view()) || placement.value === 'top' || placement.value === 'bottom')) {
       const r = getBlockEl(view(), hover.pos)?.getBoundingClientRect()
@@ -69,9 +56,7 @@ export function useHoverUi(options: {
       }
     }
 
-    // 裁剪补偿（仿照向上，上下对称）：
-    // - placement-top：行顶部被滚动区裁掉时，把行上方的 popup 下移贴回可见区顶部；
-    // - placement-bottom：行底部被滚动区裁掉时，把行下方的 popup 上移贴回可见区底部。
+    // 因行被滚动区裁掉时 popup 需贴回可见区，故 top 时下移、bottom 时上移（上下对称）
     popupShiftPx.value = 0
     const hb = hoveredBlock.value
     if (hb && scrollEl) {
@@ -86,21 +71,19 @@ export function useHoverUi(options: {
       }
     }
 
-    // 右侧 popup 水平补偿（仅 placement-right 需要；left/top 锚定边不受滚动条影响）
+    // 因仅 placement-right 锚定边受滚动条影响，故只对右侧做水平补偿
     popupHShiftPx.value = placement.value === 'right' && scrollEl
       ? scrollEl.offsetWidth - scrollEl.clientWidth
       : 0
   }
 
-  // ---- 鼠标移出编辑器立即关闭 ----
-  // ProseKit 的 hover 有 200ms 节流 + 180ms 失效缓冲（共约 380ms）才清 hoverState，
-  // 这里监听内容 DOM 的 pointerleave，短缓冲后直接清，避免 popup/高亮延迟消失。
+  // 因 ProseKit hover 有约 380ms 节流/失效缓冲才清 hoverState，故监听内容 DOM 的
+  // pointerleave 短缓冲后主动清，避免 popup/高亮延迟消失
   let leaveTimer: ReturnType<typeof setTimeout> | null = null
   let leaveBound = false
   let scrollBoundEl: HTMLElement | null = null
   let wrapperBoundEl: HTMLElement | null = null
 
-  // 鼠标移出编辑器内容 DOM 时，短缓冲后主动清 hoverState。
   function onEditorPointerLeave() {
     if (leaveTimer) return
     leaveTimer = setTimeout(() => {
@@ -110,10 +93,9 @@ export function useHoverUi(options: {
     }, 100)
   }
 
-  // 鼠标离开整个编辑器区域（内容 + popup gutter）时强制清理。
-  // 覆盖「快速移过 popup 触发 keepAlive 后移出」的残留路径——此时仅靠 view.dom 的
-  // pointerleave→clearHoverViaExtension 会被 keepAlive 的周期假 pointermove 重新设回，
-  // 必须显式 stopKeepAlive + 关 popupKeep 才能真正清掉。
+  // 因快速移过 popup 触发 keepAlive 后移出时，仅靠 view.dom 的 pointerleave 会被
+  // keepAlive 的周期假 pointermove 重新设回，故离开整个编辑器区域时显式
+  // stopKeepAlive + 关 popupKeep 才能真正清掉
   function onWrapperPointerLeave() {
     cancelLeave()
     suppressUI()
@@ -155,9 +137,8 @@ export function useHoverUi(options: {
     updateHoverUi()
   })
 
-  // ---- popup keepAlive：鼠标在手柄上时保持 popup ----
-  // 不能直接 set hoverState——ProseKit 的失效计时器会把它清掉。正确做法是向块 DOM
-  // 派发假的 pointermove，让 useHoverExtension 自行刷新（会同步 clearTimeout + prevHoverState）。
+  // 因直接 set hoverState 会被 ProseKit 失效计时器清掉，故向块 DOM 派发假 pointermove
+  // 让扩展自行刷新（同步清计时器与 prevHoverState）
   function refreshHoverState() {
     const block = hoveredBlock.value
     const dom = block ? getBlockEl(view(), block.pos) : null
@@ -176,7 +157,7 @@ export function useHoverUi(options: {
   function startKeepAlive() {
     stopKeepAlive()
     refreshHoverState()
-    keepAliveTimer = setInterval(refreshHoverState, 150) // 有 200ms 节流，需周期重试
+    keepAliveTimer = setInterval(refreshHoverState, 150) // 因扩展有 200ms 节流、单次刷新可能被吞，故以 150ms 周期重试
   }
   function stopKeepAlive() {
     if (keepAliveTimer) {
@@ -186,7 +167,7 @@ export function useHoverUi(options: {
   }
 
   function onPopupEnter() {
-    cancelLeave() // 取消“移出编辑器”的待清除定时，保留高亮与 popup
+    cancelLeave() // 因需保留高亮与 popup，故取消“移出编辑器”的待清除定时
     popupKeep.value = true
     startKeepAlive()
   }
@@ -196,15 +177,8 @@ export function useHoverUi(options: {
     clearHoverViaExtension()
   }
 
-  // ---- 通过扩展路径清除 hoverState（替代直接 store.set(undefined)）----
-  // 不能直接 clearStoreHover：那会绕过 useHoverExtension 内部的 prevHoverState，
-  // 于是鼠标回到同一行时，扩展收到相同 hoverState 会因 isHoverStateEqual 直接
-  // return，store 里仍是 undefined，popup 再也无法出现（即本次修复的问题）。
-  // 正确做法是向内容 DOM 派发「位于所有块之外」的 pointermove + pointerout，
-  // 让 handlePointerEvent 以 null 走一遍扩展自带的失效缓冲（180ms）正常清除：
-  //   - pointermove：清掉 keepAlive 遗留的、指向块 L 的节流尾调用，避免它把失效计时取消
-  //   - pointerout：立即触发一次 null 判定，启动失效计时
-  // 若鼠标在 180ms 内回到某个块（如 popup→行），扩展会取消计时并重新持有该块，popup 保持。
+  // 因直接 clearStoreHover 会绕过扩展内部 prevHoverState、鼠标回同一行时被 isHoverStateEqual
+  // 跳过导致 popup 无法再现，故向 DOM 派发块外 pointermove+pointerout，走扩展自带失效缓冲正常清除
   function clearHoverViaExtension() {
     const dom = view()?.dom
     if (!dom) return
@@ -213,7 +187,6 @@ export function useHoverUi(options: {
     dom.dispatchEvent(new PointerEvent('pointerout', emptyPoint))
   }
 
-  /** 拖拽开始等场景：整体关闭 popup、高亮与 hoverState。 */
   function suppressUI() {
     popupKeep.value = false
     stopKeepAlive()

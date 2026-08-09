@@ -1,9 +1,7 @@
-// 与 ProseKit 编辑器 DOM / 内部 store 交互的纯工具函数（无组件状态）。
-// 统一 try/catch：编辑器未挂载时访问 view 会抛错，这里统一返回 null 静默跳过。
+// 因编辑器未挂载时访问 view 会抛错，故统一 try/catch 返回 null 静默跳过
 
 import type { Editor } from '@prosekit/core'
 
-/** 安全获取编辑器 view（未挂载时返回 null）。 */
 export function getView(editor?: Editor | null): any {
   try {
     return editor?.view ?? null
@@ -12,7 +10,6 @@ export function getView(editor?: Editor | null): any {
   }
 }
 
-/** 取 pos 处块的 DOM 元素（用于读取 rect / 派发事件）。 */
 export function getBlockEl(view: any, pos: number): HTMLElement | null {
   try {
     return view.nodeDOM(pos) as HTMLElement | null
@@ -21,25 +18,21 @@ export function getBlockEl(view: any, pos: number): HTMLElement | null {
   }
 }
 
-/** 取滚动容器（.editor-scroll）。 */
 export function getScrollEl(view: any): HTMLElement | null {
   return view?.dom?.closest('.editor-scroll') ?? null
 }
 
-/** 取 popup 会被裁剪的可见区顶部（画布容器 .canvas-container 的上缘；无则退化为视口顶部 0）。 */
 export function getClipTop(view: any): number {
   const container = view?.dom?.closest('.canvas-container') as HTMLElement | null
   return container ? container.getBoundingClientRect().top : 0
 }
 
-/** 取 popup 会被裁剪的可见区底部（画布容器 .canvas-container 的下缘；无则退化为视口底部）。 */
 export function getClipBottom(view: any): number {
   const container = view?.dom?.closest('.canvas-container') as HTMLElement | null
   return container ? container.getBoundingClientRect().bottom : window.innerHeight
 }
 
-/** 取 block-handle popup 的实际渲染高度（紧凑模式约 35px）。关闭时 popup 是 display:none
- *  无法量高：临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）。 */
+// 因关闭时 popup 为 display:none 无法量高，故临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）
 export function getPopupHeight(view: any): number {
   const popup = view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-popup') as HTMLElement | null
   if (!popup) return 35
@@ -55,9 +48,7 @@ export function getPopupHeight(view: any): number {
   return h > 0 ? h : 35
 }
 
-/** 取 block-handle popup 的实际渲染宽度（桌面约 54px）。关闭时 popup 是 display:none
- *  无法量宽：临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）。
- *  用于桌面端判断左右可用空间是否放得下 popup。 */
+// 因关闭时 popup 为 display:none 无法量宽，故临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）
 export function getPopupWidth(view: any): number {
   const popup = view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-popup') as HTMLElement | null
   if (!popup) return 64
@@ -73,21 +64,16 @@ export function getPopupWidth(view: any): number {
   return w > 0 ? w : 64
 }
 
-/** 是否移动端紧凑模式（RichTextEditor compact 类）。 */
 export function isCompactView(view: any): boolean {
   return !!view?.dom?.closest('.editor-wrapper.compact')
 }
 
-/** 取本编辑器的 block-handle positioner 元素（用于解析内部 store）。 */
 export function findPositionerEl(view: any): HTMLElement | null {
   return view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-positioner') ?? null
 }
 
-/**
- * 解析 ProseKit 内部 BlockHandleStore（无公开 API）。
- * 通过 aria-ui context 的冒泡事件向上找 provider，provider 用 event.callback 返回 store。
- * 每个编辑器的 store 独立，故用闭包按实例缓存。
- */
+// 因 ProseKit 未公开 BlockHandleStore API，故经 aria-ui context 冒泡事件取 provider 回调返回 store；
+// 且每个编辑器 store 独立，故用闭包按实例缓存
 export function createStoreResolver() {
   let cached: any = null
   return (el?: Element | null): any => {
@@ -103,7 +89,7 @@ export function createStoreResolver() {
   }
 }
 
-/** 直接清掉 store 的 hoverState，让 popup 立即关闭（跳过 ProseKit 的节流 + 失效缓冲）。 */
+// 因需跳过 ProseKit 的节流与失效缓冲立即关闭 popup，故直接清 store 的 hoverState
 export function clearStoreHover(view: any, getStore: (el?: Element | null) => any): void {
   getStore(findPositionerEl(view))?.hoverState?.set(undefined)
 }

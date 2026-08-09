@@ -1,6 +1,5 @@
 <template>
   <v-sheet class="editor-wrapper">
-    <!-- 工具栏 -->
     <div class="toolbar">
       <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn>
@@ -39,15 +38,14 @@ const mobileButtonLabel = computed(() => {
 })
 
 const toggleMobileSim = () => {
-  OJCRef.value!.syncComponentData() // 模式切换会重挂载组件，先同步组件数据
-  OJCRef.value!.forceMobile = OJCRef.value!.nextForceMobile() // 布局刷新由 watch(mobileMode) 统一处理
+  OJCRef.value!.syncComponentData() // 因模式切换会重挂载组件，故先同步组件数据
+  OJCRef.value!.forceMobile = OJCRef.value!.nextForceMobile() // 因布局刷新由 watch(mobileMode) 统一处理，故此处仅切换标志
 }
 
 const toggleEditMode = () => {
   OJCRef.value!.isEditMode = !OJCRef.value!.isEditMode
 }
 
-// ---------- 保存 / 加载 ----------
 const save = () => {
   localStorage.setItem('canvasData', OJCRef.value?.save() ?? '')
 }
@@ -57,7 +55,6 @@ const load = async () => {
   OJCRef.value?.load(raw ?? '')
 }
 
-// ---------- 批量操作 ----------
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   const refs = getComponentRefs()
   Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
@@ -65,7 +62,6 @@ const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   })
 }
 
-// ---------- 删除功能 ----------
 const deleteSelected = () => {
   if (OJCRef.value!.state.selectedIds.size === 0) return
   const ids = Array.from(OJCRef.value!.state.selectedIds)
@@ -75,7 +71,6 @@ const deleteSelected = () => {
   ids.forEach(id => { delete refs[id] })
 }
 
-// ---------- 生命周期 ----------
 onMounted(() => {
   load()
 })

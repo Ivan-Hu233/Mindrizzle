@@ -24,24 +24,22 @@ export function useBlockDrag(options: {
   const { editor, hoveredBlock, suppressUI } = options
   const view = () => getView(editor)
 
-  // 拖拽中隐藏行高亮（避免与 NodeSelection 选区框重叠）
+  // 因拖拽中行高亮会与 NodeSelection 选区框重叠，故拖拽期间隐藏
   const isDragging = ref(false)
   let active = false
   let source: DragSource | null = null
   let ghostEl: HTMLElement | null = null
   let indicatorEl: HTMLElement | null = null
-  // 拖拽中「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect），
-  // 用 rAF 合并到每帧最多一次，避免每次 mousemove 都触发 layout 重排造成拖拽卡顿。
+  // 因「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect）、
+  // 每次 mousemove 都触发会卡顿，故用 rAF 合并到每帧最多一次
   let rafId = 0
   let lastX = 0
   let lastY = 0
-  // 鼠标坐标是否有变化（变化才重算落点/指示器，配合自动滚动触发重算）
   let needsIndicator = false
-  // 自动滚动：拖到富文本滚动区上下边缘时的边缘带宽度与最大每帧滚动像素
+  // 因拖到滚动区上下边缘需自动滚动，故定义边缘带宽度与最大每帧滚动像素
   const SCROLL_EDGE = 48
   const SCROLL_MAX_SPEED = 28
 
-  // 通过鼠标坐标找到所在的编辑器实例（支持跨编辑器拖拽）
   function findEditorAt(x: number, y: number): Editor | null {
     const el = document.elementFromPoint(x, y)
     if (!el?.closest) return null
@@ -55,14 +53,12 @@ export function useBlockDrag(options: {
     return null
   }
 
-  // 通过鼠标坐标找到所在的富文本滚动容器（.editor-scroll，用于自动滚动）
   function findScrollElAt(x: number, y: number): HTMLElement | null {
     const el = document.elementFromPoint(x, y)
     if (!el?.closest) return null
     return el.closest('.editor-scroll') as HTMLElement | null
   }
 
-  // 拖拽到滚动区上下边缘时自动滚动（返回本帧是否发生了滚动）
   function autoScroll(x: number, y: number): boolean {
     const scrollEl = findScrollElAt(x, y)
     if (!scrollEl) return false
@@ -84,9 +80,8 @@ export function useBlockDrag(options: {
     return false
   }
 
-  // 画布（.canvas-container 视口）边缘自动平移：把段落拖到画布边缘时画布跟着滚。
-  // 方向：鼠标靠上/左边缘 → 画布（内容）向下/右移（露出上方/左侧）；靠下/右 → 向上/左移。
-  // 与 autoScroll（编辑器滚动区滚动）互补；通过事件驱动 Editor.vue 里的 pan。
+  // 因拖到画布边缘需画布自动平移（鼠标靠上/左边缘时内容向下/右移露出上方/左侧），
+  // 故经 omnijot:canvas-pan 事件驱动 Editor.vue 的 pan
   const CANVAS_PAN_EDGE = 60 // 距画布视口边缘多少 px 触发
   const CANVAS_PAN_MAX = 8 // 每帧最大平移 px
   function panCanvas(x: number, y: number): boolean {
@@ -104,8 +99,7 @@ export function useBlockDrag(options: {
     return true
   }
 
-  // 拖拽期间的帧循环：每帧做一次便宜的自动滚动/画布平移检查；
-  // 落点/指示器只在鼠标移动（needsIndicator）或发生滚动导致内容变化时重算，避免每帧 posAtCoords 卡顿。
+  // 因每帧 posAtCoords 重算会卡顿，故自动滚动/平移每帧检查、落点/指示器仅在鼠标移动或内容滚动变化时重算
   function ensureDragLoop() {
     if (rafId) return
     rafId = requestAnimationFrame(dragLoop)
@@ -127,9 +121,9 @@ export function useBlockDrag(options: {
     const block = hoveredBlock.value
     const node = block?.node as any
     if (!v || !block || !node) return
-    e.preventDefault() // 阻止原生 HTML5 拖拽
+    e.preventDefault()
     e.stopPropagation()
-    // 选中节点（保持点击手柄选中块的行为）
+    // 因拖拽也应选中该块（与点击手柄一致），故 pointerdown 时设置 NodeSelection
     try {
       const sel = NodeSelection.create(v.state.doc, block.pos)
       v.dispatch(v.state.tr.setSelection(sel))
@@ -140,13 +134,13 @@ export function useBlockDrag(options: {
     source = { editor: editor as Editor, node, from: block.pos, to: block.pos + node.nodeSize }
     active = true
     isDragging.value = true
-    document.body.classList.add('block-handle-dragging') // 全局抑制所有 popup/高亮
-    suppressUI() // 关闭当前 popup / 高亮 / keepAlive
+    document.body.classList.add('block-handle-dragging') // 因需跨编辑器全局抑制 popup/高亮，故置 body 拖拽类
+    suppressUI()
     createGhost(node, e.clientX, e.clientY)
     lastX = e.clientX
     lastY = e.clientY
-    ensureDragLoop() // 立即启动帧循环（含自动滚动）
-    // window 级监听：mouse.down 后部分环境不再派发 mousemove，但 pointermove 稳定
+    ensureDragLoop()
+    // 因 mouse.down 后部分环境不再派发 mousemove，故同时监听 pointermove 以保证拖拽跟手
     window.addEventListener('pointermove', onDragMove)
     window.addEventListener('mousemove', onDragMove)
     window.addEventListener('mouseup', onDragUp)
@@ -155,19 +149,16 @@ export function useBlockDrag(options: {
 
   function onDragMove(e: MouseEvent) {
     if (!active || !source) return
-    // ghost 跟随鼠标：纯样式写，实时更新（保持拖拽跟手）
     if (ghostEl) {
       ghostEl.style.left = `${e.clientX + 10}px`
       ghostEl.style.top = `${e.clientY + 10}px`
     }
-    // 坐标变化：下一帧重算落点/指示器（自动滚动触发时也会重算）
     lastX = e.clientX
     lastY = e.clientY
     needsIndicator = true
     ensureDragLoop()
   }
 
-  // 在目标编辑器上显示/隐藏插入指示器（自绘 position:fixed 线，viewport 坐标）
   function updateDropIndicator(x: number, y: number) {
     const target = findEditorAt(x, y)
     if (target) {
@@ -190,10 +181,7 @@ export function useBlockDrag(options: {
     cleanup()
   }
 
-  /**
-   * 计算目标编辑器的插入位置：用鼠标 y 与鼠标所在块的 DOM rect 中心比较，
-   * 决定插到块前（before）还是块后（after），与行级指示器显示位置完全一致。
-   */
+  // 插入位置判定：用鼠标 y 与所在块 DOM rect 中心比较，决定插到块前（before）还是块后（after），与行级指示器一致
   function findDropPos(v: any, x: number, y: number): number {
     const coords = v.posAtCoords({ left: x, top: y })
     if (!coords) return v.state.doc.content.size
@@ -209,7 +197,7 @@ export function useBlockDrag(options: {
     return coords.pos - before < after - coords.pos ? before : after
   }
 
-  /** 同编辑器内移动：删除源块后按 tr.mapping 修正位置再插入。 */
+  // 因删除源块后插入位置会偏移，故经 tr.mapping 修正后再插入
   function moveInSameEditor(s: DragSource, v: any, x: number, y: number) {
     const insertPos0 = findDropPos(v, x, y)
     const tr = v.state.tr
@@ -220,16 +208,14 @@ export function useBlockDrag(options: {
     v.focus()
   }
 
-  /** 跨编辑器移动：源编辑器删除，目标编辑器转换 schema 后插入。 */
   function moveAcrossEditors(s: DragSource, target: Editor, x: number, y: number) {
     const tgtView = target.view
     const insertPos = findDropPos(tgtView, x, y)
-    // 1) 源编辑器删除被拖块
     const srcView = s.editor.view
     const delTr = srcView.state.tr
     delTr.delete(s.from, s.to)
     srcView.dispatch(delTr)
-    // 2) 目标编辑器插入（每个 editor 的 schema 独立，需 nodeFromJSON 转换）
+    // 因各 editor 的 schema 独立不能直接复用节点，故经 nodeFromJSON 转换后插入
     const targetNode = tgtView.state.schema.nodeFromJSON(s.node.toJSON())
     const insTr = tgtView.state.tr
     insTr.insert(insertPos, targetNode)
@@ -255,7 +241,6 @@ export function useBlockDrag(options: {
     window.removeEventListener('pointerup', onDragUp)
   }
 
-  // ---- 拖拽 ghost（蓝框 + 文字）与插入指示器 ----
   function createGhost(node: any, x: number, y: number) {
     removeGhost()
     ghostEl = document.createElement('div')

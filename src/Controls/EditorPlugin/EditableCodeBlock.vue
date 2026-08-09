@@ -1,6 +1,5 @@
 <template>
   <v-sheet class="code-editor-container">
-    <!-- 工具栏 -->
     <div class="toolbar">
       <v-select
         v-model="currentLanguage"
@@ -20,7 +19,6 @@
       />
     </div>
 
-    <!-- 编辑器主体 -->
     <div class="code-editor-wrapper" ref="wrapperRef">
       <pre class="highlight-layer"><code ref="highlightRef" :class="`language-${currentLanguage}`"></code></pre>
       <textarea
@@ -35,7 +33,6 @@
       ></textarea>
     </div>
 
-    <!-- 复制成功提示 -->
     <v-snackbar
       v-model="snackbar"
       :timeout="1500"
@@ -62,13 +59,11 @@ import { useTheme } from 'vuetify';
 import { mdiContentCopy } from '@mdi/js';
 import hljs from 'highlight.js/lib/core';
 
-// ----- 本地导入主题样式 -----
 import githubCss from 'highlight.js/styles/github.css?raw';
 import atomDarkCss from 'highlight.js/styles/atom-one-dark.css?raw';
 
 import { info, warn, error as logError } from '@tauri-apps/plugin-log';
 
-// ----- 注册语言（大幅扩充）-----
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
 import python from 'highlight.js/lib/languages/python';
@@ -109,12 +104,10 @@ hljs.registerLanguage('ruby', ruby);
 hljs.registerLanguage('swift', swift);
 hljs.registerLanguage('kotlin', kotlin);
 
-// ----- Vuetify 主题 -----
 const theme = useTheme();
 const isDark = computed(() => theme.global.name.value === 'dark');
 const primaryColor = computed(() => theme.global.current.value.colors.primary);
 
-// ----- 动态注入样式标签 -----
 const styleId = 'hljs-theme-local';
 let styleElement: HTMLStyleElement | null = null;
 
@@ -132,7 +125,6 @@ watch(isDark, (dark) => {
   applyTheme(dark);
 }, { immediate: true });
 
-// ----- 语言选项（丰富列表）-----
 const languageOptions = [
   { title: '纯文本', value: 'plaintext' },
   { title: 'JavaScript', value: 'javascript' },
@@ -169,15 +161,12 @@ const emit = defineEmits(['update:modelValue', 'update:language']);
 const internalCode = ref(props.modelValue);
 const currentLanguage = ref(props.language);
 
-// ----- 复制状态 -----
 const snackbar = ref(false);
 
-// ----- 引用 -----
 const highlightRef = ref<HTMLElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const wrapperRef = ref<HTMLElement | null>(null);
 
-// ----- 高亮渲染 -----
 const renderHighlight = () => {
   const codeElement = highlightRef.value;
   if (!codeElement) return;
@@ -197,13 +186,12 @@ const renderHighlight = () => {
   }
 };
 
-// ----- 编辑同步 -----
 const onInput = () => {
   emit('update:modelValue', internalCode.value);
   renderHighlight();
 };
 
-// ----- 滚动同步（使用 requestAnimationFrame 保证同步）-----
+// 因需在浏览器重排后同步滚动位置，故用 requestAnimationFrame
 const syncScroll = () => {
   const textarea = textareaRef.value;
   const pre = highlightRef.value?.parentElement;
@@ -215,7 +203,6 @@ const syncScroll = () => {
   }
 };
 
-// ----- 复制功能（增强版）-----
 const copyCode = async () => {
   const text = internalCode.value;
   if (!text) {
@@ -246,7 +233,6 @@ const copyCode = async () => {
   }
 };
 
-// ----- 自动补全括号/引号 -----
 const handleKeydown = (event: KeyboardEvent) => {
   const textarea = textareaRef.value;
   if (!textarea) return;
@@ -297,7 +283,6 @@ const handleKeydown = (event: KeyboardEvent) => {
   renderHighlight();
 };
 
-// ----- 监听外部语言变化 -----
 watch(
   () => props.language,
   (newLang) => {
@@ -313,7 +298,6 @@ watch(currentLanguage, (newLang) => {
   nextTick(renderHighlight);
 });
 
-// ----- 监听外部值 -----
 watch(
   () => props.modelValue,
   (newVal) => {
@@ -324,7 +308,6 @@ watch(
   }
 );
 
-// ----- 容器尺寸变化时重新同步滚动 -----
 const resizeObserver = ref<ResizeObserver | null>(null);
 onMounted(() => {
   nextTick(() => {
@@ -353,7 +336,7 @@ onBeforeUnmount(() => {
   }
 });
 
-// 组件自有的保存 / 加载方法：父组件统一调用，不再按组件类型特殊处理
+// 因父组件需统一调用保存/加载而不按组件类型特判，故暴露统一的 saveConfig/loadConfig
 defineExpose({
   saveConfig() {
     return { code: internalCode.value, language: currentLanguage.value };

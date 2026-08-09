@@ -13,7 +13,6 @@
         @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" :disabled="!isEditMode" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
         <div class="block-container bg-white elevation-1 rounded">
-          <!-- 可拖拽手柄 -->
           <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2"
             :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }" color="grey-lighten-4"
             :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
@@ -25,7 +24,6 @@
             </span>
           </v-sheet>
 
-          <!-- 选中指示器 -->
           <transition name="pop-up">
             <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
               class="drag-handle right-handle border border-grey-lighten-2"
@@ -37,7 +35,6 @@
             </v-sheet>
           </transition>
 
-          <!-- 内容区域 -->
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
               :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
@@ -53,7 +50,7 @@
 <script lang="ts">
 import type { NodeJSON } from '@prosekit/core'
 
-// 组件内部与父组件（如 Editor.vue）共用的类型，放在普通 <script> 中以便导出复用
+// 因这些类型需在普通 <script> 中导出供父组件复用，故置于此处
 export interface RichTextConfig {
   content: NodeJSON | null
 }
@@ -87,26 +84,21 @@ import { useTheme, useDisplay } from 'vuetify'
 const theme = useTheme()
 const primaryColor = computed(() => theme.current.value.colors.primary)
 
-// ---------- 响应式断点 ----------
 const { xs } = useDisplay()
 const isMobile = computed(() => xs.value)
 
-// ---------- 可控移动端模拟（用于调试/强制切换） ----------
-const forceMobile = ref<boolean | null>(null) // null = 不强制，使用真实断点
+// 因 forceMobile 为调试用的三态开关，故 null 表示不强制、走真实断点
+const forceMobile = ref<boolean | null>(null)
 const mobileMode = computed(() => (forceMobile.value === null ? isMobile.value : forceMobile.value))
 
-// forceMobile 三态循环：null(自动) -> true(强制移动端) -> false(强制桌面) -> null
 const nextForceMobile = (): boolean | null => {
   if (forceMobile.value === null) return true
   if (forceMobile.value === true) return false
   return null
 }
 
-// ---------- 编辑模式 ----------
 const isEditMode = ref(true)
 
-// ---------- 类型定义 ----------
-// RichTextConfig / CodeBlockConfig / WidgetConfig 已在上方普通 <script> 中定义并导出
 interface Rect {
   x: number
   y: number
@@ -124,15 +116,12 @@ interface CanvasItem {
   }
 }
 
-// ---------- 组件映射 ----------
 const componentMap = {
   RichTextEditor,
   EditableCodeBlock,
 }
 
-// ---------- 可添加组件注册表 ----------
-// 新增可添加组件时只需在此注册（key 需对应 componentMap 的键），
-// 工具栏按钮、添加逻辑、显示名称会自动生效，无需再写单独的 add 方法。
+// 因新增可添加组件只需在此注册（key 对应 componentMap 的键）即可自动驱动工具栏与添加逻辑，故集中于此
 interface AddableComponentMeta {
   key: CanvasItem['component']
   label: string
@@ -167,9 +156,7 @@ const componentMetaOf = (key: CanvasItem['component']) =>
 const componentLabelOf = (key: CanvasItem['component']) =>
   componentMetaOf(key)?.label ?? key
 
-// ---------- 组件尺寸约束 ----------
-// 统一通过组件导出的 `resizeConstraints` 获取最大/最小尺寸（与 vue-component.ts 一致）。
-// 未声明约束的组件回退到画布默认（与原行为一致：min 100，宽高不限）。
+// 因组件未声明 resizeConstraints 时需回退画布默认（min 100，宽高不限），故统一经 normalizeConstraints 归一
 const componentConstraints: Partial<
   Record<CanvasItem['component'], ResizeConstraints>
 > = {
@@ -190,13 +177,12 @@ const constraintsOf = (item: CanvasItem): Required<ResizeConstraints> => {
   return normalizeConstraints(raw)
 }
 
-// ---------- 响应式状态 ----------
 const state = reactive({
   items: [] as CanvasItem[],
   selectedIds: new Set<string>(),
 })
 
-// ---------- 顶层 z-index 管理（内容聚焦时把该块提到最上层）----------
+// 因内容聚焦时需把该块提到最上层（显示在最前），故用 zMap 维护自增计数
 const zMap = reactive<Record<string, number>>({})
 let zCounter = 0
 const itemZ = (id: string): number => zMap[id] ?? 0
@@ -205,43 +191,34 @@ const bringToTop = (id: string) => {
   zMap[id] = ++zCounter
 }
 
-// 选中即激活 VDR（驱动原生缩放手柄显示）
+// 因 VueDraggableResizable 的 active 属性会驱动原生缩放手柄显示，故选中块时置为激活
 const isActive = (id: string): boolean => isEditMode.value && state.selectedIds.has(id)
 
-// ComponentController 类型已在上方普通 <script> 中定义并导出
 const componentRefs = ref<Record<string, ComponentController | undefined>>({})
 const canvasRef = ref<HTMLElement | null>(null)
 const canvasContainerRef = ref<HTMLElement | null>(null)
 
-// canvasContainerRef 绑定在 v-sheet（Vuetify 组件）上，直接 ref 拿到的是组件实例而非 DOM 元素，
-// 通过 $el 取出根 DOM 元素，才能调用 addEventListener / getBoundingClientRect 等 DOM API。
+// 因 Vuetify 组件上绑定 ref 拿到的是组件实例而非 DOM 元素，故经 $el 取出根 DOM 以调用 DOM API
 const setCanvasContainerRef = (el: unknown) => {
   canvasContainerRef.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
 }
 const canvasWidth = ref(0)
 
-// ---------- 无限画布：平移与拖拽 ----------
-// 块的坐标即「世界坐标」（连续实数，可正可负、可任意大），块不受边界约束（VDR 无 parent），
-// 可自由拖动到任意位置（无限放置）。平移 pan 无界：世界层整体 transform 移动 (+pan)，
-// 块屏幕位置 = 世界坐标 + pan，鼠标拖向哪边内容就跟随哪边（跟手）。
-// 点阵背景固定在视口容器上，视口内任何位置视觉都是画布、任何位置右键都能拖拽平移。
+// 因块以世界坐标自由放置（VDR 无 parent 不受边界约束）且平移无界，
+// 故点阵背景固定在视口容器上以保证任何位置不露白
 const pan = reactive({ x: 0, y: 0 })
 const isPanning = ref(false)
 
-// ---------- 画布原点偏移（Origin Rebasing）：避免数据溢出 ----------
-// 块的存储坐标（layout）保持在小范围。当坐标过大时把画布原点重定位：
-// 所有块坐标整体平移（layout -= offset）、原点偏移记入 origin（origin += offset）。
-// 屏幕位置 = 存储坐标 + origin + pan：重定位后 (layout-offset)+(origin+offset)+pan 不变；
-// pan 不变 → 点阵（background-position=pan）不跳、块不突然移动，完全无感。
+// 因块坐标无限增长会导致数据溢出，故坐标过大时重定位画布原点
+// （块坐标整体平移并入 origin，屏幕位置 = 存储坐标 + origin + pan 不变）
 const origin = reactive({ x: 0, y: 0 })
 
-// 无感重定位：offset 为新的原点位置（存储坐标系），取整保证坐标仍是整数。
-// 移动端锁水平：块 x 恒 0（stretch 固定），水平原点不参与，仅竖直方向重定位；
-// 竖直同时平移 desktop 与 mobile 布局，保证切换模式后位置一致。
 const rebaseOrigin = (offset: { x: number; y: number }) => {
   const dx = Math.round(offset.x) || 0
   const dy = Math.round(offset.y) || 0
   if (!dx && !dy) return
+  // 因移动端锁水平（块 x 恒 0）、水平原点不参与，故仅竖直重定位，
+  // 且 desktop/mobile 竖直同步平移，保证切换模式后位置一致
   const effDx = mobileMode.value ? 0 : dx
   state.items.forEach((item) => {
     item.layout.desktop.x -= effDx
@@ -252,7 +229,6 @@ const rebaseOrigin = (offset: { x: number; y: number }) => {
   origin.y += dy
 }
 
-// 块坐标绝对值超过阈值时，把原点移到块群包围盒中心（保持坐标小且无感）
 const ORIGIN_REBASE_THRESHOLD = 1_000_000
 const maybeRebaseOrigin = () => {
   if (state.items.length === 0) return
@@ -277,19 +253,17 @@ const panSession = reactive({
   startPanY: 0,
 })
 
+// 因 transform 落亚像素会被浏览器渲染发虚，故 pan + origin 取整
 const canvasStyle = computed<CSSProperties>(() => ({
-  // pan + origin 取整：transform 落在亚像素位置会让整层内容被浏览器亚像素渲染而发虚
   transform: `translate(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px)`,
 }))
 
-// 点阵背景放在视口容器上（保证任何位置不露白），但 background-position 随 pan 平移，
-// 让点阵跟随画布一起滚动（像真正的无限画布网格）
+// 因点阵背景需在任意平移位置都不露白，故固定在视口容器上且 background-position 随 pan 平移
 const containerStyle = computed<CSSProperties>(() => ({
   backgroundPosition: `${pan.x}px ${pan.y}px`,
 }))
 
-// ---------- 拖动块到视口边缘时画布自动平移（方向与 block-handle 拖段落一致）----------
-// 鼠标靠上/左边缘 → 画布内容下移/右移（露出上方/左侧）；靠下/右 → 上移/左移。
+// 因块被拖到视口边缘时画布需自动平移（方向与 block-handle 拖段落一致），故按距边缘距离驱动每帧平移
 const AUTOPAN_EDGE = 60 // 距视口边缘多少 px 触发
 const AUTOPAN_MAX = 8 // 每帧最大平移 px
 const autoPan = reactive({ active: false })
@@ -314,9 +288,8 @@ const autoPanTick = () => {
     if (vx !== 0 || vy !== 0) {
       if (!mobileMode.value) pan.x += Math.round(vx)
       pan.y += Math.round(vy)
-      // 同步补偿被拖拽块坐标：块屏幕位置 = 块坐标 + pan，
-      // 鼠标停住时自动平移也不会让块偏离鼠标（与 onCustomDragMove 公式一致）。
-      // 移动端锁水平：横向自动平移与横向补偿一并跳过，仅竖向滚动。
+      // 因自动平移时鼠标停住块也不应偏离（块屏幕位置 = 块坐标 + pan），故同步补偿被拖拽块坐标
+      // 因移动端锁水平，故横向自动平移与横向补偿一并跳过，仅竖向滚动
       Object.keys(customDragGroup).forEach((id) => {
         const target = state.items.find((it) => it.id === id)
         if (!target) return
@@ -340,7 +313,8 @@ const stopAutoPan = () => {
 }
 
 const startPan = (e: MouseEvent) => {
-  if (e.button !== 2) return // 仅右键拖拽平移（不依赖 Vue 的 .right 修饰符，兼容性更稳）
+  // 因需任意位置右键拖拽都平移，故仅响应右键且不依赖 Vue 的 .right 修饰符（兼容性更稳）
+  if (e.button !== 2) return
   // 右键菜单已全局禁用，任意位置（含块上）右键拖拽都平移
   e.preventDefault()
   panSession.active = true
@@ -351,8 +325,7 @@ const startPan = (e: MouseEvent) => {
   isPanning.value = true
 }
 
-// 捕获阶段拦截右键 mousedown：确保在任意位置（含块内编辑器 ProseMirror 内部）右键拖拽都能平移，
-// 并阻止编辑器等通过 stopPropagation 拦截右键事件。
+// 因编辑器（ProseMirror）内部会通过 stopPropagation 拦截右键事件，故在捕获阶段拦截以确保任意位置右键拖拽都能平移
 const handleCanvasMouseDownCapture = (e: MouseEvent) => {
   if (e.button !== 2) return
   startPan(e)
@@ -363,8 +336,8 @@ const updatePan = (e: MouseEvent) => {
   if (!panSession.active) return
   const nx = panSession.startPanX + (e.clientX - panSession.startClientX)
   const ny = panSession.startPanY + (e.clientY - panSession.startClientY)
-  // 取整避免亚像素平移导致界面模糊（触摸/缩放屏下 clientX 可能为小数）
-  // 移动端只需竖直方向无限移动，水平方向锁定（不随平移移动）
+  // 因触摸/缩放屏下 clientX 可能为小数、亚像素平移会致界面模糊，故取整
+  // 因移动端锁水平，故仅竖直方向平移、水平锁定
   pan.x = mobileMode.value ? 0 : Math.round(nx)
   pan.y = Math.round(ny)
 }
@@ -376,17 +349,16 @@ const stopPan = () => {
   maybeRebaseOrigin() // 平移结束：坐标过大时无感重定位原点
 }
 
-// 界面禁用右键菜单（窗口级全局）：避免右键拖拽平移时弹出原生菜单
+// 因右键拖拽平移时需避免弹出原生菜单，故窗口级全局禁用右键菜单
 const preventContextMenu = (e: Event) => e.preventDefault()
 
-// 供编辑器内 block-handle 拖拽段落时驱动画布自动平移（useBlockDrag 派发该事件）
+// 因编辑器内 block-handle 拖拽段落时需画布自动平移（useBlockDrag 派发该事件），故监听该事件并取整避免落亚像素
 const onCanvasPanEvent = (e: Event) => {
   const detail = (e as CustomEvent<{ dx?: number; dy?: number }>).detail
   if (!detail) return
   const dx = Number(detail.dx) || 0
   const dy = Number(detail.dy) || 0
   if (dx === 0 && dy === 0) return
-  // 取整避免块段落拖拽触发的画布平移落亚像素
   if (!mobileMode.value) pan.x += Math.round(dx)
   pan.y += Math.round(dy)
 }
@@ -412,7 +384,6 @@ const selectionBoxStyle = computed(() => {
   }
 })
 
-// ---------- 辅助函数 ----------
 const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
     return {
@@ -449,18 +420,14 @@ const setComponentRef = (id: string, el: any) => {
   else delete componentRefs.value[id]
 }
 
-// 当前端（桌面/移动端）布局
 const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
 
-// ---------- 拖拽手柄 / 选中指示器的上下放置 ----------
-// 手柄高 28px，需要块上方留出这么多空间。块贴近画布顶部（上方放不下）时，
-// 把拖拽手柄与选中指示器从块上方挪到块下方，避免被画布容器裁剪。
+// 因手柄高 28px、块贴近视口顶部时上方放不下（会被画布容器裁剪），
+// 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方
 const HANDLE_HEIGHT = 28
-// 手柄是否放块下方取决于「块在视口内的位置」（存储坐标 + 原点 + 平移）：贴近视口顶部时放下方
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
   layoutOf(item).y + origin.y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
 
-// 手柄横条的内联定位样式：上方放不下时贴块底部（bottom:-28px），否则贴块顶部
 const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSProperties => {
   const bottom = handlePlacementOf(item) === 'bottom'
   return {
@@ -469,10 +436,8 @@ const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSPropert
     bottom: bottom ? '-28px' : 'auto',
     height: '28px',
     zIndex: 10,
-    // 不用内联 transform：内联样式优先级高于 Vue transition 的 class，
-    // 会把滑出动画的 transform（translate）压成只剩 opacity 生效。
-    // 改 CSS 变量：--handle-y（贴边 ±1px 微调）+ --handle-slide（从块内滑出的方向），
-    // CSS 统一读取并组合进动画。
+    // 因内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
+    // 故改用 CSS 变量 --handle-y（贴边 ±1px 微调）+ --handle-slide（滑出方向）由 CSS 组合进动画
     '--handle-y': bottom ? '1px' : '-1px',
     '--handle-slide': bottom ? '-28px' : '28px',
     ...extra,
@@ -486,8 +451,8 @@ const getSelectedItemIds = (item: CanvasItem) => {
   return selected
 }
 
-// ---------- 自定义块拖拽：块跟随鼠标；画布平移自动补偿（无需 hack VDR 内部）----------
-// 块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)，因此鼠标动块就动、画布平移块自动补偿。
+// 因需块跟随鼠标且画布平移时块自动补偿（无需 hack VDR 内部），
+// 故块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)
 const customDrag = reactive({
   active: false,
   startClientX: 0,
@@ -506,7 +471,6 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   customDrag.startClientY = e.clientY
   customDrag.panStartX = pan.x
   customDrag.panStartY = pan.y
-  // 记录多选组的初始世界坐标
   customDragGroup = {}
   getSelectedItemIds(item).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
@@ -524,7 +488,6 @@ const onCustomDragMove = (e: MouseEvent) => {
   if (!customDrag.active) return
   const dx = e.clientX - customDrag.startClientX
   const dy = e.clientY - customDrag.startClientY
-  // 画布平移补偿：块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)
   const panDx = pan.x - customDrag.panStartX
   const panDy = pan.y - customDrag.panStartY
   Object.keys(customDragGroup).forEach((id) => {
@@ -532,7 +495,7 @@ const onCustomDragMove = (e: MouseEvent) => {
     if (!target) return
     const origin = customDragGroup[id]
     const layout = layoutOf(target)
-    // 块坐标取整，保证块屏幕位置（= 块坐标 + pan）始终落在整数像素上
+    // 因块屏幕位置（= 块坐标 + pan）需落在整数像素上，故取整
     layout.x = mobileMode.value ? origin.x : Math.round(origin.x + dx - panDx)
     layout.y = Math.round(origin.y + dy - panDy)
   })
@@ -550,7 +513,7 @@ const onCustomDragUp = () => {
 
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
   const layout = layoutOf(item)
-  // 缩放结果取整，避免块落在亚像素上发虚
+  // 因缩放结果落亚像素会发虚，故取整
   layout.x = Math.round(x)
   layout.y = Math.round(y)
   layout.w = Math.round(w)
@@ -571,7 +534,7 @@ const handleSelect = (id: string, e?: MouseEvent) => {
     }
     state.selectedIds = newSet
   } else if (isSelected && selectedCount > 1) {
-    // 保留当前多选集合，避免拖拽手柄时把它收缩为单选
+    // 因拖拽手柄时不应把多选收缩为单选，故保留当前集合
     return
   } else {
     state.selectedIds = new Set([id])
@@ -587,12 +550,10 @@ const updateSelectionBox = () => {
 }
 
 const isRectIntersectingItem = (rect: { x: number; y: number; w: number; h: number }, item: CanvasItem) => {
-  // 选择框与块都在世界坐标参考系下比较
   const itemRect = layoutOf(item)
   return itemRect.x < rect.x + rect.w && itemRect.x + itemRect.w > rect.x && itemRect.y < rect.y + rect.h && itemRect.y + itemRect.h > rect.y
 }
 
-// 画布 mousedown 统一入口：左键负责框选，右键负责平移（两者互斥）
 const onCanvasMouseDown = (e: MouseEvent) => {
   startSelection(e)
   startPan(e)
@@ -610,7 +571,7 @@ const startSelection = (e: MouseEvent) => {
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  // 选择框坐标转存储坐标（减 origin）：块 layout 也是存储坐标，两者同一参考系
+  // 因选择框坐标需与块 layout 同一参考系（均存储坐标），故减 origin
   selectionState.startX = e.clientX - rect.left - origin.x
   selectionState.startY = e.clientY - rect.top - origin.y
   selectionState.currentX = selectionState.startX
@@ -658,7 +619,6 @@ const handleCanvasClick = (e: MouseEvent) => {
   state.selectedIds = new Set()
 }
 
-// 内容物获得焦点时：选中该块并把它提到最上层（显示在最前）
 const handleCanvasFocusin = (e: FocusEvent) => {
   const target = e.target as HTMLElement
   const wrapper = target.closest<HTMLElement>('.drag-wrapper')
@@ -671,8 +631,7 @@ const handleCanvasFocusin = (e: FocusEvent) => {
   bringToTop(id)
 }
 
-// ---------- 同步与存储 ----------
-// 统一调用每个组件自定义的 saveConfig，把组件内部数据同步回 item.config
+// 因各组件内部数据需统一同步回 item.config，故经组件自定义的 saveConfig 接口收集
 const syncComponentData = () => {
   state.items.forEach((item) => {
     const inst = componentRefs.value[item.id]
@@ -690,28 +649,25 @@ let nextX = 20
 let nextY = 20
 const STEP = 30
 
-// ---------- 移动端布局适配 ----------
 const updateCanvasWidth = () => {
-  // 移动端宽度取可见视口(.canvas-container)宽度
   const container = canvasContainerRef.value ?? canvasRef.value
   if (container) {
     canvasWidth.value = container.clientWidth
   }
 }
 
-// 把单个块的移动端宽度按画布拉伸（x 贴左，宽度占满整个画布，无左右边距）
 const stretchMobileWidth = (item: CanvasItem) => {
   const mobile = item.layout.mobile
   mobile.x = 0
   mobile.w = canvasWidth.value
 }
 
-// 应用移动端布局：宽度始终按画布拉伸；位置/高度缺失时（旧数据）从桌面布局补齐
 const applyMobileLayout = () => {
   if (!mobileMode.value || canvasWidth.value <= 0) return
   state.items.forEach(item => {
     stretchMobileWidth(item)
     const { desktop, mobile } = item.layout
+    // 因旧数据可能缺失移动端位置/高度，故从桌面布局补齐
     if (mobile.y == null) mobile.y = desktop.y
     if (mobile.h == null) mobile.h = desktop.h
   })
@@ -722,30 +678,27 @@ const refreshLayout = () => {
   if (mobileMode.value) applyMobileLayout()
 }
 
-// flush:'pre'：在组件重挂载前执行，先同步富文本内容
+// 因需在组件重挂载前先同步富文本内容，故用 flush: 'pre'
 watch(mobileMode, () => {
   syncComponentData()
   if (mobileMode.value) {
-    // 移动端锁水平：把水平原点偏移并入桌面布局并归零，块始终贴左（屏幕 x=0）；
-    // 切换回桌面时 desktop 已含该偏移，位置不变，无感。
+    // 因移动端锁水平，故将水平原点偏移并入桌面布局并归零，切换回桌面时位置不变、无感
     if (origin.x) {
       state.items.forEach((it) => { it.layout.desktop.x += origin.x })
       origin.x = 0
     }
-    pan.x = 0 // 移动端锁水平：切换时归零水平平移，避免块水平偏移
+    pan.x = 0 // 因移动端锁水平，故切换时归零水平平移，避免块水平偏移
   }
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
 const onResize = () => refreshLayout()
 
-// ---------- 添加组件 ----------
-// 统一入口：根据注册表 ADDABLE_COMPONENTS 生成对应组件实例
 const addComponent = (key: CanvasItem['component']) => {
   const meta = componentMetaOf(key)
   if (!meta) return
   const id = generateId()
-  // 新块放在当前视口可见处：存储坐标 = 视口内偏移 - 原点 - 平移（屏幕位置 = 存储 + 原点 + pan = 偏移）
+  // 因新块需落在当前视口可见处（屏幕位置 = 存储坐标 + 原点 + pan），故存储坐标 = 视口内偏移 - 原点 - 平移
   const baseX = nextX - pan.x - origin.x
   const baseY = nextY - pan.y - origin.y
   const newItem: CanvasItem = {
@@ -769,12 +722,10 @@ const addComponent = (key: CanvasItem['component']) => {
   }
 }
 
-// ---------- 保存 / 加载 ----------
 const save = () => {
   syncComponentData()
-  // 归一化原点（避免数据溢出）：以「绝对屏幕位置 = 存储坐标 + origin + pan」的
-  // 块群包围盒中心为新原点，保存的坐标相对该中心（小值），并记录新原点 origin。
-  // 加载时用 origin 还原，视觉完全不变（块不动、点阵不跳）。
+  // 因块坐标需保持小值避免数据溢出，故以块群包围盒中心为新原点保存相对坐标，
+  // 并用 origin 记录原点，加载时还原（视觉不变）
   const absOf = (r: Rect) => ({ x: r.x + origin.x + pan.x, y: r.y + origin.y + pan.y })
   let cx = 0, cy = 0
   if (state.items.length) {
@@ -789,15 +740,14 @@ const save = () => {
     cx = Math.round((minX + maxX) / 2)
     cy = Math.round((minY + maxY) / 2)
   }
-  // 保存为「相对新原点 cx,cy 的坐标」：绝对屏幕位置 - 新原点
   const toSaveRect = (r: Rect) => ({
-    // 保存时取整：保证加载后块坐标是整数，打开即清晰
+    // 因加载后块坐标需为整数（打开即清晰），故保存时取整
     x: Math.round(r.x + origin.x + pan.x - cx),
     y: Math.round(r.y + origin.y + pan.y - cy),
     w: Math.round(r.w),
     h: Math.round(r.h),
   })
-  // 移动端不持久化宽度（运行时按画布拉伸），只存位置与高度
+  // 因移动端宽度运行时按画布拉伸，故不持久化，只存位置与高度
   const serializable = state.items.map((it) => ({
     id: it.id,
     component: it.component,
@@ -810,9 +760,8 @@ const save = () => {
   return JSON.stringify({ origin: { x: cx, y: cy }, items: serializable })
 }
 
-// 归一化从 localStorage 读出的单个条目：
-// 兼容「双端布局」重构（commit 7c65209）前的扁平格式（x/y/w/h 在条目顶层、无 layout），
-// 并对缺失的布局/组件/配置用默认值兜底，避免加载旧数据直接崩溃。
+// 因需兼容「双端布局」重构（commit 7c65209）前的扁平格式并对缺失字段兜底，
+// 故归一化加载条目，避免旧数据崩溃
 const normalizeLoadedItem = (it: any): CanvasItem => {
   const component: CanvasItem['component'] = componentMap[it.component as CanvasItem['component']]
     ? (it.component as CanvasItem['component'])
@@ -822,7 +771,7 @@ const normalizeLoadedItem = (it: any): CanvasItem => {
     ? { x: it.x, y: it.y, w: it.w ?? 400, h: it.h ?? 300 }
     : { x: 0, y: 0, w: 400, h: 300, ...(it.layout?.desktop ?? {}) }
   const mobile: Rect = { ...desktop, ...(it.layout?.mobile ?? {}) }
-  // 坐标兜底：null/undefined 一律归 0，避免拖拽异常数据把块弄丢
+  // 因坐标异常（null/undefined）会使块被弄丢，故一律归 0
   desktop.x = typeof desktop.x === 'number' ? desktop.x : 0
   desktop.y = typeof desktop.y === 'number' ? desktop.y : 0
   mobile.x = typeof mobile.x === 'number' ? mobile.x : 0
@@ -843,20 +792,20 @@ const load = async (raw: string) => {
   } catch {
     return // 数据损坏：静默跳过，不阻塞画布
   }
-  // 兼容旧格式（纯 CanvasItem[] 数组）与中间版（{ pan, items } 对象）与新版（{ origin, items }）
+  // 因需兼容旧格式（数组 / { pan, items } / { origin, items }），故分别处理
   if (Array.isArray(parsed)) {
     state.items = parsed.map(normalizeLoadedItem)
     origin.x = 0
     origin.y = 0
   } else if (parsed && Array.isArray(parsed.items)) {
     state.items = parsed.items.map(normalizeLoadedItem)
-    // 新版保存了归一化原点：加载后用它还原视觉位置；旧数据无 origin 则归零
+    // 因新版以 origin 还原视觉位置，故加载之；旧数据无 origin 则归零
     origin.x = typeof parsed.origin?.x === 'number' ? parsed.origin.x : 0
     origin.y = typeof parsed.origin?.y === 'number' ? parsed.origin.y : 0
   } else {
     return
   }
-  // 保存的坐标是归一化后的存储坐标（相对 origin），加载后归零平移从原点查看内容
+  // 因保存坐标相对 origin 归一化，故加载后归零平移、从原点查看内容
   pan.x = 0
   pan.y = 0
   await nextTick()
@@ -866,19 +815,16 @@ const load = async (raw: string) => {
     applyMobileLayout()
   }
   state.items.forEach((item) => {
-    // 调用每个组件自定义的 loadConfig 恢复数据
     componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
 }
 
-// ---------- 批量操作 ----------
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   Array.from(state.selectedIds).forEach((id) => {
     componentRefs.value[id]?.commands?.toggleHeading?.(level)
   })
 }
 
-// ---------- 删除功能 ----------
 const deleteSelected = () => {
   if (state.selectedIds.size === 0) return
   const ids = Array.from(state.selectedIds)
@@ -887,10 +833,9 @@ const deleteSelected = () => {
   ids.forEach(id => { delete componentRefs.value[id] })
 }
 
-// ---------- 生命周期 ----------
 onMounted(() => {
   nextTick(refreshLayout)
-  // 捕获监听挂在视口容器上：整个视口（含负坐标区域、世界层外区域）右键拖拽都能平移
+  // 因整个视口（含负坐标区域、世界层外区域）右键拖拽都需平移，故捕获监听挂在视口容器上
   canvasContainerRef.value?.addEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.addEventListener('resize', onResize)
   window.addEventListener('mousemove', updateSelection)
@@ -950,18 +895,15 @@ defineExpose({
   position: relative;
   overflow: hidden;
   background-color: #f7f8fa;
-  /* 点阵背景：background-position 由 containerStyle 动态绑定 pan，随画布平移滚动。
-     必须显式 background-repeat: repeat（某些全局样式会把它重置为 no-repeat，
-     导致 pan 偏移后点阵单元被移出视口、看起来“看不见点了”） */
+  /* 因全局样式可能把 background-repeat 重置为 no-repeat 导致 pan 偏移后点阵移出视口，
+     故显式设为 repeat，且 background-position 随 pan 平移滚动 */
   background-image: radial-gradient(circle, #e3e6eb 1px, transparent 1px);
   background-repeat: repeat;
   background-size: 24px 24px;
 }
 
-/* 无限画布世界层：与视口同尺寸的绝对定位层，transform 由 TS 的 canvasStyle 绑定
-   （translate(pan) 跟随鼠标移动，跟手）。块用世界坐标绝对定位（无边界约束），
-   可溢出层外（overflow visible），超出视口的部分由容器 overflow hidden 裁剪；
-   点阵背景在视口容器上（固定），因此平移无限但背景始终存在。 */
+/* 因块用世界坐标定位可溢出层外，故超出视口的部分由容器 overflow hidden 裁剪；
+   因平移无界，故点阵背景固定在视口容器上以保证背景始终存在 */
 .canvas {
   position: absolute;
   left: 0;
@@ -1028,7 +970,6 @@ defineExpose({
   transform: translateY(var(--handle-y, -1px));
 }
 
-/* 上方空间不够时手柄放块下方：描边与圆角翻转到底部 */
 .drag-handle.handle-bottom {
   border-top: 0;
   border-bottom: 1px solid #e0e0e0;
@@ -1074,9 +1015,8 @@ defineExpose({
   padding: 4px;
   box-sizing: border-box;
   background-color: transparent;
-  /* 让内容层盖住“从内部滑出”的手柄：手柄在块内滑出阶段（z-index:10）位于内容
-     （z-index:15）之下，不遮挡内容；滑出块外后与内容不重叠，正常可见。
-     须低于缩放手柄 .handle 的 z-index:20，保证缩放手柄仍可点。 */
+  /* 因需盖住"从块内滑出"阶段的手柄（z-index:10）又不挡缩放手柄（.handle 的 z-index:20），
+     故置于 z-index:15 */
   position: relative;
   z-index: 15;
 }
@@ -1093,8 +1033,7 @@ defineExpose({
   transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* 选中指示器从块内部滑出：top 放置时初始在块内顶部（下移 28px）滑出到块上方；
-   bottom 放置时反向（上移 28px）滑出到块下方。--handle-slide 由 handleBarStyle 提供。 */
+/* 因 top/bottom 放置时滑出方向相反，故由 handleBarStyle 提供 --handle-slide 变量驱动动画 */
 .pop-up-enter-from {
   opacity: 0;
   transform: translateY(calc(var(--handle-y, 0px) + var(--handle-slide, 28px)));

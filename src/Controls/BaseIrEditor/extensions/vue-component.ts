@@ -14,8 +14,6 @@ import {
 import { mdiArrowBottomRight } from '@mdi/js'
 import { normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints'
 
-// ==================== 类型定义 ====================
-
 interface ComponentEntry {
   loader: () => Promise<{
     default: any
@@ -24,16 +22,11 @@ interface ComponentEntry {
   aspectRatio?: number | null
 }
 
-// ==================== 组件注册表 ====================
-
 const componentMap: Record<string, ComponentEntry> = {
   CodeBlock: {
     loader: () => import('../../EditorPlugin/EditableCodeBlock.vue'),
   },
-  // 在此追加其他组件
 }
-
-// ==================== 加载与缓存 ====================
 
 const loadedCache = new Map<
   string,
@@ -46,14 +39,11 @@ async function loadComponent(name: string) {
   if (!entry) throw new Error(`未知组件：${name}`)
   const module = await entry.loader()
   const comp = module.default
-  // 统一通过 normalizeConstraints 处理：undefined → 默认，null → 无限制
   const constraints = normalizeConstraints(module.resizeConstraints)
   const result = { component: comp, constraints }
   loadedCache.set(name, result)
   return result
 }
-
-// ==================== 节点规范 ====================
 
 export const vueComponentNode = defineNodeSpec({
   name: 'vueComponent',
@@ -93,8 +83,6 @@ export const vueComponentNode = defineNodeSpec({
     ]
   },
 })
-
-// ==================== 可调整容器 ====================
 
 const ResizableContainer = defineComponent({
   name: 'ResizableContainer',
@@ -138,7 +126,6 @@ const ResizableContainer = defineComponent({
       const startWidth = currentWidth.value
       const startHeight = currentHeight.value
 
-      // 如果 maxWidth 为 null，则视为无限制（使用 Infinity）
       const maxW = props.maxWidth !== null ? props.maxWidth : Infinity
       const minW = props.minWidth !== null ? props.minWidth : -Infinity
       const maxH = props.maxHeight !== null ? props.maxHeight : Infinity
@@ -268,8 +255,6 @@ const ResizableContainer = defineComponent({
   },
 })
 
-// ==================== Vue 节点视图 ====================
-
 export const vueComponentNodeView = defineVueNodeView({
   name: 'vueComponent',
   component: defineComponent({
@@ -313,13 +298,12 @@ export const vueComponentNodeView = defineVueNodeView({
         }
       )
 
-      // ---------- 监听容器宽度（编辑区域） ----------
-      // 初始值：直接取 view.dom.clientWidth，若为 0 则给一个较大后备（如 10000）
+      // 因首次取 clientWidth 可能为 0，故以 10000 作较大后备避免宽度塌缩
       const containerWidth = ref<number>(view.dom.clientWidth || 10000)
       let resizeObserver: ResizeObserver | null = null
 
       onMounted(() => {
-        const container = view.dom // ProseMirror 内容元素
+        const container = view.dom
         if (container) {
           containerWidth.value = container.clientWidth || 10000
           resizeObserver = new ResizeObserver((entries) => {
@@ -338,19 +322,16 @@ export const vueComponentNodeView = defineVueNodeView({
         }
       })
 
-      // 有效最大宽度：取组件约束 maxWidth 与容器宽度的较小值，始终为数字
       const effectiveMaxWidth = computed(() => {
-        const constraintsMax = state.constraints.maxWidth // 可能为 null
+        const constraintsMax = state.constraints.maxWidth
         const containerW = containerWidth.value
 
-        // 容器宽度总是有效数字（初始有后备值）
         if (constraintsMax === null) {
           return containerW
         }
         return Math.min(constraintsMax, containerW)
       })
 
-      // 当有效最大宽度发生变化时，若当前宽度超出，则自动缩小
       const handleResize = (newWidth: number, newHeight: number) => {
         const pos = getPos()
         if (typeof pos !== 'number') return
@@ -374,7 +355,6 @@ export const vueComponentNodeView = defineVueNodeView({
         },
         { immediate: true }
       )
-      // ---------- 新增部分结束 ----------
 
       return () => {
         const currentNode = node.value
@@ -410,7 +390,6 @@ export const vueComponentNodeView = defineVueNodeView({
         const entry = componentMap[componentName]
         const aspectRatio = entry?.aspectRatio ?? null
 
-        // 内部内容容器：强制填充并禁用滚动条
         const innerContent = h(
           'div',
           {
@@ -433,7 +412,7 @@ export const vueComponentNodeView = defineVueNodeView({
           })
         )
 
-        // 始终传递数字（不传 null），确保限制生效
+        // 因 ResizableContainer 以 null 表示无限制，故这里始终传数字以确保限制生效
         return h(
           ResizableContainer,
           {
@@ -441,7 +420,7 @@ export const vueComponentNodeView = defineVueNodeView({
             height: currentNode.attrs.height,
             aspectRatio: aspectRatio ?? undefined,
             minWidth: state.constraints.minWidth,
-            maxWidth: effectiveMaxWidth.value, // 保证是数字
+            maxWidth: effectiveMaxWidth.value,
             minHeight: state.constraints.minHeight,
             maxHeight: state.constraints.maxHeight,
             onResize: handleResize,

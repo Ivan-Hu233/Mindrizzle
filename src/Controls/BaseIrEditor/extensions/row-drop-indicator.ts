@@ -8,18 +8,12 @@ export interface RowDropShow {
   line: { p1: { x: number; y: number }; p2: { x: number; y: number } }
 }
 
-/**
- * 行级 drop indicator 插件。
- */
 export function createRowDropIndicatorPlugin(options: {
   onShow: (show: RowDropShow) => void
   onHide: () => void
 }): Plugin {
   const { onShow, onHide } = options
 
-  /**
-   * 计算拖拽目标：返回「插入位置」和「该位置的行底 y 坐标」。
-   */
   function getDropTarget(
     view: EditorView,
     x: number,

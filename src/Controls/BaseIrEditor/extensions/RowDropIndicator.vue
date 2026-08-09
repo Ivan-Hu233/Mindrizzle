@@ -8,7 +8,6 @@ import {
 
 const props = defineProps<{ editor?: Editor | null }>()
 
-// 当前要显示的指示器线（viewport 坐标），null 表示隐藏。
 const line = ref<RowDropShow['line'] | null>(null)
 let ext: ReturnType<typeof definePlugin> | null = null
 
@@ -29,7 +28,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // editor.unmount() 会统一清理所有插件，无需手动 unuse。
+  // 因 editor.unmount() 会统一清理插件，故无需手动 unuse
   ext = null
 })
 

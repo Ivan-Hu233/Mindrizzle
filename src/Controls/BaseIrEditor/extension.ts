@@ -35,10 +35,8 @@ import { defineBlockquote } from 'prosekit/extensions/blockquote'
 import { defineSubscript } from 'prosekit/extensions/subscript'
 import { defineSuperscript } from 'prosekit/extensions/superscript'
 
-// 自定义命令：注册进 editor.commands 命令链，供父组件统一调用
-// （例如 componentRefs.value[id]?.commands?.toggleHeading?.(2)）
+// 因父组件需统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.(2)），故注册自定义命令
 const customCommands = defineCommands({
-  // 切换标题 / 段落
   toggleHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
     return (state, dispatch) => {
       const node = state.selection.$from.node(state.selection.$from.depth)
@@ -48,7 +46,6 @@ const customCommands = defineCommands({
       return setBlockType({ type: 'heading', attrs: { level } })(state, dispatch)
     }
   },
-  // 插入 Vue 组件节点
   insertVueComponent(componentName: string, props: Record<string, any> = {}) {
     return (state, dispatch, view) => {
       if (!view) return false
@@ -61,7 +58,6 @@ const customCommands = defineCommands({
       })(state, dispatch)
     }
   },
-  // 插入行内公式
   insertMathInline(latex: string) {
     return (state, dispatch) => {
       const node = state.schema.nodes.mathInline?.create({}, state.schema.text(latex))
@@ -71,7 +67,6 @@ const customCommands = defineCommands({
       return true
     }
   },
-  // 插入块级公式
   insertMathBlock(latex: string) {
     return (state, dispatch) => {
       const node = state.schema.nodes.mathBlock?.create({}, state.schema.text(latex))
@@ -106,7 +101,6 @@ export function defineExtension() {
     backgroundColor,
     highlight,
     fontFamily,
-    // 快捷键
     boldKeymap,
     italicKeymap,
     underlineKeymap,

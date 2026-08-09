@@ -7,7 +7,6 @@ import { defineBackgroundColor } from '@prosekit/extensions/background-color'
 import { defineHighlight, defineHighlightKeymap } from '@prosekit/extensions/highlight'
 import { defineFontFamily } from '@prosekit/extensions/font-family'
 
-// 扩展实例（已实例化）
 export const bold = defineBold()
 export const italic = defineItalic()
 export const underline = defineUnderline()
@@ -17,7 +16,6 @@ export const backgroundColor = defineBackgroundColor()
 export const highlight = defineHighlight()
 export const fontFamily = defineFontFamily()
 
-// 快捷键扩展
 export const boldKeymap = defineBoldKeymap()
 export const italicKeymap = defineItalicKeymap()
 export const underlineKeymap = defineUnderlineKeymap()

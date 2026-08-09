@@ -14,7 +14,7 @@
         <div ref="editorMount" class="editor-mount" />
       </div>
       <blockHandle :editor="editor" />
-      <!-- teleport 到 body，避免 .vdr 的 transform 祖先让 position:fixed 定位基准偏移 -->
+      <!-- 因 .vdr 的 transform 祖先会使 fixed 定位基准偏移，故 teleport 到 body -->
       <Teleport to="body">
         <RowDropIndicator :editor="editor" />
       </Teleport>
@@ -63,11 +63,9 @@ const editorMount = ref<HTMLDivElement>()
 onMounted(() => {
   if (editorMount.value) {
     editor.mount(editorMount.value)
-    // 移动端主动聚焦
     if (isMobile.value) {
       setTimeout(() => editor.view?.focus(), 100)
     }
-    // 如果外部传入了初始 doc，导入到编辑器
     if (props.doc) {
       editor.setContent(props.doc)
     }
@@ -82,7 +80,6 @@ function importJSON(json: NodeJSON) {
   editor.setContent(json)
 }
 
-// 监听外部 doc prop 的变化并导入
 watch(() => props.doc, (v) => {
   if (v) editor.setContent(v as NodeJSON)
 })
@@ -94,7 +91,7 @@ defineExpose({
   getDocJSON() {
     return editor.state.doc.toJSON()
   },
-  // 组件自有的保存 / 加载方法：父组件统一调用，不再按组件类型特殊处理
+  // 因父组件需统一调用保存/加载而不按组件类型特判，故暴露统一的 saveConfig/loadConfig
   saveConfig() {
     return { content: editor.state.doc.toJSON() }
   },
@@ -110,9 +107,8 @@ defineExpose({
   border: 1px solid transparent;
   border-radius: 4px;
   margin: 0px;
-  /* 桌面端负边距：左右各预留空白区，供 block-handle popup 在行左/行右侧显示。
-     滚动与裁剪交给内部 .editor-scroll（宽度=文本区，滚动条紧贴文本右侧），
-     这里 overflow:visible 让 popup 能进入左右 gutter 而不触发滚动条。 */
+  /* 因需为 block-handle popup 预留左右 gutter 显示区，故用负边距扩展；
+     overflow:visible 让 popup 进入 gutter 而不触发滚动条 */
   margin-left: -64px;
   margin-right: -80px;
   padding-left: 64px;
@@ -123,11 +119,10 @@ defineExpose({
   height: 100%;
   overflow: visible;
   transition: border-color 0.15s ease;
-  touch-action: auto; /* 确保触摸滚动正常 */
+  touch-action: auto; /* 因需保证触摸滚动正常，故设为 auto */
 }
 
-/* 真正的滚动容器：宽度与文本区一致（不进入左右 gutter），
-   横向/纵向滚动条都紧贴富文本编辑区内部右侧，不因 popup gutter 偏移。 */
+/* 因滚动条需紧贴文本区右侧、不被 popup gutter 偏移，故滚动容器宽度与文本区一致（不进 gutter） */
 .editor-scroll {
   width: 100%;
   height: 100%;
@@ -135,7 +130,6 @@ defineExpose({
   box-sizing: border-box;
 }
 
-/* 移动端紧凑模式：移除负边距 */
 .editor-wrapper.compact {
   margin-left: 0;
   margin-right: 0;
@@ -143,17 +137,15 @@ defineExpose({
   width: 100%;
   padding: 44px 0 0 0;
   box-sizing: border-box;
-  /* 顶部留白：移动端 block-handle popup 显示在行上方，首行上方的 popup
-     需要这 44px 空间才不会被 overflow:auto 裁剪/隐藏 */
+  /* 因移动端首行上方的 popup 需 44px 空间才不被 overflow:auto 裁剪，故顶部留白 */
 }
 
 .editor-mount {
   outline: none;
-  /* 高度随内容增长（不再固定 100%）：否则内容超出 PM 盒子（滚动到底部）的行
-     会被 ProseKit 的 hover 判定为“不在 view.dom 内”，无法弹出 popup */
+  /* 因固定 100% 高度时底部行会被 ProseKit hover 判定为不在 view.dom 内而无法弹 popup，故高度随内容增长 */
   min-height: 100%;
   width: 100%;
-  pointer-events: auto;  /* 确保可交互 */
+  pointer-events: auto;
 }
 
 .editor-mount:focus-within {
@@ -163,26 +155,23 @@ defineExpose({
 .editor-mount :deep(.ProseMirror) {
   padding: 0;
   outline: none;
-  height: 100%;          /* 让 ProseMirror 填充整个挂载点 */
-  min-height: 100px;     /* 保底高度，确保可点击 */
+  height: 100%;
+  min-height: 100px;
   pointer-events: auto;
   touch-action: auto;
 }
 
-/* 移动端：popup 显示在行上方（由 block-handle 的 placement='top' 控制定位）。
-   移动端手柄稍放大、按钮更大，便于触屏点击/拖拽。
-   直接绑定 compact 类（而非媒体查询），保证强制移动端/紧凑模式同样生效。 */
+/* 因需保证强制移动端/紧凑模式同样生效，故直接绑定 compact 类而非用媒体查询 */
 .editor-wrapper.compact :deep(.block-handle-popup) {
   transform: translateY(var(--block-handle-shift, 0px)) scale(1.1);
   transform-origin: center bottom;
 }
-/* bottom 放置（行下方）：缩放原点改为顶部，向下展开 */
+/* 因 bottom 放置需向下展开，故缩放原点改为顶部 */
 .editor-wrapper.compact :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
   transform-origin: center top;
 }
 
-/* 桌面端 top/bottom 放置（左右空间都不够时的退化）：保持桌面正常大小
-   （不放大——放大只针对移动端 compact），仅应用垂直裁剪补偿 --block-handle-shift。 */
+/* 因放大仅针对移动端 compact，故桌面端 top/bottom 退化时保持正常大小、仅应用垂直裁剪补偿 */
 .editor-wrapper:not(.compact) :deep(.block-handle-positioner.placement-top .block-handle-popup),
 .editor-wrapper:not(.compact) :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
   transform: translateY(var(--block-handle-shift, 0px));

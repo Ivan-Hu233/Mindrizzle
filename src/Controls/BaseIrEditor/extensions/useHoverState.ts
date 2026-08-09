@@ -1,6 +1,3 @@
-// 块 hover 状态：记录被 hover 的块（最后一次保留为拖拽源）与实时 hover，
-// 并根据所在编辑器/画布位置计算手柄放置方向。
-
 import { computed, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
 import { clearStoreHover, getBlockEl, getClipBottom, getClipTop, getPopupHeight, getPopupWidth, getView, isCompactView } from './blockHandleUtils'
@@ -15,14 +12,13 @@ export function useHoverState(
   dir: 'ltr' | 'rtl',
   getStore: (el?: Element | null) => any,
 ) {
-  // 最后一次 hover 的块（拖拽源）：hover 离开时不清空，保证拖拽/keepAlive 能拿到被拖块
+  // 因拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，故 hover 离开时不清空 hoveredBlock
   const hoveredBlock = ref<HoveredBlock | null>(null)
-  // 实时 hover（含移出的 null），驱动行高亮
   const activeHover = ref<HoveredBlock | null>(null)
 
   function onBlockStateChange(event: Event) {
     const detail = (event as CustomEvent).detail as HoveredBlock | null
-    // 拖拽进行中：全局抑制 popup/高亮（body 类由拖拽开始/结束控制，跨编辑器生效）
+    // 因拖拽需跨编辑器全局抑制 popup/高亮，故通过 body 上的拖拽类判断
     if (document.body.classList.contains('block-handle-dragging')) {
       activeHover.value = null
       if (detail) clearStoreHover(getView(editor), getStore)
@@ -32,12 +28,10 @@ export function useHoverState(
     if (detail) hoveredBlock.value = detail
   }
 
-  // popup 与行之间留出的理想间距；放置判断用 popup 的实际高度 + 该间距
+  // 因 popup 需与行保持 4px 间距，故放置判断以 popup 实际高度 + 该间距为所需空间
   const COMPACT_POPUP_GAP = 4
 
-  // 手柄放置方向：移动端默认在行上方；按 popup 实际大小与上下可用空间判断放哪侧
-  // （上方放得下就放上方，否则放下方，两侧都放不下则选空间大的一侧）。桌面端让 popup
-  // 朝向画布内侧（块在左半 → 行右，右半 → 行左）。
+  // 放置规则：移动端优先上方、桌面端优先朝向画布内侧（块在左半 → 行右），空间不足时退化为另一侧/上下
   const handlePlacement = computed<'left' | 'right' | 'top' | 'bottom'>(() => {
     const fallback: 'left' | 'right' = dir === 'rtl' ? 'right' : 'left'
     if (!hoveredBlock.value) return fallback
@@ -59,21 +53,15 @@ export function useHoverState(
 
     const editorDom = view?.dom as HTMLElement | null
     const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
-    // 用可见视口(.canvas-container)而非世界层(.canvas)判断“内/外”，
-    // 无限画布下世界层远大于视口，按它判断会恒为同一侧。
+    // 因无限画布下世界层远大于视口、按它判断内外会恒为同一侧，故用可见视口 .canvas-container 判断
     const container = editorDom?.closest('.canvas-container') as HTMLElement | null
     if (!widget || !container) return fallback
     const w = widget.getBoundingClientRect()
     const c = container.getBoundingClientRect()
-    // 首选侧：朝向画布内侧（块在左半 → 行右，右半 → 行左）
     const preferred: 'left' | 'right' = w.left + w.width / 2 < c.left + c.width / 2 ? 'right' : 'left'
 
-    // 桌面端左右空间都放不下 popup 时，退化为上下放置（与移动端一致）。
-    // 左右空间用整块边界 w（popup 显示在块外侧 gutter，块边界即可用空间；
-    // 不用文本行 nodeDOM，避免 nodeDOM(pos) 在部分情况下取不到元素）；
-    // 上下空间优先用文本行 blockEl（贴合行），取不到时退化为整块。
-    // 桌面端 top/bottom 不放大：只有 compact（移动端）才 scale(1.1)，
-    // 因此这里退化时 popup 大小与左右放置一致（正常尺寸）。
+    // 因桌面端左右放不下 popup 时需退化为上下放置；左右空间用整块边界（不用文本行 nodeDOM，
+    // 因 nodeDOM(pos) 部分情况取不到元素）；且桌面端 top/bottom 不放大，故退化时大小与左右放置一致
     const needX = getPopupWidth(view) + COMPACT_POPUP_GAP
     const spaceLeft = w.left - c.left
     const spaceRight = c.right - w.right
