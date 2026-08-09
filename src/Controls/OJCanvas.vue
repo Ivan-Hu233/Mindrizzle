@@ -13,28 +13,6 @@
         @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" :disabled="!isEditMode" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id) }">
         <div class="block-container bg-white elevation-1 rounded">
-          <v-sheet v-if="isEditMode" class="drag-handle border border-grey-lighten-2"
-            :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }" color="grey-lighten-4"
-            :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
-            :style="handleBarStyle(item, { left: '10px', padding: '0 10px', display: 'flex', alignItems: 'center', cursor: 'grab', whiteSpace: 'nowrap' })"
-            @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
-            <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
-            <span class="text-caption text-grey-darken-2 user-select-none">
-              {{ componentLabelOf(item.component) }}
-            </span>
-          </v-sheet>
-
-          <transition name="pop-up">
-            <v-sheet v-if="isEditMode && state.selectedIds.has(item.id)"
-              class="drag-handle right-handle border border-grey-lighten-2"
-              :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }" color="grey-lighten-4"
-              :rounded="handlePlacementOf(item) === 'bottom' ? 'b' : 't'"
-              :style="handleBarStyle(item, { right: '10px', width: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab' })"
-              @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
-              <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
-            </v-sheet>
-          </transition>
-
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
               :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
@@ -43,6 +21,25 @@
           </div>
         </div>
       </VueDraggableResizable>
+
+      <!-- 因手柄在块内会被相邻块/compact 编辑器（块间层叠）盖住而点不到，故提升到 .canvas 顶层用块坐标定位 -->
+      <template v-for="item in state.items" :key="`handle-${item.id}`">
+        <div v-if="isEditMode" class="floating-handle drag-handle"
+          :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
+          :style="handleBarStyle(item, 'left')" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
+          <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
+          <span class="text-caption text-grey-darken-2 user-select-none">
+            {{ componentLabelOf(item.component) }}
+          </span>
+        </div>
+        <transition name="pop-up">
+          <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle right-handle"
+            :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
+            :style="handleBarStyle(item, 'right')" @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
+            <v-avatar size="12" :style="{ backgroundColor: String(primaryColor) }" />
+          </div>
+        </transition>
+      </template>
     </div>
   </v-sheet>
 </template>
@@ -428,19 +425,24 @@ const HANDLE_HEIGHT = 28
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
   layoutOf(item).y + origin.y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
 
-const handleBarStyle = (item: CanvasItem, extra: CSSProperties = {}): CSSProperties => {
+const handleBarStyle = (item: CanvasItem, side: 'left' | 'right'): CSSProperties => {
+  const layout = layoutOf(item)
   const bottom = handlePlacementOf(item) === 'bottom'
   return {
     position: 'absolute',
-    top: bottom ? 'auto' : '-28px',
-    bottom: bottom ? '-28px' : 'auto',
-    height: '28px',
-    zIndex: 10,
+    // 因手柄提升到 .canvas 顶层（已应用 pan+origin 变换），故用块存储坐标直接定位
+    top: `${bottom ? layout.y + layout.h : layout.y - HANDLE_HEIGHT}px`,
+    left: `${side === 'left' ? layout.x + 10 : layout.x + layout.w - 38}px`,
+    height: `${HANDLE_HEIGHT}px`,
+    // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 999
+    zIndex: 999,
+    ...(side === 'left'
+      ? { padding: '0 10px', display: 'flex', alignItems: 'center', cursor: 'grab', whiteSpace: 'nowrap' }
+      : { width: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab' }),
     // 因内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
     // 故改用 CSS 变量 --handle-y（贴边 ±1px 微调）+ --handle-slide（滑出方向）由 CSS 组合进动画
     '--handle-y': bottom ? '1px' : '-1px',
     '--handle-slide': bottom ? '-28px' : '28px',
-    ...extra,
   }
 }
 
@@ -481,6 +483,8 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   window.addEventListener('mousemove', onCustomDragMove)
   window.addEventListener('mouseup', onCustomDragUp)
   e.preventDefault()
+  // 因拖拽中鼠标会扫过编辑器触发 block-handle popup/高亮，故复用 body 类跨编辑器全局抑制
+  document.body.classList.add('block-handle-dragging')
   startAutoPan() // 拖到视口边缘时画布自动平移
 }
 
@@ -508,6 +512,8 @@ const onCustomDragUp = () => {
   window.removeEventListener('mousemove', onCustomDragMove)
   window.removeEventListener('mouseup', onCustomDragUp)
   stopAutoPan()
+  // 因拖拽结束需恢复编辑器 popup/高亮，故移除 body 拖拽类
+  document.body.classList.remove('block-handle-dragging')
   maybeRebaseOrigin() // 拖拽结束：坐标过大时无感重定位原点
 }
 
@@ -956,6 +962,14 @@ defineExpose({
   flex-direction: column;
 }
 
+/* 因手柄提升到 .canvas 顶层（脱离块内层叠上下文），
+   故覆盖 .drag-handle/.right-handle 的块内定位（bottom:100% 等）以纯 top/left 定位 */
+.floating-handle {
+  position: absolute;
+  bottom: auto;
+  z-index: 999;
+}
+
 .drag-handle {
   position: absolute;
   height: 28px;
@@ -966,7 +980,7 @@ defineExpose({
   border: 1px solid #e0e0e0;
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
-  z-index: 10;
+  z-index: 16;
   padding: 0 10px;
   white-space: nowrap;
   box-sizing: border-box;
@@ -997,7 +1011,7 @@ defineExpose({
   width: 28px;
   justify-content: center;
   padding: 0;
-  z-index: 10;
+  z-index: 16;
 }
 
 .right-handle .selected-dot {
