@@ -485,6 +485,9 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   e.preventDefault()
   // 因拖拽中鼠标会扫过编辑器触发 block-handle popup/高亮，故复用 body 类跨编辑器全局抑制
   document.body.classList.add('block-handle-dragging')
+  // 因拖拽中块可能超出视口使 document 出现竖向滚动条，故临时锁 html/body 滚动、松开恢复
+  document.documentElement.style.overflow = 'hidden'
+  document.body.style.overflow = 'hidden'
   startAutoPan() // 拖到视口边缘时画布自动平移
 }
 
@@ -505,6 +508,26 @@ const onCustomDragMove = (e: MouseEvent) => {
   })
 }
 
+// 因 VDR 自带冲突检测仅在它自己的 dragging/resizing 结束触发，而块拖拽走自定义路径（draggable=false），
+// 故松开时自行检测被拖块与其他块重叠，重叠则回退到拖拽起点
+const resolveDragConflict = () => {
+  const draggedIds = new Set(Object.keys(customDragGroup))
+  state.items.forEach((target) => {
+    if (!draggedIds.has(target.id)) return
+    const layout = layoutOf(target)
+    const conflict = state.items.some((other) => {
+      if (other.id === target.id || draggedIds.has(other.id)) return false
+      const ol = layoutOf(other)
+      return layout.x < ol.x + ol.w && layout.x + layout.w > ol.x && layout.y < ol.y + ol.h && layout.y + layout.h > ol.y
+    })
+    if (conflict) {
+      const origin = customDragGroup[target.id]
+      layout.x = origin.x
+      layout.y = origin.y
+    }
+  })
+}
+
 const onCustomDragUp = () => {
   customDrag.active = false
   window.removeEventListener('pointermove', onCustomDragMove)
@@ -514,6 +537,10 @@ const onCustomDragUp = () => {
   stopAutoPan()
   // 因拖拽结束需恢复编辑器 popup/高亮，故移除 body 拖拽类
   document.body.classList.remove('block-handle-dragging')
+  // 因拖拽可能把块拖出视口致 document 出现滚动条，故恢复滚动并回退冲突块
+  document.documentElement.style.overflow = ''
+  document.body.style.overflow = ''
+  resolveDragConflict()
   maybeRebaseOrigin() // 拖拽结束：坐标过大时无感重定位原点
 }
 
