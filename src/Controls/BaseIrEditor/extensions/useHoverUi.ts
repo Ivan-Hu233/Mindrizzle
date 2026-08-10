@@ -29,10 +29,19 @@ export function useHoverUi(options: {
   const popupKeep = ref(false)
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
 
+  // 因需"富文本框失焦时强制隐藏 block-handle"，且"行高亮与 block-handle 同步显隐"，
+  // 故统一由 handleVisible 判定显隐（编辑器聚焦 + 未被强制隐藏 + 存在 hover）；
+  // 桌面端 left/right 不放行高亮属于例外，见 updateHoverUi
+  const editorFocused = ref(false)
+  const forcedHidden = ref(false)
+  const handleVisible = computed(
+    () => !!editorFocused.value && !forcedHidden.value && !!activeHover.value,
+  )
+
   function updateHoverUi() {
     // 因拖拽中 popup/高亮已由 body 类全局隐藏，故不更新
     const dragging = document.body.classList.contains('block-handle-dragging')
-    const hover = dragging ? null : activeHover.value
+    const hover = dragging ? null : (handleVisible.value ? activeHover.value : null)
     const scrollEl = getScrollEl(view())
 
     // 因桌面端 left/right 放置时 popup 已贴行旁无需行高亮，故仅 compact 或退化 top/bottom 时显示
@@ -92,9 +101,10 @@ export function useHoverUi(options: {
 
   function onEditorPointerLeave() {
     if (leaveTimer) return
+    // 因行高亮需与 block-handle 同步消失（都在 activeHover 清空时由 handleVisible 触发），
+    // 故此处不再单独清 highlightRect，仅提前走扩展失效缓冲，避免高亮先消失而 popup 残留
     leaveTimer = setTimeout(() => {
       leaveTimer = null
-      highlightRect.value = null
       clearHoverViaExtension()
     }, 100)
   }
@@ -105,6 +115,28 @@ export function useHoverUi(options: {
   function onWrapperPointerLeave() {
     cancelLeave()
     suppressUI()
+  }
+
+  // 因 ProseKit hover 是纯指针驱动、编辑器失焦不会自动清 popup，
+  // 故监听 wrapper 的 focusin/focusout：焦点真正离开编辑器区域时强制同步隐藏 popup 与行高亮
+  function onWrapperFocusIn() {
+    editorFocused.value = true
+    forcedHidden.value = false
+    updateHoverUi()
+  }
+  function onWrapperFocusOut(e: FocusEvent) {
+    const related = e.relatedTarget as Node | null
+    // 焦点仍在编辑器区域内（如 popup 按钮等）时不隐藏
+    if (related && wrapperBoundEl && wrapperBoundEl.contains(related)) return
+    editorFocused.value = false
+    suppressUI()
+  }
+
+  // 因移出编辑器后同块 hover 不会重发 state-change（扩展 isHoverStateEqual 直接跳过），
+  // 故鼠标重新进入 wrapper 时解除 forcedHidden，让 popup/高亮可随 hover 恢复
+  function onWrapperPointerEnter() {
+    forcedHidden.value = false
+    updateHoverUi()
   }
   function cancelLeave() {
     if (leaveTimer) {
@@ -122,6 +154,11 @@ export function useHoverUi(options: {
     if (wrapper) {
       wrapperBoundEl = wrapper
       wrapper.addEventListener('pointerleave', onWrapperPointerLeave)
+      wrapper.addEventListener('pointerenter', onWrapperPointerEnter)
+      wrapper.addEventListener('focusin', onWrapperFocusIn)
+      wrapper.addEventListener('focusout', onWrapperFocusOut)
+      // 初始化聚焦态（编辑器挂载后可能已被聚焦，如移动端自动聚焦），据此设定初值
+      editorFocused.value = wrapper.contains(document.activeElement)
     }
   }
   function ensureScrollListener() {
@@ -131,7 +168,8 @@ export function useHoverUi(options: {
     scrollEl.addEventListener('scroll', updateHoverUi, { passive: true })
   }
 
-  watch(activeHover, () => {
+  // 因 handleVisible 依赖聚焦态/强制隐藏态，故这些变化时也需重算行高亮与 popup 显隐
+  watch([activeHover, editorFocused, forcedHidden], () => {
     if (!activeHover.value) {
       updateHoverUi()
       return
@@ -197,6 +235,7 @@ export function useHoverUi(options: {
     popupKeep.value = false
     stopKeepAlive()
     highlightRect.value = null
+    forcedHidden.value = true
     clearHoverViaExtension()
   }
 
@@ -205,8 +244,11 @@ export function useHoverUi(options: {
     cancelLeave()
     if (leaveBound) view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
     wrapperBoundEl?.removeEventListener('pointerleave', onWrapperPointerLeave)
+    wrapperBoundEl?.removeEventListener('pointerenter', onWrapperPointerEnter)
+    wrapperBoundEl?.removeEventListener('focusin', onWrapperFocusIn)
+    wrapperBoundEl?.removeEventListener('focusout', onWrapperFocusOut)
     scrollBoundEl?.removeEventListener('scroll', updateHoverUi)
   })
 
-  return { highlightRect, highlightStyle, popupShiftPx, popupHShiftPx, popupKeep, onPopupEnter, onPopupLeave, suppressUI }
+  return { highlightRect, highlightStyle, popupShiftPx, popupHShiftPx, popupKeep, handleVisible, onPopupEnter, onPopupLeave, suppressUI }
 }

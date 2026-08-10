@@ -503,7 +503,44 @@ const onCustomDragMove = (e: MouseEvent) => {
     // 因块屏幕位置（= 块坐标 + pan）需落在整数像素上，故取整
     layout.x = mobileMode.value ? origin.x : Math.round(origin.x + dx - panDx)
     layout.y = Math.round(origin.y + dy - panDy)
+    if (!mobileMode.value) snapLayoutToOthers(target, layout)
   })
+}
+
+// 因自定义拖拽绕过 VDR 的 handleDrag（snap 吸附不再触发），
+// 故拖动时手动对每个被拖块与其他块做边缘/中线对齐吸附（容差内取最近的边）
+const SNAP_TOLERANCE = 10
+const snapLayoutToOthers = (target: CanvasItem, layout: Rect) => {
+  const candidatesX: number[] = []
+  const candidatesY: number[] = []
+  state.items.forEach((other) => {
+    if (other.id === target.id || customDragGroup[other.id]) return
+    const o = layoutOf(other)
+    candidatesX.push(
+      o.x - layout.x, o.x + o.w - layout.x,
+      o.x - (layout.x + layout.w), o.x + o.w - (layout.x + layout.w),
+      (o.x + o.w / 2) - (layout.x + layout.w / 2),
+    )
+    candidatesY.push(
+      o.y - layout.y, o.y + o.h - layout.y,
+      o.y - (layout.y + layout.h), o.y + o.h - (layout.y + layout.h),
+      (o.y + o.h / 2) - (layout.y + layout.h / 2),
+    )
+  })
+  const nearest = (arr: number[]) => {
+    let best = 0
+    let bestAbs = Infinity
+    arr.forEach((d) => {
+      const abs = Math.abs(d)
+      if (abs <= SNAP_TOLERANCE && abs < bestAbs) {
+        bestAbs = abs
+        best = d
+      }
+    })
+    return best
+  }
+  layout.x += nearest(candidatesX)
+  layout.y += nearest(candidatesY)
 }
 
 // 因 VDR 自带冲突检测仅在它自己的 dragging/resizing 结束触发，而块拖拽走自定义路径（draggable=false），
@@ -644,7 +681,13 @@ const focusBlockContent = (id: string) => {
 const popupBlockId = ref<string | null>(null)
 const onBlockPopupChange = (e: Event) => {
   const detail = (e as CustomEvent).detail as { open?: boolean; blockId?: string | null }
-  popupBlockId.value = detail.open && detail.blockId ? detail.blockId : null
+  // 因块间切换时旧块的关闭事件会误清新块的 popupBlockId，
+  // 故仅当关闭事件与当前 popupBlockId 匹配时才清除，其余情况保持
+  if (detail.open && detail.blockId) {
+    popupBlockId.value = detail.blockId
+  } else if (!detail.open && detail.blockId && popupBlockId.value === detail.blockId) {
+    popupBlockId.value = null
+  }
 }
 
 // 因需"鼠标落在哪个块的 VDR 框区域内就聚焦哪个块"（只按框区域判断，不看内容元素），

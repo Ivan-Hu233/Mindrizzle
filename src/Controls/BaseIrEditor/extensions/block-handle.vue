@@ -34,6 +34,7 @@ const {
   popupShiftPx,
   popupHShiftPx,
   popupKeep,
+  handleVisible,
   onPopupEnter,
   onPopupLeave,
   suppressUI,
@@ -49,14 +50,39 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   suppressUI,
 })
 
-// 因行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，故通知画布按 popup 显隐隐藏该块 tm
-watch([activeHover, popupKeep], () => {
-  if(handlePlacement.value != "top") return
-  const open = !!activeHover.value || popupKeep.value
-  const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
-  const blockId = wrapper?.dataset.id ?? null
-  window.dispatchEvent(new CustomEvent('omnijot:block-popup', { detail: { open, blockId } }))
-})
+// 因行高亮 popup（top 放置）只有真正盖住块顶部正中间缩放手柄（.handle-tm）时才需隐藏该 tm，
+// 故在 hover 位置/显隐/放置方向变化后经双 rAF 量取 popup 与 tm 实际矩形判断遮挡再派发，
+// 避免 popup 移到非首行（不盖住 tm）时 tm 仍被隐藏
+function popupOverlapsTm(): boolean {
+  const dom = getView(props.editor)?.dom as HTMLElement | null
+  const wrapper = dom?.closest('.drag-wrapper') as HTMLElement | null
+  if (!wrapper) return false
+  const popup = wrapper.querySelector<HTMLElement>('.block-handle-popup')
+  const tm = wrapper.querySelector<HTMLElement>('.handle-tm')
+  if (!popup || !tm) return false
+  const pr = popup.getBoundingClientRect()
+  const tr = tm.getBoundingClientRect()
+  if (pr.width <= 0 || pr.height <= 0 || tr.width <= 0 || tr.height <= 0) return false
+  return pr.left < tr.right && pr.right > tr.left && pr.top < tr.bottom && pr.bottom > tr.top
+}
+
+let tmSyncRaf = 0
+function syncTmOverlap() {
+  cancelAnimationFrame(tmSyncRaf)
+  // 因 popup 位置由 floating-ui 异步更新，故双 rAF 确保量到的是最新位置
+  tmSyncRaf = requestAnimationFrame(() => {
+    tmSyncRaf = requestAnimationFrame(() => {
+      const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
+      const blockId = wrapper?.dataset.id ?? null
+      const open = !!handleVisible.value && popupOverlapsTm()
+      window.dispatchEvent(new CustomEvent('omnijot:block-popup', { detail: { open, blockId } }))
+    })
+  })
+}
+
+// 因 tm 遮挡需随 hover 位置（activeHover 变化）、显隐（handleVisible）、
+// 放置方向（handlePlacement）与 keepAlive（popupKeep）一起重算，故监听以上全部
+watch([handleVisible, activeHover, popupKeep, handlePlacement], syncTmOverlap)
 </script>
 
 <template>
@@ -69,7 +95,7 @@ watch([activeHover, popupKeep], () => {
     >
       <BlockHandlePopup
         class="block-handle-popup"
-        :class="{ 'popup-keep': popupKeep, 'forced-open': !!activeHover }"
+        :class="{ 'popup-keep': popupKeep, 'forced-open': handleVisible, 'ui-hidden': !handleVisible }"
         @pointerenter="onPopupEnter"
         @pointerleave="onPopupLeave"
       >
@@ -205,6 +231,15 @@ watch([activeHover, popupKeep], () => {
   scale: 1 !important;
   display: inline-flex !important;
   visibility: visible !important;
+}
+
+/* 因编辑器失焦/鼠标移出编辑器时需与行高亮同步立即隐藏（覆盖 popup-keep/forced-open 的强制显示），
+   故用 visibility/opacity 隐藏而不用 display:none——后者会让 popup 尺寸变 0、
+   floating-ui 在 0 与真实尺寸间跳变，positioner 的 transform 过渡就会"到处乱飞" */
+.block-handle-popup.ui-hidden {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 @starting-style {
