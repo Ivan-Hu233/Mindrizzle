@@ -11,7 +11,7 @@
         :max-height="constraintsOf(item).maxHeight ?? null" :is-conflict-check="!mobileMode" :snap="true"
         :snap-tolerance="10" :active-on-top="true" :axis="mobileMode ? 'y' : 'both'"
         :handles="mobileMode ? ['tm', 'bm'] : undefined" :draggable="false" drag-handle=".drag-handle"
-        @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" :disabled="!isEditMode" class="drag-wrapper"
+        @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" :disabled="!isEditMode" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
         <div class="block-container bg-white elevation-1 rounded">
           <div class="content-area">
@@ -37,6 +37,16 @@
             </span>
           </div>
         </Transition>
+      </template>
+
+      <!-- 曲别针：两块相邻吸附时显示在连接点，已粘贴为实色、未粘贴为灰，点击切换粘贴/分离 -->
+      <template v-for="p in paperclips" :key="`clip-${p.a}-${p.b}`">
+        <div class="snap-paperclip" :class="{ linked: p.linked }"
+          :style="{ left: `${Math.round(p.x)}px`, top: `${Math.round(p.y)}px` }"
+          :title="p.linked ? '点击分离' : '点击粘贴'"
+          @mousedown.stop @click.stop="toggleLink(p.a, p.b)">
+          <v-icon size="16" :icon="mdiPaperclip" />
+        </div>
       </template>
     </div>
   </v-sheet>
@@ -69,7 +79,7 @@ import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch, type 
 import VueDraggableResizable from 'vue-draggable-resizable-gorkys'
 import 'vue-draggable-resizable-gorkys/style.css'
 
-import { mdiDragVariant } from '@mdi/js'
+import { mdiDragVariant, mdiPaperclip } from '@mdi/js'
 import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
@@ -260,10 +270,41 @@ const AUTOPAN_EDGE = 60 // 距视口边缘多少 px 触发
 const AUTOPAN_MAX = 8 // 每帧最大平移 px
 const autoPan = reactive({ active: false })
 const lastMouse = { x: 0, y: 0 }
+// 因曲别针需"鼠标靠近才显示"，故用响应式鼠标屏幕坐标驱动 paperclips 重算（lastMouse 仅供 autoPan 用）
+const mouseScreen = ref({ x: -9999, y: -9999 })
 
 const updateMousePos = (e: MouseEvent) => {
   lastMouse.x = e.clientX
   lastMouse.y = e.clientY
+  mouseScreen.value = { x: e.clientX, y: e.clientY }
+}
+
+// 因 resize 时只允许往"能调大块"的方向滚动画布（往调小方向滚会致块达钳制后偏离鼠标），
+// 故按被拖边过滤：拖 r/b 只允许右/下边缘（vx/vy 负）、拖 l/t 只允许左/上边缘（vx/vy 正）；
+// 该轴已钳制（达 min/max）时整轴禁止滚动
+const restrictResizeAutoPan = (vx: number, vy: number): { vx: number; vy: number } => {
+  const rs = resizeSession
+  if (!rs) return { vx, vy }
+  const item = state.items.find((it) => it.id === rs.itemId)
+  const proxy = item ? getVdrInstance(item.id)?.proxy : null
+  if (!item || !proxy) return { vx, vy }
+  const handle = proxy.handle ?? ''
+  const c = constraintsOf(item)
+  const minW = (c.minWidth ?? 0) + 8, maxW = c.maxWidth ?? null
+  const minH = (c.minHeight ?? 0) + 8, maxH = c.maxHeight ?? null
+  // 钳制判定（VDR 内部尺寸已按 min/max 限制，带 0.5 容差防浮点抖动）
+  const wClamped = proxy.width <= minW + 0.5 || (maxW != null && proxy.width >= maxW - 0.5)
+  const hClamped = proxy.height <= minH + 0.5 || (maxH != null && proxy.height >= maxH - 0.5)
+  // 因对角线手柄（br/tl 等）同时含两方向，水平按 r/l、垂直按 b/t 分别处理
+  if (vx) {
+    if (handle.includes('r') && (vx > 0 || wClamped)) vx = 0
+    else if (handle.includes('l') && (vx < 0 || wClamped)) vx = 0
+  }
+  if (vy) {
+    if (handle.includes('b') && (vy > 0 || hClamped)) vy = 0
+    else if (handle.includes('t') && (vy < 0 || hClamped)) vy = 0
+  }
+  return { vx, vy }
 }
 
 const autoPanTick = () => {
@@ -277,18 +318,23 @@ const autoPanTick = () => {
     else if (lastMouse.x > r.right - AUTOPAN_EDGE) vx = -Math.min(lastMouse.x - (r.right - AUTOPAN_EDGE), AUTOPAN_MAX)
     if (lastMouse.y < r.top + AUTOPAN_EDGE) vy = Math.min(r.top + AUTOPAN_EDGE - lastMouse.y, AUTOPAN_MAX)
     else if (lastMouse.y > r.bottom - AUTOPAN_EDGE) vy = -Math.min(lastMouse.y - (r.bottom - AUTOPAN_EDGE), AUTOPAN_MAX)
-    if (vx !== 0 || vy !== 0) {
-      if (!mobileMode.value) pan.x += Math.round(vx)
-      pan.y += Math.round(vy)
+    // 因 autoPan 由拖拽/缩放共用，resize 时按被拖方向限制滚动方向（见 restrictResizeAutoPan）
+    const { vx: rx, vy: ry } = restrictResizeAutoPan(vx, vy)
+    if (rx !== 0 || ry !== 0) {
+      if (!mobileMode.value) pan.x += Math.round(rx)
+      pan.y += Math.round(ry)
       // 因自动平移时鼠标停住块也不应偏离（块屏幕位置 = 块坐标 + pan），故同步补偿被拖拽块坐标
       // 因移动端锁水平，故横向自动平移与横向补偿一并跳过，仅竖向滚动
       Object.keys(customDragGroup).forEach((id) => {
         const target = state.items.find((it) => it.id === id)
         if (!target) return
         const layout = layoutOf(target)
-        if (!mobileMode.value) layout.x -= Math.round(vx)
-        layout.y -= Math.round(vy)
+        if (!mobileMode.value) layout.x -= Math.round(rx)
+        layout.y -= Math.round(ry)
       })
+      // 因 resize 时画布自动滚动，被拖块由 VDR 内部状态控制（不重读 props），
+      // 故补偿其内部坐标使缩放手柄跟随鼠标，并重算链接传播使联结块贴合
+      compensateResizeAutoPan(mobileMode.value ? 0 : Math.round(rx), Math.round(ry))
     }
   }
   requestAnimationFrame(autoPanTick)
@@ -461,6 +507,33 @@ const customDrag = reactive({
   panStartY: 0,
 })
 let customDragGroup: Record<string, { x: number; y: number }> = {}
+// 粘贴链接：记录已用曲别针"粘贴"的块对（key 为两 id 排序后 join），拖动一个时另一块跟着动
+const linkedPairs = ref<Set<string>>(new Set())
+const pairKey = (a: string, b: string) => [a, b].sort().join('|')
+// 沿链接传递收集与某块粘贴的所有块（BFS），供拖拽时一起移动
+const collectLinkedIds = (rootId: string): Set<string> => {
+  const out = new Set<string>()
+  const queue = [rootId]
+  while (queue.length) {
+    const id = queue.pop()!
+    if (out.has(id)) continue
+    out.add(id)
+    linkedPairs.value.forEach((key) => {
+      const [x, y] = key.split('|')
+      if (x === id && !out.has(y)) queue.push(y)
+      else if (y === id && !out.has(x)) queue.push(x)
+    })
+  }
+  return out
+}
+// 点击曲别针：切换两块"粘贴/分离"
+const toggleLink = (a: string, b: string) => {
+  const key = pairKey(a, b)
+  const next = new Set(linkedPairs.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  linkedPairs.value = next
+}
 
 const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   if (e.button !== 0) return
@@ -473,6 +546,12 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   customDrag.panStartY = pan.y
   customDragGroup = {}
   getSelectedItemIds(item).forEach((id) => {
+    const target = state.items.find((it) => it.id === id)
+    if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+  })
+  // 因曲别针"粘贴"的块需随被拖块一起移动，故把链接传递可达的块也加入拖拽组
+  collectLinkedIds(item.id).forEach((id) => {
+    if (customDragGroup[id]) return
     const target = state.items.find((it) => it.id === id)
     if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
   })
@@ -510,6 +589,8 @@ const onCustomDragMove = (e: MouseEvent) => {
 // 因自定义拖拽绕过 VDR 的 handleDrag（snap 吸附不再触发），
 // 故拖动时手动对每个被拖块与其他块做边缘/中线对齐吸附（容差内取最近的边）
 const SNAP_TOLERANCE = 10
+// 曲别针仅在鼠标靠近连接点（屏幕坐标换算后）此距离内才显示
+const PAPERCLIP_PROXIMITY = 32
 const snapLayoutToOthers = (target: CanvasItem, layout: Rect) => {
   const candidatesX: number[] = []
   const candidatesY: number[] = []
@@ -542,6 +623,56 @@ const snapLayoutToOthers = (target: CanvasItem, layout: Rect) => {
   layout.x += nearest(candidatesX)
   layout.y += nearest(candidatesY)
 }
+
+// 判断两块是否边缘相邻（贴在一起，可"粘贴"），与吸附容差一致
+const isAdjacent = (a: Rect, b: Rect): boolean =>
+  Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE ||
+  Math.abs(b.x + b.w - a.x) <= SNAP_TOLERANCE ||
+  Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE ||
+  Math.abs(b.y + b.h - a.y) <= SNAP_TOLERANCE
+
+// 计算两块连接点：位于**接触段的中点**（左右相邻 → 共享垂直边与两块纵向重叠段的中点；
+// 上下相邻 → 共享水平边与横向重叠段的中点），供曲别针定位
+const connectionPoint = (a: Rect, b: Rect): { x: number; y: number } => {
+  const acx = a.x + a.w / 2, acy = a.y + a.h / 2
+  const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2
+  if (Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE || Math.abs(b.x + b.w - a.x) <= SNAP_TOLERANCE) {
+    const edgeX = Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE ? a.x + a.w : b.x + b.w
+    return { x: edgeX, y: (Math.max(a.y, b.y) + Math.min(a.y + a.h, b.y + b.h)) / 2 }
+  }
+  if (Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE || Math.abs(b.y + b.h - a.y) <= SNAP_TOLERANCE) {
+    const edgeY = Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE ? a.y + a.h : b.y + b.h
+    return { x: (Math.max(a.x, b.x) + Math.min(a.x + a.w, b.x + b.w)) / 2, y: edgeY }
+  }
+  return { x: (acx + bcx) / 2, y: (acy + bcy) / 2 }
+}
+
+// 曲别针列表：所有相邻（或已粘贴）的块对显示在连接点，标记是否已粘贴；
+// 不自动跟随——只有点击曲别针启用粘贴后，拖动一块才带动另一块；
+// 因曲别针只在鼠标靠近时才显示，故把布局坐标换算成屏幕坐标（layout + origin + pan）与鼠标判距
+const paperclips = computed(() => {
+  const list: { a: string; b: string; x: number; y: number; linked: boolean }[] = []
+  if (mobileMode.value) return list
+  const items = state.items
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const ra = layoutOf(items[i])
+      const rb = layoutOf(items[j])
+      const key = pairKey(items[i].id, items[j].id)
+      const linked = linkedPairs.value.has(key)
+      if (!linked && !isAdjacent(ra, rb)) continue
+      const pt = connectionPoint(ra, rb)
+      // 因曲别针渲染在 .canvas 内（随 pan+origin 变换、且 .canvas 位于容器下方工具栏之下），
+      // 故屏幕位置 = 布局坐标 + origin + pan + 画布容器的视口偏移，再与视口鼠标坐标判距
+      const cr = canvasContainerRef.value?.getBoundingClientRect()
+      const sx = pt.x + origin.x + pan.x + (cr?.left ?? 0)
+      const sy = pt.y + origin.y + pan.y + (cr?.top ?? 0)
+      if (Math.hypot(sx - mouseScreen.value.x, sy - mouseScreen.value.y) > PAPERCLIP_PROXIMITY) continue
+      list.push({ a: items[i].id, b: items[j].id, x: pt.x, y: pt.y, linked })
+    }
+  }
+  return list
+})
 
 // 因 VDR 自带冲突检测仅在它自己的 dragging/resizing 结束触发，而块拖拽走自定义路径（draggable=false），
 // 故松开时自行检测被拖块与其他块重叠，重叠则回退到拖拽起点
@@ -579,13 +710,231 @@ const onCustomDragUp = () => {
   maybeRebaseOrigin() // 拖拽结束：坐标过大时无感重定位原点
 }
 
+// resize 会话：记录链接组内各块起始矩形（layout 在 resizestop 前不被 VDR 更新，首帧取即起始）
+let resizeSession: { itemId: string; starts: Record<string, Rect> } | null = null
+
+// 因 VDR 在 resize 期间用内部状态控制（不重读 props），autoPan 需补偿其内部坐标，
+// 故从块 DOM 取 VDR 组件实例（Vue 内部结构，仅此处使用）
+const getVdrInstance = (id: string): any => {
+  const el = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${id}"]`)
+  return (el as any)?.__vueParentComponent ?? null
+}
+
+// 因 autoPan 时联结块需随被拖边钉屏，但只平移"沿被拖方向共享边"的链——
+// 锚定边方向的邻居与交叉轴台阶块不钉屏（随画布滚），避免无关块被钉屏移动
+const shiftLinkedAxis = (rootId: string, axis: 'x' | 'y', delta: number, dir: 1 | -1) => {
+  const rs = resizeSession
+  if (!rs) return
+  const visited = new Set([rootId])
+  const queue = [rootId]
+  while (queue.length) {
+    const id = queue.shift()!
+    const curStart = rs.starts[id]
+    if (!curStart) continue
+    neighborsOf(id).forEach((nid) => {
+      if (visited.has(nid)) return
+      const nStart = rs.starts[nid]
+      const target = state.items.find((it) => it.id === nid)
+      if (!nStart || !target) return
+      const horizontal = axis === 'x'
+      const sameSide = horizontal
+        ? (dir > 0 ? Math.abs(curStart.x + curStart.w - nStart.x) <= SNAP_TOLERANCE : Math.abs(nStart.x + nStart.w - curStart.x) <= SNAP_TOLERANCE)
+        : (dir > 0 ? Math.abs(curStart.y + curStart.h - nStart.y) <= SNAP_TOLERANCE : Math.abs(nStart.y + nStart.h - curStart.y) <= SNAP_TOLERANCE)
+      const crossAxis = horizontal
+        ? Math.abs(curStart.y + curStart.h - nStart.y) <= SNAP_TOLERANCE || Math.abs(nStart.y + nStart.h - curStart.y) <= SNAP_TOLERANCE
+        : Math.abs(curStart.x + curStart.w - nStart.x) <= SNAP_TOLERANCE || Math.abs(nStart.x + nStart.w - curStart.x) <= SNAP_TOLERANCE
+      if (!sameSide || crossAxis) return
+      visited.add(nid)
+      const tl = layoutOf(target)
+      if (horizontal) tl.x += delta
+      else tl.y += delta
+      queue.push(nid)
+    })
+  }
+}
+const shiftLinkedX = (rootId: string, delta: number, dir: 1 | -1) => shiftLinkedAxis(rootId, 'x', delta, dir)
+
+// 因 resize 时画布自动滚动会让被拖块偏离鼠标，故每帧按被拖方向补偿：
+// 被拖边（手柄所在边）钉屏跟手、锚定边不补偿（画布锚定、content 不动、随画布滚）；
+// 钳制维（已到 min/max）不补偿、该方向整组随画布滚动。水平/垂直同此规则（对称）
+const compensateResizeAutoPan = (dx: number, dy: number) => {
+  if (!resizeSession || (!dx && !dy)) return
+  const rs = resizeSession
+  const item = state.items.find((it) => it.id === rs.itemId)
+  const proxy = item ? getVdrInstance(item.id)?.proxy : null
+  if (!item || !proxy) return
+  const c = constraintsOf(item)
+  const minW = (c.minWidth ?? 0) + 8, maxW = c.maxWidth ?? null
+  const minH = (c.minHeight ?? 0) + 8, maxH = c.maxHeight ?? null
+  // 钳制判定（VDR 内部尺寸已按 min/max 限制，带 0.5 容差防浮点抖动）
+  const wClamped = proxy.width <= minW + 0.5 || (maxW != null && proxy.width >= maxW - 0.5)
+  const hClamped = proxy.height <= minH + 0.5 || (maxH != null && proxy.height >= maxH - 0.5)
+  const handle = proxy.handle ?? ''
+  // 因 VDR 的 l/t 分支重算 left/top、r/b 分支重算 right/bottom，故同步对应基准防下一帧冲掉补偿
+  if (dx && !wClamped) {
+    if (handle.includes('l')) {
+      proxy.left -= dx
+      proxy.mouseClickPosition.left -= dx
+      shiftLinkedX(rs.itemId, -dx, -1)
+    }
+    if (handle.includes('r')) {
+      proxy.width -= dx
+      proxy.mouseClickPosition.right += dx
+      shiftLinkedX(rs.itemId, -dx, 1)
+    }
+  }
+  if (dy && !hClamped) {
+    // 因垂直与水平一致采用"锚定边画布锚定 + 被拖边钉屏"：
+    // 拖 t 改 top+height（上缘钉屏、下缘锚定随画布滚），拖 b 改 height（下缘钉屏、上缘锚定）；
+    // 因 VDR 拖 t 重算 top、拖 b 重算 bottom，故同步对应 mc 基准防下一帧冲掉补偿
+    if (handle.includes('t')) {
+      proxy.top -= dy
+      proxy.height += dy
+      proxy.mouseClickPosition.top -= dy
+    } else {
+      proxy.height -= dy
+      proxy.mouseClickPosition.bottom += dy
+    }
+  }
+  syncLinkedEdges(item, proxy.left, proxy.top, proxy.width, proxy.height)
+}
+
+const clampVal = (v: number, min: number, max: number | null) => {
+  if (v < min) return min
+  if (max != null && v > max) return max
+  return v
+}
+
+// 直接链接的邻居块 id（曲别针链接是一对一关系）
+const neighborsOf = (id: string): string[] => {
+  const out: string[] = []
+  linkedPairs.value.forEach((key) => {
+    const [x, y] = key.split('|')
+    if (x === id) out.push(y)
+    else if (y === id) out.push(x)
+  })
+  return out
+}
+
+// 同步链接链的共享边：resize 被拖块 A 时沿链接图 BFS 逐块传播——每块的共享边跟随其父块移动后的边，
+// 尺寸按自身 min/max 钳制（与 VDR 的 min=minWidth+8 一致）；链中间块被钳制后其远端边位移继续传给下一块。
+// 位置按"起始 + 父块总位移"重算（不逐帧累加，防长距离错位）。
+const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
+  if (!resizeSession || resizeSession.itemId !== item.id) {
+    const starts: Record<string, Rect> = {}
+    collectLinkedIds(item.id).forEach((id) => {
+      const target = state.items.find((it) => it.id === id)
+      if (target) starts[id] = { ...layoutOf(target) }
+    })
+    resizeSession = { itemId: item.id, starts }
+  }
+  const { starts } = resizeSession
+  const positions: Record<string, Rect> = {}
+  // 因 autoPan 平移改变了联结块 layout，positions 用当前布局初始化以保留自由边平移；
+  // 方位判定与位移仍基于 starts（会话起始，避免随动干扰）
+  Object.keys(starts).forEach((id) => {
+    const target = state.items.find((it) => it.id === id)
+    positions[id] = target ? { ...layoutOf(target) } : { ...starts[id] }
+  })
+  positions[item.id] = { x, y, w, h }
+  // 分维 BFS 传播共享边（一块可分别从水平父与垂直父继承 x/w 与 y/h）。
+  // 左/上邻居反向跟当前块（共享边贴合当前块的左/上缘），右/下邻居正向传播（跟随右/下缘）——
+  // 链条中间块位置被上游驱动后，其反向邻居继续跟随，保持整链贴合。
+  // 同向边缘齐平（左右缘对齐）由用户手动布局决定，不在此自动强制
+  const queue = [item.id]
+  const seenX = new Set([item.id])
+  const seenY = new Set([item.id])
+  while (queue.length) {
+    const pid = queue.shift()!
+    const pRect = positions[pid]
+    const pStart = starts[pid]
+    if (!pRect || !pStart) continue
+    neighborsOf(pid).forEach((nid) => {
+      const nStart = starts[nid]
+      const target = state.items.find((it) => it.id === nid)
+      if (!nStart || !target) return
+      const c = constraintsOf(target)
+      const minW = (c.minWidth ?? 0) + 8, maxW = c.maxWidth ?? null
+      const minH = (c.minHeight ?? 0) + 8, maxH = c.maxHeight ?? null
+      let enqueue = false
+      // 用起始矩形判定方位（避免随动的邻居位置变化干扰判定）。
+      // 交叉轴也贴合时（对角台阶邻居）只按主方向传播，避免被另一轴拉走（如上块被水平平移钉屏）
+      const xTouching = Math.abs(pStart.x + pStart.w - nStart.x) <= SNAP_TOLERANCE ||
+        Math.abs(nStart.x + nStart.w - pStart.x) <= SNAP_TOLERANCE
+      const yTouching = Math.abs(pStart.y + pStart.h - nStart.y) <= SNAP_TOLERANCE ||
+        Math.abs(nStart.y + nStart.h - pStart.y) <= SNAP_TOLERANCE
+      if (!seenX.has(nid) && Math.abs(pStart.x + pStart.w - nStart.x) <= SNAP_TOLERANCE && !yTouching) {
+        // N 在 P 右：左缘跟右缘；宽度 = N 当前右缘 - 新左缘（autoPan 平移时不变，拖动压缩时跟随）
+        seenX.add(nid)
+        const nNew = positions[nid] ?? { ...nStart }
+        const curRight = nNew.x + nNew.w
+        nNew.x = pRect.x + pRect.w
+        nNew.w = clampVal(curRight - nNew.x, minW, maxW)
+        positions[nid] = nNew
+        enqueue = true
+      } else if (!seenX.has(nid) && Math.abs(nStart.x + nStart.w - pStart.x) <= SNAP_TOLERANCE && !yTouching) {
+        // N 在 P 左：N 右缘精确贴合 P 左缘（N 左缘随 N.w 移动，钳制时仍贴合；autoPan 时左缘随之补偿钉屏幕）
+        seenX.add(nid)
+        const nNew = positions[nid] ?? { ...nStart }
+        nNew.w = clampVal(pRect.x - nNew.x, minW, maxW)
+        nNew.x = pRect.x - nNew.w
+        positions[nid] = nNew
+        enqueue = true
+      }
+      if (!seenY.has(nid) && Math.abs(pStart.y + pStart.h - nStart.y) <= SNAP_TOLERANCE && !xTouching) {
+        // N 在 P 下：上缘跟下缘；高度 = N 当前下缘 - 新上缘（autoPan 平移时不变，拖动压缩时跟随）
+        seenY.add(nid)
+        const nNew = positions[nid] ?? { ...nStart }
+        const curBottom = nNew.y + nNew.h
+        nNew.y = pRect.y + pRect.h
+        nNew.h = clampVal(curBottom - nNew.y, minH, maxH)
+        positions[nid] = nNew
+        enqueue = true
+      } else if (!seenY.has(nid) && Math.abs(nStart.y + nStart.h - pStart.y) <= SNAP_TOLERANCE && !xTouching) {
+        // N 在 P 上：N 下缘精确贴合 P 上缘（N 上缘随 N.h 移动，钳制时仍贴合）
+        seenY.add(nid)
+        const nNew = positions[nid] ?? { ...nStart }
+        nNew.h = clampVal(pRect.y - nNew.y, minH, maxH)
+        nNew.y = pRect.y - nNew.h
+        positions[nid] = nNew
+        enqueue = true
+      }
+      if (enqueue) queue.push(nid)
+    })
+  }
+  // 因被拖块 A 的 VDR 坐标在 autoPan 时已由 compensateResizeAutoPan 补偿（保持屏幕位置），
+  // 传播结果直接写回内容坐标即可——联结块基于补偿后的 A 传播，随之保持屏幕位置并与 A 贴合
+  Object.keys(positions).forEach((id) => {
+    if (id === item.id) return
+    const target = state.items.find((it) => it.id === id)
+    if (!target) return
+    const p = positions[id]
+    const tl = layoutOf(target)
+    tl.x = Math.round(p.x)
+    tl.y = Math.round(p.y)
+    tl.w = Math.round(p.w)
+    tl.h = Math.round(p.h)
+  })
+}
+
+// 因需 resize 过程中共享边实时跟随（而非仅松手时），故监听 VDR resizing；
+// 并因 resize 到视口边缘时需自动滚动画布，故 resize 期间启动 autoPan（拖拽同款，startAutoPan 幂等）
+const onResizing = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
+  syncLinkedEdges(item, x, y, w, h)
+  startAutoPan()
+}
+
 const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
+  syncLinkedEdges(item, x, y, w, h)
   const layout = layoutOf(item)
-  // 因缩放结果落亚像素会发虚，故取整
+  // 因被拖块 VDR 坐标在 autoPan 时已由 compensateResizeAutoPan 补偿（保持手柄跟随鼠标），
+  // 此处直接取整写回即可——松手后 A 在鼠标下、与联结块贴合（所见即所得，无弹回/跳变）
   layout.x = Math.round(x)
   layout.y = Math.round(y)
   layout.w = Math.round(w)
   layout.h = Math.round(h)
+  stopAutoPan()
+  resizeSession = null
 }
 
 const handleSelect = (id: string, e?: MouseEvent) => {
@@ -741,6 +1090,8 @@ let lastHoverId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
+  // 因 resize 拖动手柄时鼠标会扫过其他块，若按悬停切选中会令被拖块失活、手柄消失，故 resize 期间不抢选中
+  if (resizeSession) return
   if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
   if (state.selectedIds.size > 1) return
   const id = hitTestBlockAt(e)
@@ -856,6 +1207,17 @@ watch(mobileMode, () => {
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
+// 因删除块（任意入口）后其曲别针链接失效，故随 items 变化自动清理引用已不存在块的链接
+watch(
+  () => state.items.map((it) => it.id),
+  (ids) => {
+    const idSet = new Set(ids)
+    linkedPairs.value = new Set(
+      Array.from(linkedPairs.value).filter((k) => k.split('|').every((id) => idSet.has(id)))
+    )
+  }
+)
+
 const onResize = () => refreshLayout()
 
 const addComponent = (key: CanvasItem['component']) => {
@@ -921,7 +1283,7 @@ const save = () => {
       mobile: { x: 0, y: Math.round(it.layout.mobile.y + origin.y + pan.y - cy), h: Math.round(it.layout.mobile.h) },
     },
   }))
-  return JSON.stringify({ origin: { x: cx, y: cy }, items: serializable })
+  return JSON.stringify({ origin: { x: cx, y: cy }, items: serializable, links: Array.from(linkedPairs.value) })
 }
 
 // 因需兼容「双端布局」重构（commit 7c65209）前的扁平格式并对缺失字段兜底，
@@ -972,6 +1334,10 @@ const load = async (raw: string) => {
   // 因保存坐标相对 origin 归一化，故加载后归零平移、从原点查看内容
   pan.x = 0
   pan.y = 0
+  // 因曲别针粘贴链接需随文档持久化，故从保存数据恢复（watcher 会过滤引用已不存在块的链接）
+  linkedPairs.value = new Set(
+    Array.isArray(parsed.links) ? parsed.links.filter((k: unknown) => typeof k === 'string') : []
+  )
   await nextTick()
   await nextTick()
   if (mobileMode.value) {
@@ -1058,6 +1424,7 @@ defineExpose({
   rebaseOrigin,
   batchToggleHeading,
   deleteSelected,
+  compensateResizeAutoPan,
 })
 </script>
 
@@ -1108,6 +1475,38 @@ defineExpose({
    （--v-theme-primary 为 RGB 分量，需经 rgb() 包裹才能用于 box-shadow） */
 .drag-wrapper.selected {
   box-shadow: 0 0 0 2px rgb(var(--v-theme-primary));
+}
+
+/* 曲别针：表面色圆底 + 描边 + 阴影使其在画布/块边缘清晰可辨；
+   已粘贴为主题色实底白图标（醒目），未粘贴灰色图标（可见但示意未连接） */
+.snap-paperclip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 998;
+  user-select: none;
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.22);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  color: rgba(var(--v-theme-primary), 0.95);
+  transition: background 0.12s, color 0.12s, transform 0.12s;
+}
+.snap-paperclip:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+.snap-paperclip:not(.linked) {
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+.snap-paperclip.linked {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: #fff;
 }
 
 /* 因行高亮 popup 弹出时块顶部正中间缩放手柄（.handle-tm）会插在 popup 上方，

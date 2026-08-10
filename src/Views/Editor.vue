@@ -30,7 +30,7 @@ import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
 const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
 
 const getComponentRefs = (): Record<string, ComponentController | undefined> =>
-  OJCRef.value!.componentRefs.value as unknown as Record<string, ComponentController | undefined>
+  OJCRef.value!.componentRefs as unknown as Record<string, ComponentController | undefined>
 
 const mobileButtonLabel = computed(() => {
   if (OJCRef.value?.forceMobile === null) return '模拟移动端'
