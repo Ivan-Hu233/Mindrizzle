@@ -481,7 +481,10 @@ const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
 
 const handleBarStyle = (item: CanvasItem): CSSProperties => {
   const layout = layoutOf(item)
-  const bottom = handlePlacementOf(item) === 'bottom'
+  // 因拖拽中 handle 需保持按下时的放置（否则 handlePlacementOf 在块拖到视口顶部时
+  // 从"块上方"切到"块下方"，导致 handle 与块（ResizeBox）瞬间分离），故拖拽期间锁定 placementLocked
+  const dragging = customDrag.active && !!customDragGroup[item.id]
+  const bottom = dragging ? customDrag.placementLocked : handlePlacementOf(item) === 'bottom'
   return {
     position: 'absolute',
     // 因手柄提升到 .canvas 顶层（已应用 pan+origin 变换），故用块存储坐标直接定位
@@ -518,6 +521,8 @@ const customDrag = reactive({
   startClientY: 0,
   panStartX: 0,
   panStartY: 0,
+  // 按下时 handle 的放置（top/bottom），拖拽中锁定该放置防 handlePlacementOf 切换导致 handle 跳位
+  placementLocked: false,
 })
 let customDragGroup: Record<string, { x: number; y: number }> = {}
 // 粘贴链接：记录已用曲别针"粘贴"的块对（key 为两 id 排序后 join），拖动一个时另一块跟着动
@@ -557,6 +562,8 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   customDrag.startClientY = e.clientY
   customDrag.panStartX = pan.x
   customDrag.panStartY = pan.y
+  // 锁定按下时的 handle 放置，拖拽中不随 handlePlacementOf 切换（否则块拖到视口顶部时 handle 跳向块下方）
+  customDrag.placementLocked = handlePlacementOf(item) === 'bottom'
   customDragGroup = {}
   getSelectedItemIds(item).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
@@ -1577,6 +1584,14 @@ defineExpose({
   position: absolute;
   bottom: auto;
   z-index: 999;
+}
+
+/* 因 handle 出现时播放 pop-up 滑出动画，若动画未完成即开始拖拽，
+   其 transform 会把 handle 顶离块上方固定位（handleBarStyle 的 -30px），导致与鼠标分离；
+   故拖拽期间（startCustomDrag 已加 body 类）禁用动画并立即归位，使 handle 跟住鼠标 */
+body.block-handle-dragging .floating-handle {
+  transition: none !important;
+  transform: none !important;
 }
 
 .drag-handle {
