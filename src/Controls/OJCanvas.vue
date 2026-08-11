@@ -378,9 +378,30 @@ const startPan = (e: MouseEvent) => {
   isPanning.value = true
 }
 
+// 跟踪左键是否处于按下（右键平移禁用判断用；mousedown 捕获阶段读 e.buttons 不可靠）
+let leftButtonDown = false
+const trackLeftButtonDown = (e: MouseEvent) => {
+  if (e.button === 0) leftButtonDown = true
+}
+const trackLeftButtonUp = () => {
+  leftButtonDown = false
+}
+
+// 因容器捕获监听（handleCanvasMouseDownCapture）在某些渲染/重挂载后可能未随容器生效，
+// 故在 window 捕获阶段做最终拦截：左键按住/拖拽/缩放/框选中时按右键一律禁止平移并阻止冒泡
+const onGlobalMouseDownCapture = (e: MouseEvent) => {
+  if (e.button !== 2) return
+  if (customDrag.active || resizeSession || selectionState.active || leftButtonDown) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
 // 因编辑器（ProseMirror）内部会通过 stopPropagation 拦截右键事件，故在捕获阶段拦截以确保任意位置右键拖拽都能平移
 const handleCanvasMouseDownCapture = (e: MouseEvent) => {
   if (e.button !== 2) return
+  // 因左键按住（拖拽块/缩放/框选/编辑器内操作等）时按右键会干扰当前操作，故此时忽略右键（禁用画布移动）
+  if (customDrag.active || resizeSession || selectionState.active || leftButtonDown) return
   startPan(e)
   e.stopPropagation()
 }
@@ -1422,6 +1443,9 @@ onMounted(() => {
   nextTick(refreshLayout)
   // 因整个视口（含负坐标区域、世界层外区域）右键拖拽都需平移，故捕获监听挂在视口容器上
   canvasContainerRef.value?.addEventListener('mousedown', handleCanvasMouseDownCapture, true)
+  window.addEventListener('mousedown', onGlobalMouseDownCapture, true)
+  window.addEventListener('mousedown', trackLeftButtonDown, true)
+  window.addEventListener('mouseup', trackLeftButtonUp, true)
   window.addEventListener('resize', onResize)
   window.addEventListener('mousemove', updateSelection)
   window.addEventListener('mouseup', finishSelection)
@@ -1435,6 +1459,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   canvasContainerRef.value?.removeEventListener('mousedown', handleCanvasMouseDownCapture, true)
+  window.removeEventListener('mousedown', onGlobalMouseDownCapture, true)
+  window.removeEventListener('mousedown', trackLeftButtonDown, true)
+  window.removeEventListener('mouseup', trackLeftButtonUp, true)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('mousemove', updateSelection)
   window.removeEventListener('mouseup', finishSelection)
