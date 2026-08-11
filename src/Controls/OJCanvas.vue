@@ -279,6 +279,18 @@ const forceRecomposite = () => {
 }
 watch(zoom, forceRecomposite)
 
+// 因画布平移/缩放只改 .canvas 变换、不触发编辑器内 scroll/hover 事件，
+// 而 block-handle 行高亮/弹层补偿是 fixed 视口定位需随画布重算，
+// 故 pan/zoom 变化时派发全局事件通知各编辑器及时重算；
+// 因默认 pre flush 在渲染前触发、此时 .canvas 变换未落到 DOM，故用 post flush 等渲染完成后再通知
+watch(
+  () => [pan.x, pan.y, zoom.value],
+  () => {
+    window.dispatchEvent(new CustomEvent('omnijot:canvas-transform'))
+  },
+  { flush: 'post' },
+)
+
 // 因 transform 落亚像素会被浏览器渲染发虚，故 pan + origin 取整；
 // 纯 translate3d + scale：translate3d 强制合成层、scale 等比例缩放（不用 CSS zoom）
 const canvasStyle = computed<CSSProperties>(() => ({

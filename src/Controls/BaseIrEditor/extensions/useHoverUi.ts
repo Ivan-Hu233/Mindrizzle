@@ -145,10 +145,17 @@ export function useHoverUi(options: {
     }
   }
 
+  // 因画布平移/缩放会改变块视口位置而高亮是 fixed 视口定位，需随画布重算，
+  // 故监听 OJCanvas 派发的画布变换事件（首次 hover 时才挂载）；
+  // OJCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），故此处直接重算即可
+  function onCanvasTransform() {
+    updateHoverUi()
+  }
   function ensureLeaveListener() {
     const dom = view()?.dom
     if (leaveBound || !dom) return
     leaveBound = true
+    window.addEventListener('omnijot:canvas-transform', onCanvasTransform)
     dom.addEventListener('pointerleave', onEditorPointerLeave)
     const wrapper = dom.closest('.editor-wrapper') as HTMLElement | null
     if (wrapper) {
@@ -242,7 +249,10 @@ export function useHoverUi(options: {
   onUnmounted(() => {
     stopKeepAlive()
     cancelLeave()
-    if (leaveBound) view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
+    if (leaveBound) {
+      window.removeEventListener('omnijot:canvas-transform', onCanvasTransform)
+      view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
+    }
     wrapperBoundEl?.removeEventListener('pointerleave', onWrapperPointerLeave)
     wrapperBoundEl?.removeEventListener('pointerenter', onWrapperPointerEnter)
     wrapperBoundEl?.removeEventListener('focusin', onWrapperFocusIn)
