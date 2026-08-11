@@ -275,8 +275,10 @@ const containerStyle = computed<CSSProperties>(() => ({
 }))
 
 // 因块被拖到视口边缘时画布需自动平移（方向与 block-handle 拖段落一致），故按距边缘距离驱动每帧平移
-const AUTOPAN_EDGE = 60 // 距视口边缘多少 px 触发
-const AUTOPAN_MAX = 8 // 每帧最大平移 px
+// 因触发边缘过宽（60px）易在拖拽/缩放时误触，故收窄到 32px：需更靠近视口边缘才开始自动滚动
+const AUTOPAN_EDGE = 32 // 距视口边缘多少 px 触发
+// 因每帧 8px 偏快、易被感知为"突然滚动"，故降为 6px 更平缓
+const AUTOPAN_MAX = 6 // 每帧最大平移 px
 const autoPan = reactive({ active: false })
 const lastMouse = { x: 0, y: 0 }
 // 因曲别针需"鼠标靠近才显示"，故用响应式鼠标屏幕坐标驱动 paperclips 重算（lastMouse 仅供 autoPan 用）
