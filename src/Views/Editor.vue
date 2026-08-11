@@ -16,6 +16,15 @@
       <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="OJCRef?.state.selectedIds.size === 0">
         删除
       </v-btn>
+      <!-- 等比例缩放画布：仅视觉 scale，交互坐标按 /zoom 换算 -->
+      <v-slider
+        class="zoom-slider"
+        :model-value="OJCRef?.zoom ?? 1"
+        :label="`缩放 ${Math.round((OJCRef?.zoom ?? 1) * 100)}%`"
+        min="0.5" max="3" step="0.5" hide-details
+        :disabled="OJCRef?.mobileMode"
+        @update:model-value="setZoom"
+      />
     </div>
     
     <OJCanvas class="editor-wrapper" ref="OJCRef"/>
@@ -44,6 +53,18 @@ const toggleMobileSim = () => {
 
 const toggleEditMode = () => {
   OJCRef.value!.isEditMode = !OJCRef.value!.isEditMode
+}
+
+// 因非友好缩放比（整数/半整数之外）会让内容乘缩放比落亚像素、即便取整也抖动模糊，
+// 故滑块吸附到友好缩放比（0.5 步进），保证视觉像素整数化稳定清晰
+const SHARP_SCALES = [0.5, 1, 1.5, 2, 2.5, 3]
+const getSharpScale = (target: number) =>
+  SHARP_SCALES.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a))
+
+// 因滑动条直接改内部 ref，故中转一次避免模板里写嵌套 ref 赋值；同时吸附到友好缩放比
+const setZoom = (v: number | null) => {
+  const t = typeof v === 'number' && v > 0 ? v : 1
+  OJCRef.value!.zoom = getSharpScale(t)
 }
 
 const save = () => {
@@ -96,5 +117,9 @@ onUnmounted(() => {
   gap: 8px;
   background: #fafafa;
   border-bottom: 1px solid #e0e0e0;
+}
+
+.zoom-slider {
+  margin: 0 8px;
 }
 </style>

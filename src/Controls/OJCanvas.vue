@@ -3,13 +3,12 @@
     @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
     <!-- 因 .canvas 随 pan 平移后不覆盖整个容器，事件挂容器级才能让任意空白处框选/点击/聚焦生效 -->
     <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" ref="canvasRef">
-      <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
       <ResizeBox v-for="item in state.items" :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
         :data-id="item.id" :z-index="blockZ(item.id)" :active="isActive(item.id)" :x="layoutOf(item).x"
         :y="layoutOf(item).y" :w="layoutOf(item).w" :h="layoutOf(item).h"
         :min-width="(constraintsOf(item).minWidth ?? 0) + 8" :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
         :max-width="constraintsOf(item).maxWidth ?? null" :max-height="constraintsOf(item).maxHeight ?? null"
-        :handles="resizeHandlesOf(item)" :disabled="!isEditMode"
+        :handles="resizeHandlesOf(item)" :disabled="!isEditMode" :zoom="zoom"
         @resizestart="(handle: string) => onResizeStart(item, handle)"
         @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
@@ -23,8 +22,7 @@
         </div>
       </ResizeBox>
 
-      <!-- 因手柄在块内会被相邻块/compact 编辑器（块间层叠）盖住而点不到，故提升到 .canvas 顶层用块坐标定位 -->
-      <!-- 选中态由块高亮边框标示，不再单独渲染选中指示器 -->
+      <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
       <template v-for="item in state.items" :key="`handle-${item.id}`">
         <Transition name="pop-up">
           <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
@@ -40,10 +38,9 @@
       </template>
 
       <!-- 曲别针：两块相邻吸附时显示在连接点，已粘贴为实色、未粘贴为灰，点击切换粘贴/分离 -->
-      <!-- 因缩放手柄已 Teleport 到 .canvas 顶层（z=1000 高于曲别针 998），曲别针无需让位、保持顶层可点 -->
       <template v-for="p in paperclips" :key="`clip-${p.a}-${p.b}`">
         <div class="snap-paperclip" :class="{ linked: p.linked }"
-          :style="{ left: `${Math.round(p.x)}px`, top: `${Math.round(p.y)}px` }"
+          :style="{ left: `${roundToPx(p.x)}px`, top: `${roundToPx(p.y)}px` }"
           :title="p.linked ? '点击分离' : '点击粘贴'"
           @mousedown.stop @click.stop="toggleLink(p.a, p.b)">
           <v-icon size="16" :icon="mdiPaperclip" />
@@ -261,9 +258,32 @@ const panSession = reactive({
   startPanY: 0,
 })
 
-// 因 transform 落亚像素会被浏览器渲染发虚，故 pan + origin 取整
+// 因需等比例缩放画布（视觉缩放、交互坐标按 /zoom 换算），故 zoom 状态供 canvas 变换与各交互换算共用
+const zoom = ref(1)
+// 因 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致边缘/内容模糊，渲染层统一圆整到整数视觉像素
+// 叠加 UI 在 .canvas 内随 scale(zoom) 缩放，content 坐标圆整到整数视觉像素避免亚像素模糊
+const roundToPx = (v: number) => Math.round(v * zoom.value) / zoom.value
+// 块顶视觉位置（用于 handle 放置判断）
+const visualY = (v: number) => Math.round(v * zoom.value) + Math.round(pan.y + origin.y)
+
+// 因浏览器对 transform scale 的合成层按旧 scale 光栅化纹理、放大后显示旧纹理会模糊
+// （交互/内容变化才触发重新光栅化），故 zoom 变化后先销毁再重建 .canvas 合成层强制按新比例光栅化
+const forceRecomposite = () => {
+  const el = canvasRef.value
+  if (!el) return
+  el.style.willChange = 'auto'
+  requestAnimationFrame(() => {
+    void el.offsetHeight
+    el.style.willChange = 'transform'
+  })
+}
+watch(zoom, forceRecomposite)
+
+// 因 transform 落亚像素会被浏览器渲染发虚，故 pan + origin 取整；
+// 纯 translate3d + scale：translate3d 强制合成层、scale 等比例缩放（不用 CSS zoom）
 const canvasStyle = computed<CSSProperties>(() => ({
-  transform: `translate(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px)`,
+  transform: `translate3d(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px, 0) scale(${zoom.value})`,
+  transformOrigin: '0 0',
 }))
 
 // 因点阵背景需在任意平移位置都不露白，故固定在视口容器上且 background-position 随 pan 平移
@@ -331,22 +351,35 @@ const autoPanVelocity = (): { vx: number; vy: number } => {
   return { vx, vy }
 }
 
+// 因 autoPan 时 pan 步进（取整）与块补偿（取整）在 zoom≠1 时无法精确抵消（round(rx/z)*z≠round(rx)），
+// 逐帧同号累积会让块视觉长期漂移，故用浮点残差累加器把未取整的补偿累计、跨整时再补偿，保证长期零漂移
+const panCompAcc = reactive({ x: 0, y: 0 })
+
 const autoPanTick = () => {
   if (!autoPan.active) return
   const { vx, vy } = autoPanVelocity()
   // 因 autoPan 由拖拽/缩放共用，resize 时按被拖方向限制滚动方向（见 restrictResizeAutoPan）
   const { vx: rx, vy: ry } = restrictResizeAutoPan(vx, vy)
   if (rx !== 0 || ry !== 0) {
-    if (!mobileMode.value) pan.x += Math.round(rx)
-    pan.y += Math.round(ry)
-    // 因自动平移时鼠标停住块也不应偏离（块屏幕位置 = 块坐标 + pan），故同步补偿被拖拽块坐标
+    // 因 pan 是外部像素平移（不受 scale 影响），画布滚动按视口像素直接累加
+    const sx = mobileMode.value ? 0 : Math.round(rx)
+    const sy = Math.round(ry)
+    if (!mobileMode.value) pan.x += sx
+    pan.y += sy
+    // 因自动平移时鼠标停住块也不应偏离（块屏幕位置 = 块坐标*z + pan），故按残差补偿被拖拽块坐标
     // 因移动端锁水平，故横向自动平移与横向补偿一并跳过，仅竖向滚动
+    panCompAcc.x += mobileMode.value ? 0 : -sx / zoom.value
+    panCompAcc.y += -sy / zoom.value
+    const compX = Math.round(panCompAcc.x)
+    const compY = Math.round(panCompAcc.y)
+    panCompAcc.x -= compX
+    panCompAcc.y -= compY
     Object.keys(customDragGroup).forEach((id) => {
       const target = state.items.find((it) => it.id === id)
       if (!target) return
       const layout = layoutOf(target)
-      if (!mobileMode.value) layout.x -= Math.round(rx)
-      layout.y -= Math.round(ry)
+      if (!mobileMode.value) layout.x += compX
+      layout.y += compY
     })
     // 因 resize 时画布自动滚动，被拖块坐标由组件受控（prop 即 content 坐标），
     // 故按"基准矩形 + 相对起始 pan 位移"重算其 content 坐标使缩放手柄跟随鼠标
@@ -363,6 +396,8 @@ const startAutoPan = () => {
 
 const stopAutoPan = () => {
   autoPan.active = false
+  panCompAcc.x = 0
+  panCompAcc.y = 0
 }
 
 const startPan = (e: MouseEvent) => {
@@ -408,6 +443,7 @@ const handleCanvasMouseDownCapture = (e: MouseEvent) => {
 
 const updatePan = (e: MouseEvent) => {
   if (!panSession.active) return
+  // 因 .canvas 变换 translate(round(pan+origin)) 的平移量是外部像素（不受 scale 影响），故 pan 按视口像素直接累加、不除 zoom
   const nx = panSession.startPanX + (e.clientX - panSession.startClientX)
   const ny = panSession.startPanY + (e.clientY - panSession.startClientY)
   // 因触摸/缩放屏下 clientX 可能为小数、亚像素平移会致界面模糊，故取整
@@ -433,6 +469,7 @@ const onCanvasPanEvent = (e: Event) => {
   const dx = Number(detail.dx) || 0
   const dy = Number(detail.dy) || 0
   if (dx === 0 && dy === 0) return
+  // 因 pan 是外部像素平移（不受 scale 影响），故按视口像素直接累加
   if (!mobileMode.value) pan.x += Math.round(dx)
   pan.y += Math.round(dy)
 }
@@ -451,10 +488,10 @@ const selectionBoxStyle = computed(() => {
   if (!selectionBox.value) return {}
   const { x, y, w, h } = selectionBox.value
   return {
-    left: `${x}px`,
-    top: `${y}px`,
-    width: `${w}px`,
-    height: `${h}px`,
+    left: `${roundToPx(x)}px`,
+    top: `${roundToPx(y)}px`,
+    width: `${roundToPx(w)}px`,
+    height: `${roundToPx(h)}px`,
   }
 })
 
@@ -500,7 +537,7 @@ const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mob
 // 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方
 const HANDLE_HEIGHT = 28
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
-  layoutOf(item).y + origin.y + pan.y < HANDLE_HEIGHT ? 'bottom' : 'top'
+  visualY(layoutOf(item).y) < HANDLE_HEIGHT ? 'bottom' : 'top'
 
 const handleBarStyle = (item: CanvasItem): CSSProperties => {
   const layout = layoutOf(item)
@@ -510,11 +547,11 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
   const bottom = dragging ? customDrag.placementLocked : handlePlacementOf(item) === 'bottom'
   return {
     position: 'absolute',
-    // 因手柄提升到 .canvas 顶层（已应用 pan+origin 变换），故用块存储坐标直接定位
-    // 因块选中态有 2px 主题色描边（box-shadow 环），故手柄需让出该宽度以与其对齐
-    top: `${bottom ? layout.y + layout.h + 2 : layout.y - HANDLE_HEIGHT - 2}px`,
-    left: `${layout.x + 10}px`,
-    height: `${HANDLE_HEIGHT}px`,
+    // 因拖拽栏随 .canvas 的 scale(zoom) 缩放，用 content 坐标圆整到整数视觉像素避免模糊；
+    // 因块选中态有 2px 主题色描边（box-shadow 环），故拖拽栏需让出该宽度以与其对齐
+    top: `${roundToPx(bottom ? layout.y + layout.h + 2 : layout.y - HANDLE_HEIGHT - 2)}px`,
+    left: `${roundToPx(layout.x + 10)}px`,
+    height: `${roundToPx(HANDLE_HEIGHT)}px`,
     // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 999
     zIndex: 999,
     padding: '0 10px',
@@ -613,10 +650,12 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
 
 const onCustomDragMove = (e: MouseEvent) => {
   if (!customDrag.active) return
-  const dx = e.clientX - customDrag.startClientX
-  const dy = e.clientY - customDrag.startClientY
-  const panDx = pan.x - customDrag.panStartX
-  const panDy = pan.y - customDrag.panStartY
+  // 因画布被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
+  const dx = (e.clientX - customDrag.startClientX) / zoom.value
+  const dy = (e.clientY - customDrag.startClientY) / zoom.value
+  // 因 pan 是外部像素平移，换算成 content 位移需再除 zoom
+  const panDx = (pan.x - customDrag.panStartX) / zoom.value
+  const panDy = (pan.y - customDrag.panStartY) / zoom.value
   Object.keys(customDragGroup).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
     if (!target) return
@@ -719,8 +758,9 @@ const paperclips = computed(() => {
       // 因曲别针渲染在 .canvas 内（随 pan+origin 变换、且 .canvas 位于容器下方工具栏之下），
       // 故屏幕位置 = 布局坐标 + origin + pan + 画布容器的视口偏移，再与视口鼠标坐标判距
       const cr = canvasContainerRef.value?.getBoundingClientRect()
-      const sx = pt.x + origin.x + pan.x + (cr?.left ?? 0)
-      const sy = pt.y + origin.y + pan.y + (cr?.top ?? 0)
+      // 因 .canvas 被 scale(zoom)，曲别针 content 坐标需乘 zoom 才等于其视口屏幕位置
+      const sx = pt.x * zoom.value + origin.x + pan.x + (cr?.left ?? 0)
+      const sy = pt.y * zoom.value + origin.y + pan.y + (cr?.top ?? 0)
       if (Math.hypot(sx - mouseScreen.value.x, sy - mouseScreen.value.y) > PAPERCLIP_PROXIMITY) continue
       list.push({ a: items[i].id, b: items[j].id, x: pt.x, y: pt.y, linked })
     }
@@ -822,12 +862,13 @@ const applyPanCorrection = (
 const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
   const rs = resizeSession
   if (!rs) return
+  // 因 pan 是外部像素平移，换算成 content 补偿量需除 zoom
   const final = applyPanCorrection(
     rs.lastBase,
     rs.handle,
     constraintsOf(item),
-    pan.x - rs.panStartX,
-    pan.y - rs.panStartY,
+    (pan.x - rs.panStartX) / zoom.value,
+    (pan.y - rs.panStartY) / zoom.value,
   )
   const layout = layoutOf(item)
   layout.x = Math.round(final.x)
@@ -1058,9 +1099,9 @@ const startSelection = (e: MouseEvent) => {
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  // 因事件已挂容器级而 .canvas 自带 pan 平移，故换算存储坐标 = 视口 - 容器位置 - pan - origin
-  selectionState.startX = e.clientX - rect.left - pan.x - origin.x
-  selectionState.startY = e.clientY - rect.top - pan.y - origin.y
+  // 因事件已挂容器级而 .canvas 自带 pan 平移与 scale(zoom)，故换算存储坐标 = (视口 - 容器位置 - pan - origin) / zoom
+  selectionState.startX = (e.clientX - rect.left - pan.x - origin.x) / zoom.value
+  selectionState.startY = (e.clientY - rect.top - pan.y - origin.y) / zoom.value
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
@@ -1071,8 +1112,8 @@ const updateSelection = (e: MouseEvent) => {
   const rect = canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
   e.preventDefault()
-  selectionState.currentX = e.clientX - rect.left - pan.x - origin.x
-  selectionState.currentY = e.clientY - rect.top - pan.y - origin.y
+  selectionState.currentX = (e.clientX - rect.left - pan.x - origin.x) / zoom.value
+  selectionState.currentY = (e.clientY - rect.top - pan.y - origin.y) / zoom.value
   updateSelectionBox()
 }
 
@@ -1270,6 +1311,8 @@ watch(mobileMode, () => {
       state.items.forEach((it) => { it.layout.desktop.x += origin.x })
       origin.x = 0
     }
+    // 因移动端禁用缩放（布局按视口宽度拉伸），故切换时归零缩放
+    zoom.value = 1
   }
   // 因移动端浏览滚动残留的 pan.y 会把另一布局画布顶出视口（块跑到视口外），故切换时归零平移（与 load 一致）
   pan.x = 0
@@ -1295,8 +1338,9 @@ const addComponent = (key: CanvasItem['component']) => {
   if (!meta) return
   const id = generateId()
   // 因新块需落在当前视口可见处（屏幕位置 = 存储坐标 + 原点 + pan），故存储坐标 = 视口内偏移 - 原点 - 平移
-  const baseX = nextX - pan.x - origin.x
-  const baseY = nextY - pan.y - origin.y
+  // 因画布被 scale(zoom)，视口偏移需换算回 content 坐标（除以 zoom）
+  const baseX = (nextX - pan.x - origin.x) / zoom.value
+  const baseY = (nextY - pan.y - origin.y) / zoom.value
   const newItem: CanvasItem = {
     id,
     component: key,
@@ -1477,6 +1521,8 @@ defineExpose({
   state,
   pan,
   origin,
+  zoom,
+  mobileMode,
   isPanning,
   canvasStyle,
   containerStyle,

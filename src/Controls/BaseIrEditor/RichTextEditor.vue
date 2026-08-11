@@ -156,7 +156,8 @@ defineExpose({
   padding: 0;
   outline: none;
   height: 100%;
-  min-height: 100px;
+  /* 因块随 zoom 重排版放大，固定 min-height 按 --canvas-zoom 缩放保持协调 */
+  min-height: calc(100px * var(--canvas-zoom, 1));
   pointer-events: auto;
   touch-action: auto;
 }

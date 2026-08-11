@@ -355,8 +355,9 @@ defineExpose({
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-width: 300px;
-  min-height: 200px;
+  /* 因块随 zoom 重排版放大，固定尺寸按 --canvas-zoom 缩放保持协调 */
+  min-width: calc(300px * var(--canvas-zoom, 1));
+  min-height: calc(200px * var(--canvas-zoom, 1));
 }
 
 
@@ -364,16 +365,16 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 6px;
+  padding: calc(2px * var(--canvas-zoom, 1)) calc(6px * var(--canvas-zoom, 1));
   background-color: var(--v-theme-surface, #f6f8fa);
   border: 1px solid var(--v-theme-border, #e1e4e8);
   border-bottom: none;
-  border-radius: 6px 6px 0 0;
+  border-radius: calc(6px * var(--canvas-zoom, 1)) calc(6px * var(--canvas-zoom, 1)) 0 0;
 }
 
 .language-select {
-  max-width: 160px;
-  font-size: 13px;
+  max-width: calc(160px * var(--canvas-zoom, 1));
+  font-size: calc(13px * var(--canvas-zoom, 1));
 }
 
 
@@ -381,7 +382,7 @@ defineExpose({
   position: relative;
   border: 1px solid var(--v-theme-border, #e1e4e8);
   border-top: none;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 calc(6px * var(--canvas-zoom, 1)) calc(6px * var(--canvas-zoom, 1));
   overflow: hidden;
   background-color: var(--v-theme-surface, #f6f8fa);
   flex: 1;
@@ -391,9 +392,9 @@ defineExpose({
 .highlight-layer,
 .edit-layer {
   margin: 0;
-  padding: 12px 16px;
+  padding: calc(12px * var(--canvas-zoom, 1)) calc(16px * var(--canvas-zoom, 1));
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
-  font-size: 14px;
+  font-size: calc(14px * var(--canvas-zoom, 1));
   line-height: 1.6;
   font-weight: normal;
   letter-spacing: normal;
@@ -409,7 +410,7 @@ defineExpose({
   overflow: auto;
   width: 100%;
   box-sizing: border-box;
-  min-height: 120px;
+  min-height: calc(120px * var(--canvas-zoom, 1));
 
 
   font-variant-ligatures: none;
@@ -428,7 +429,7 @@ defineExpose({
   background-color: transparent !important;
   pointer-events: none;
   margin: 0;
-  padding: 12px 16px;
+  padding: calc(12px * var(--canvas-zoom, 1)) calc(16px * var(--canvas-zoom, 1));
   border-radius: 0;
   overflow: auto;
 
@@ -452,7 +453,7 @@ defineExpose({
   z-index: 2;
   background-color: transparent;
   color: transparent;
-  padding: 12px 16px;
+  padding: calc(12px * var(--canvas-zoom, 1)) calc(16px * var(--canvas-zoom, 1));
   border-radius: 0;
   height: 100%;
   min-height: inherit;
