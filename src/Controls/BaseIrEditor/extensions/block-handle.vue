@@ -57,7 +57,8 @@ function popupOverlapsTm(): boolean {
   const dom = getView(props.editor)?.dom as HTMLElement | null
   const wrapper = dom?.closest('.drag-wrapper') as HTMLElement | null
   if (!wrapper) return false
-  const popup = wrapper.querySelector<HTMLElement>('.block-handle-popup')
+  // 因 popup 已 Teleport 到 .canvas（脱离 wrapper），故全局查找
+  const popup = document.querySelector<HTMLElement>('.block-handle-popup')
   const tm = wrapper.querySelector<HTMLElement>('.handle-tm')
   if (!popup || !tm) return false
   const pr = popup.getBoundingClientRect()
@@ -83,16 +84,27 @@ function syncTmOverlap() {
 // 因 tm 遮挡需随 hover 位置（activeHover 变化）、显隐（handleVisible）、
 // 放置方向（handlePlacement）与 keepAlive（popupKeep）一起重算，故监听以上全部
 watch([handleVisible, activeHover, popupKeep, handlePlacement], syncTmOverlap)
+
+// 因富文本 popup 上侧开启时会盖住画布连接点处的曲别针（交互冲突），
+// 故派发事件通知画布隐藏曲别针（代码块无 block-handle，仅富文本走此路径）
+watch([handleVisible, handlePlacement], () => {
+  const topOpen = !!handleVisible.value && handlePlacement.value === 'top'
+  window.dispatchEvent(new CustomEvent('omnijot:block-popup-top', { detail: { open: topOpen } }))
+})
 </script>
 
 <template>
-  <BlockHandleRoot @state-change="onBlockStateChange">
-    <BlockHandlePositioner
-      :placement="handlePlacement"
-      :hide="false"
-      :class="['block-handle-positioner', `placement-${handlePlacement}`]"
-      :style="{ '--block-handle-shift': popupShiftPx + 'px', '--block-handle-hshift': popupHShiftPx + 'px' }"
-    >
+  <!-- 因 popup 需显示在曲别针（1003）之上，而其在编辑器内受块层叠上下文限制（对外层级=块 z），
+       故把含 provider 的 Root 整体 Teleport 到 .canvas：store context 不丢、
+       floating-ui 初始化即以 .canvas 为 containing block 计算定位（初始即正确，无需移动重算） -->
+  <Teleport to=".canvas">
+    <BlockHandleRoot @state-change="onBlockStateChange">
+      <BlockHandlePositioner
+        :placement="handlePlacement"
+        :hide="false"
+        :class="['block-handle-positioner', `placement-${handlePlacement}`]"
+        :style="{ '--block-handle-shift': popupShiftPx + 'px', '--block-handle-hshift': popupHShiftPx + 'px' }"
+      >
       <BlockHandlePopup
         class="block-handle-popup"
         :class="{ 'popup-keep': popupKeep, 'forced-open': handleVisible, 'ui-hidden': !handleVisible }"
@@ -123,8 +135,9 @@ watch([handleVisible, activeHover, popupKeep, handlePlacement], syncTmOverlap)
           </svg>
         </BlockHandleDraggable>
       </BlockHandlePopup>
-    </BlockHandlePositioner>
-  </BlockHandleRoot>
+      </BlockHandlePositioner>
+    </BlockHandleRoot>
+  </Teleport>
 
   <!-- 因 .vdr 的 transform/overflow 会裁剪 fixed 高亮，故 teleport 到 body；按 placement 加类供 CSS 翻转强调小条方向 -->
   <Teleport to="body">
@@ -138,7 +151,8 @@ watch([handleVisible, activeHover, popupKeep, handlePlacement], syncTmOverlap)
   overflow: visible;
   width: min-content;
   height: min-content;
-  z-index: 50;
+  /* 因 popup 需显示在曲别针之上，故置 Z_LAYER.popup（1005，.canvas 内最高层，随画布缩放） */
+  z-index: 1005;
   transition: transform 0.1s ease-out;
   pointer-events: none;
   inset: auto;

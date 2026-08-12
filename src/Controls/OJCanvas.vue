@@ -37,6 +37,13 @@
         </Transition>
       </template>
 
+      <!-- 因选中描边环需绘制在拖拽栏之上（描边连贯不被 handle 遮断），
+           故用独立高层 overlay 渲染描边，块自身不再用 box-shadow -->
+      <template v-for="item in state.items" :key="`outline-${item.id}`">
+        <div v-if="isEditMode && state.selectedIds.has(item.id)" class="selected-outline"
+          :style="selectedOutlineStyle(item)" />
+      </template>
+
       <!-- 曲别针：两块相邻吸附时显示在连接点，已粘贴为实色、未粘贴为灰，点击切换粘贴/分离 -->
       <template v-for="p in paperclips" :key="`clip-${p.a}-${p.b}`">
         <div class="snap-paperclip" :class="{ linked: p.linked }"
@@ -80,6 +87,7 @@ import { mdiDragVariant, mdiPaperclip } from '@mdi/js'
 import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
+import { Z_LAYER } from './zIndex'
 
 import { useDisplay } from 'vuetify'
 
@@ -181,18 +189,28 @@ const state = reactive({
   selectedIds: new Set<string>(),
 })
 
-// 因内容聚焦时需把该块提到最上层（显示在最前），故用 zMap 维护自增计数
+// 因内容聚焦时需把该块提到最上层（显示在最前），故用 zMap 维护自增计数；
+// 因叠加层 z 固定（见 zIndex.ts 的 Z_LAYER），若 zCounter 无限递增超过其值，
+// 普通块会盖住叠加层，故达阈值时按当前顺序重排为 1..N 防止计数溢出
 const zMap = reactive<Record<string, number>>({})
 let zCounter = 0
+const Z_LIMIT = Z_LAYER.itemZLimit
 const itemZ = (id: string): number => zMap[id] ?? 0
+const normalizeZMap = () => {
+  const ids = Object.keys(zMap).sort((a, b) => zMap[a] - zMap[b])
+  ids.forEach((id, i) => { zMap[id] = i + 1 })
+  zCounter = ids.length
+}
 const bringToTop = (id: string) => {
   if (zMap[id] === zCounter && zCounter > 0) return // 已是最上层，避免计数器膨胀
   zMap[id] = ++zCounter
+  if (zCounter >= Z_LIMIT) normalizeZMap()
 }
 
 // 因缩放手柄渲染在块边缘内侧，紧贴的邻块（同 z 层级、DOM 靠后）会盖住手柄导致点不到，
-// 故选中块 z 提升到高于所有普通块（VDR 的 activeOnTop 同款行为）
-const SELECTED_Z_BASE = 500
+// 故选中块 z 提升到高于所有普通块（VDR 的 activeOnTop 同款行为）；
+// 且需高于描边环使块内 popup 对外层级也在描边环之上，故基值取 Z_LAYER.selectedBlock
+const SELECTED_Z_BASE = Z_LAYER.selectedBlock
 const blockZ = (id: string): number =>
   isEditMode.value && state.selectedIds.has(id) ? Math.max(itemZ(id), SELECTED_Z_BASE) : itemZ(id)
 
@@ -546,10 +564,11 @@ const setComponentRef = (id: string, el: any) => {
 const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
 
 // 因手柄高 28px、块贴近视口顶部时上方放不下（会被画布容器裁剪），
-// 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方
+// 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方；
+// 因手柄视觉高随 zoom 缩放，故阈值取视觉高度，避免高缩放时误判顶部放不下
 const HANDLE_HEIGHT = 28
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
-  visualY(layoutOf(item).y) < HANDLE_HEIGHT ? 'bottom' : 'top'
+  visualY(layoutOf(item).y) < Math.round(HANDLE_HEIGHT * zoom.value) ? 'bottom' : 'top'
 
 const handleBarStyle = (item: CanvasItem): CSSProperties => {
   const layout = layoutOf(item)
@@ -557,24 +576,42 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
   // 从"块上方"切到"块下方"，导致 handle 与块（ResizeBox）瞬间分离），故拖拽期间锁定 placementLocked
   const dragging = customDrag.active && !!customDragGroup[item.id]
   const bottom = dragging ? customDrag.placementLocked : handlePlacementOf(item) === 'bottom'
+  // 因 .canvas 整体 scale(zoom)，若对 (y±HANDLE_HEIGHT) 整体取整，其取整边界与块边缘
+  // round(y*zoom) 不一致会在放大时露出 1px 缝隙，故分别取整使底边/顶边贴齐块的视觉边缘
+  const handleTop = bottom
+    ? roundToPx(layout.y + layout.h)
+    : roundToPx(layout.y) - roundToPx(HANDLE_HEIGHT)
   return {
     position: 'absolute',
-    // 因拖拽栏随 .canvas 的 scale(zoom) 缩放，用 content 坐标圆整到整数视觉像素避免模糊；
-    // 因块选中态有 2px 主题色描边（box-shadow 环），故拖拽栏需让出该宽度以与其对齐
-    top: `${roundToPx(bottom ? layout.y + layout.h + 2 : layout.y - HANDLE_HEIGHT - 2)}px`,
+    top: `${handleTop}px`,
     left: `${roundToPx(layout.x + 10)}px`,
     height: `${roundToPx(HANDLE_HEIGHT)}px`,
-    // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 999
-    zIndex: 999,
+    // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 Z_LAYER.dragHandle：
+    // 低于选中描边环让描边连贯盖过拖拽栏，也低于缩放手柄不被其遮挡
+    zIndex: Z_LAYER.dragHandle,
     padding: '0 10px',
     display: 'flex',
     alignItems: 'center',
     cursor: 'grab',
     whiteSpace: 'nowrap',
     // 因内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
-    // 故改用 CSS 变量 --handle-y（贴边微调）+ --handle-slide（滑出方向）由 CSS 组合进动画
+    // 故改用 CSS 变量 --handle-y（贴边微调）+ --handle-slide（滑出方向）由 CSS 组合进动画；
+    // --handle-slide 复用 HANDLE_HEIGHT，避免与高度硬编码重复
     '--handle-y': '0px',
-    '--handle-slide': bottom ? '-28px' : '28px',
+    '--handle-slide': `${bottom ? -HANDLE_HEIGHT : HANDLE_HEIGHT}px`,
+  }
+}
+
+// 因选中描边环向外扩 2px（与原 box-shadow 0 0 0 2px 一致），故 overlay 相对块边缘外扩该宽度
+const OUTLINE_PX = 2
+const selectedOutlineStyle = (item: CanvasItem): CSSProperties => {
+  const l = layoutOf(item)
+  // 因 .canvas 整体 scale(zoom)，按块边缘视觉分别取整外扩，保证描边环贴齐块边缘
+  return {
+    left: `${roundToPx(l.x) - roundToPx(OUTLINE_PX)}px`,
+    top: `${roundToPx(l.y) - roundToPx(OUTLINE_PX)}px`,
+    width: `${roundToPx(l.w) + roundToPx(OUTLINE_PX * 2)}px`,
+    height: `${roundToPx(l.h) + roundToPx(OUTLINE_PX * 2)}px`,
   }
 }
 
@@ -757,10 +794,11 @@ const resizeHandlesOf = (item: CanvasItem): string[] => {
 
 // 曲别针列表：所有相邻（或已粘贴）的块对显示在连接点，标记是否已粘贴；
 // 不自动跟随——只有点击曲别针启用粘贴后，拖动一块才带动另一块；
-// 因曲别针只在鼠标靠近时才显示，故把布局坐标换算成屏幕坐标（layout + origin + pan）与鼠标判距
+// 因曲别针只在鼠标靠近时才显示，故把布局坐标换算成屏幕坐标（layout + origin + pan）与鼠标判距；
+// 因富文本 popup 上侧开启会盖住连接点处的曲别针，故此时隐藏全部曲别针
 const paperclips = computed(() => {
   const list: { a: string; b: string; x: number; y: number; linked: boolean }[] = []
-  if (mobileMode.value) return list
+  if (mobileMode.value || popupTopOpen.value) return list
   const items = state.items
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
@@ -1140,17 +1178,29 @@ const onCanvasMousemove = (e: MouseEvent) => {
   hoverFocusBlock(e)
 }
 
-// 因 hover 选中块后内容物应同步可编辑（光标可直接进入），故聚焦块内编辑器（富文本 ProseMirror 或代码 textarea）
+// 因画布容器 overflow:hidden 但内容会溢出，聚焦编辑器触发的默认 scrollIntoView
+// 会把容器滚出偏移、导致整个画面位移，故归零容器滚动并由 pan 独占控制位置
+const resetCanvasScroll = () => {
+  const c = canvasContainerRef.value
+  if (c && (c.scrollLeft !== 0 || c.scrollTop !== 0)) {
+    c.scrollLeft = 0
+    c.scrollTop = 0
+  }
+}
+
+// 因 hover 选中块后内容物应同步可编辑（光标可直接进入），故聚焦块内编辑器（富文本 ProseMirror 或代码 textarea）；
+// 聚焦用 preventScroll 阻止浏览器默认滚动（见 resetCanvasScroll 注释）
 const focusBlockContent = (id: string) => {
   nextTick(() => {
+    resetCanvasScroll()
     const wrapper = document.querySelector(`.drag-wrapper[data-id="${id}"]`)
     const pm = wrapper?.querySelector('.ProseMirror') as HTMLElement | null
     if (pm) {
-      pm.focus()
+      pm.focus({ preventScroll: true })
       return
     }
     const ta = wrapper?.querySelector('textarea') as HTMLElement | null
-    if (ta) ta.focus()
+    if (ta) ta.focus({ preventScroll: true })
   })
 }
 
@@ -1166,6 +1216,13 @@ const onBlockPopupChange = (e: Event) => {
   } else if (!detail.open && detail.blockId && popupBlockId.value === detail.blockId) {
     popupBlockId.value = null
   }
+}
+
+// 因富文本 popup 上侧开启时会盖住连接点处的曲别针，故该状态为 true 时隐藏全部曲别针
+const popupTopOpen = ref(false)
+const onBlockPopupTopChange = (e: Event) => {
+  const detail = (e as CustomEvent).detail as { open?: boolean }
+  popupTopOpen.value = !!detail.open
 }
 
 // 因需"鼠标落在哪个块的 VDR 框区域内就聚焦哪个块"（只按框区域判断，不看内容元素），
@@ -1190,11 +1247,27 @@ const hitHandleGap = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
+// 因拖拽栏 z（998）可能低于 itemZ 递增后的普通块、被背后块盖住时 e.target 落在背后块上
+// closest('.drag-handle') 失效，故按坐标命中拖拽栏优先返回所属块，避免 hover 聚焦切到背后块
+const hitHandleBar = (clientX: number, clientY: number): string | null => {
+  let hit: string | null = null
+  state.items.forEach((item) => {
+    if (!state.selectedIds.has(item.id)) return
+    const el = document.querySelector<HTMLElement>(`.floating-handle[data-id="${item.id}"]`)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) hit = item.id
+  })
+  return hit
+}
+
 // 因手柄提升到顶层、可能被别的块矩形框覆盖，故鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
 const hitTestBlockAt = (e: MouseEvent): string | null => {
   const handleEl = (e.target as HTMLElement).closest<HTMLElement>('.drag-handle')
   if (handleEl?.dataset.id) return handleEl.dataset.id
   const { clientX, clientY } = e
+  const barHit = hitHandleBar(clientX, clientY)
+  if (barHit) return barHit
   const gapHit = hitHandleGap(clientX, clientY)
   if (gapHit) return gapHit
   let hitId: string | null = null
@@ -1517,6 +1590,7 @@ onMounted(() => {
   window.addEventListener('mousemove', updateMousePos)
   window.addEventListener('omnijot:canvas-pan', onCanvasPanEvent)
   window.addEventListener('omnijot:block-popup', onBlockPopupChange)
+  window.addEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
 })
 
 onUnmounted(() => {
@@ -1533,6 +1607,7 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', updateMousePos)
   window.removeEventListener('omnijot:canvas-pan', onCanvasPanEvent)
   window.removeEventListener('omnijot:block-popup', onBlockPopupChange)
+  window.removeEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
 })
 
 defineExpose({
@@ -1614,10 +1689,16 @@ defineExpose({
   z-index: 20;
 }
 
-/* 因选中态不再用独立指示器，故用主题色描边高亮选中块
-   （--v-theme-primary 为 RGB 分量，需经 rgb() 包裹才能用于 box-shadow） */
-.drag-wrapper.selected {
-  box-shadow: 0 0 0 2px rgb(var(--v-theme-primary));
+/* 因选中描边环改为独立 overlay 渲染（需绘制在拖拽栏/缩放手柄之上、保持连贯），
+   故块自身不再挂 box-shadow；overlay 用 2px 主题色实线描边
+   （--v-theme-primary 为 RGB 分量，需经 rgb() 包裹才能用于 border） */
+.selected-outline {
+  position: absolute;
+  border: 2px solid rgb(var(--v-theme-primary));
+  pointer-events: none;
+  /* 因描边环需绘制在拖拽栏之上、又在缩放手柄之下，故置 Z_LAYER.outline（999） */
+  z-index: 999;
+  box-sizing: border-box;
 }
 
 /* 曲别针：表面色圆底 + 描边 + 阴影使其在画布/块边缘清晰可辨；
@@ -1632,7 +1713,8 @@ defineExpose({
   justify-content: center;
   border-radius: 50%;
   cursor: pointer;
-  z-index: 998;
+  /* 因曲别针需显示在选中描边环与大小手柄之上，故置 Z_LAYER.paperclip（1003，连接点曲别针优先） */
+  z-index: 1003;
   user-select: none;
   background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-theme-on-surface), 0.22);

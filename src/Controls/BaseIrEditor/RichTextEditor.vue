@@ -64,7 +64,9 @@ onMounted(() => {
   if (editorMount.value) {
     editor.mount(editorMount.value)
     if (isMobile.value) {
-      setTimeout(() => editor.view?.focus(), 100)
+      // 因 view.focus() 不带 preventScroll，聚焦 ProseMirror 根 DOM 触发默认滚动
+      // 会把 overflow:hidden 的画布容器滚出偏移，故直接对根 DOM 用 preventScroll 聚焦
+      setTimeout(() => (editor.view?.dom as HTMLElement | undefined)?.focus({ preventScroll: true }), 100)
     }
     if (props.doc) {
       editor.setContent(props.doc)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // SPDX-License-Identifier: MIT
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Z_LAYER } from './zIndex'
 
 type Handle = 'tl' | 'tm' | 'tr' | 'ml' | 'mr' | 'bl' | 'bm' | 'br'
 
@@ -54,7 +55,8 @@ const emit = defineEmits<{
 let session: ResizeSession | null = null
 
 const rootEl = ref<HTMLElement | null>(null)
-// 因手柄渲染在块边缘会被紧贴的邻块盖住而点不到，故 Teleport 到 .canvas 顶层（z=1000 高于曲别针 998）
+// 因手柄渲染在块边缘会被紧贴的邻块盖住而点不到，故 Teleport 到 .canvas 顶层
+// （Z_LAYER.resizeHandle：高于选中块、曲别针与选中描边环）
 const canvasEl = ref<HTMLElement | null>(null)
 onMounted(() => {
   canvasEl.value = rootEl.value?.closest('.canvas') ?? null
@@ -100,7 +102,7 @@ const handleStyle = (h: string) => {
     // 因手柄随 .canvas 的 scale(zoom) 缩放，尺寸与定位圆整到整数视觉像素避免边缘亚像素模糊
     width: `${roundToPx(8)}px`,
     height: `${roundToPx(8)}px`,
-    zIndex: 1000,
+    zIndex: Z_LAYER.resizeHandle,
     cursor: CURSOR[h as Handle],
     left: `${roundToPx(parseFloat(pos.left))}px`,
     top: `${roundToPx(parseFloat(pos.top))}px`,
@@ -195,7 +197,8 @@ onUnmounted(cleanup)
   background: #ffffff;
   border: 1px solid #333;
   box-shadow: 0 0 2px #bbb;
-  z-index: 1000;
+  /* 与 Z_LAYER.resizeHandle 一致（CSS 无法引用 TS 常量） */
+  z-index: 1002;
 }
 @media only screen and (max-width: 768px) {
   [class*="handle-"]:before {

@@ -262,7 +262,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     nextTick(() => {
       textarea.selectionStart = start + 1;
       textarea.selectionEnd = end + 1;
-      textarea.focus();
+      textarea.focus({ preventScroll: true });
     });
     emit('update:modelValue', newText);
     renderHighlight();
@@ -277,7 +277,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   nextTick(() => {
     textarea.selectionStart = start + 1;
     textarea.selectionEnd = start + 1;
-    textarea.focus();
+    textarea.focus({ preventScroll: true });
   });
   emit('update:modelValue', newText);
   renderHighlight();
@@ -314,7 +314,7 @@ onMounted(() => {
     renderHighlight();
     syncScroll();
     if (textareaRef.value) {
-      textareaRef.value.focus();
+      textareaRef.value.focus({ preventScroll: true });
     }
   });
 
