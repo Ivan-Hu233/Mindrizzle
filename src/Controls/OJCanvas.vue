@@ -121,6 +121,11 @@ interface CanvasItem {
     desktop: Rect
     mobile: Rect
   }
+  // 标记各端布局是否已排好；false 的端在首次进入时自动布局，之后保持用户手动调整
+  arranged: {
+    desktop: boolean
+    mobile: boolean
+  }
 }
 
 const componentMap = {
@@ -1410,9 +1415,10 @@ const syncComponentData = () => {
 const generateId = () =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
-let nextX = 20
-let nextY = 20
-const STEP = 30
+// 自动布局参数：首屏/添加块时的留白与起点
+const ARRANGE_GAP = 16
+const ARRANGE_TOP = 16
+const ARRANGE_LEFT = 16
 
 const updateCanvasWidth = () => {
   const container = canvasContainerRef.value ?? canvasRef.value
@@ -1458,6 +1464,8 @@ watch(mobileMode, () => {
   // 因移动端浏览滚动残留的 pan.y 会把另一布局画布顶出视口（块跑到视口外），故切换时归零平移（与 load 一致）
   pan.x = 0
   pan.y = 0
+  // 首次进入该端：尚未排好的块自动布局（移动端纵向堆叠 / 桌面端瀑布流平铺）
+  autoArrange(mobileMode.value ? 'mobile' : 'desktop')
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
@@ -1474,33 +1482,136 @@ watch(
 
 const onResize = () => refreshLayout()
 
+// 移动端自动布局：未排的块按桌面端阅读顺序纵向堆叠在已排块下方（x 恒 0，宽度由 applyMobileLayout 拉伸）
+const autoArrangeMobile = () => {
+  const pending = state.items.filter((it) => !it.arranged.mobile)
+  if (pending.length === 0) return
+  let cursor = ARRANGE_TOP
+  state.items.forEach((it) => {
+    if (it.arranged.mobile) cursor = Math.max(cursor, it.layout.mobile.y + it.layout.mobile.h)
+  })
+  pending
+    .sort((a, b) => a.layout.desktop.y - b.layout.desktop.y)
+    .forEach((it) => {
+      const m = it.layout.mobile
+      m.x = 0
+      m.h = m.h > 0 ? m.h : it.layout.desktop.h
+      m.y = Math.round(cursor + ARRANGE_GAP)
+      cursor = m.y + m.h
+      it.arranged.mobile = true
+    })
+}
+
+// 桌面端自动布局：未排的块按视口宽度瀑布流平铺在已排块下方，避免互相重叠
+const autoArrangeDesktop = () => {
+  const pending = state.items.filter((it) => !it.arranged.desktop)
+  if (pending.length === 0) return
+  let cursorY = ARRANGE_TOP
+  state.items.forEach((it) => {
+    if (it.arranged.desktop) cursorY = Math.max(cursorY, it.layout.desktop.y + it.layout.desktop.h)
+  })
+  // 视口宽是像素，content 坐标比较需除 zoom（同 freeSpotFor）
+  const maxX = Math.max(canvasWidth.value / zoom.value, ARRANGE_LEFT * 2)
+  let cursorX = ARRANGE_LEFT
+  let rowH = 0
+  pending
+    .sort((a, b) => a.layout.desktop.y - b.layout.desktop.y)
+    .forEach((it) => {
+      const d = it.layout.desktop
+      if (cursorX + d.w > maxX - ARRANGE_LEFT) {
+        cursorX = ARRANGE_LEFT
+        cursorY += rowH + ARRANGE_GAP
+        rowH = 0
+      }
+      d.x = cursorX
+      d.y = Math.round(cursorY)
+      cursorX += d.w + ARRANGE_GAP
+      rowH = Math.max(rowH, d.h)
+      it.arranged.desktop = true
+    })
+}
+
+const autoArrange = (mode: 'desktop' | 'mobile') => {
+  if (mode === 'mobile') autoArrangeMobile()
+  else autoArrangeDesktop()
+}
+
+// 新块落位：桌面端从视口顶部与各已放块底部（贴底）挑候选顶边，视口内从左到右找不重叠空位；
+// 因固定行距网格扫描会与既有块错位产生大空隙（窄视口每行一块时更明显），故改贴底候选保证紧凑；
+// 移动端纵向堆叠，追加到列表末尾
+const freeSpotFor = (w: number, h: number): { x: number; y: number } => {
+  if (mobileMode.value) {
+    let maxBottom = 0
+    state.items.forEach((it) => {
+      maxBottom = Math.max(maxBottom, it.layout.mobile.y + it.layout.mobile.h)
+    })
+    return { x: 0, y: Math.round(maxBottom + ARRANGE_GAP) }
+  }
+  const placed = state.items.map((it) => layoutOf(it))
+  // 视口左上角对应的存储坐标（屏幕 = 存储*zoom + origin + pan），视口顶部作为首个候选保证新块可见；
+  // 视口宽 canvasWidth 是像素，换算成 content 宽度需除 zoom，否则 zoom≠1 时换行边界错位（放大时新块被放到视口外）
+  const vx = Math.round(-(origin.x + pan.x) / zoom.value)
+  const vy = Math.round(-(origin.y + pan.y) / zoom.value)
+  const viewW = Math.max(canvasWidth.value / zoom.value, ARRANGE_LEFT * 2)
+  // 因视口基准 vx 随 panToBlock 居中漂移，若以其为 x 起点，连续添加的块会在 content 坐标逐次左偏（水平错位），
+  // 故 x 起点对齐既有块最左 x（无块时用视口左），保证同列块左边缘对齐
+  const leftBase = placed.length ? Math.min(...placed.map((p) => p.x)) : vx + ARRANGE_LEFT
+  // 候选顶边：有块时只取各块底部贴底（避免 zoom<1 时"视口顶"远离已有块导致竖向间距骤增），无块时用视口顶
+  const candidateYs = placed.length
+    ? placed.map((p) => p.y + p.h + ARRANGE_GAP).sort((a, b) => a - b)
+    : [vy + ARRANGE_TOP]
+  for (const cy of candidateYs) {
+    let cursorX = leftBase
+    while (cursorX + w <= leftBase + viewW - ARRANGE_LEFT) {
+      const overlap = placed.some((p) => cursorX < p.x + p.w && cursorX + w > p.x && cy < p.y + p.h && cy + h > p.y)
+      if (!overlap) return { x: Math.round(cursorX), y: Math.round(cy) }
+      cursorX += w + ARRANGE_GAP
+    }
+  }
+  // 兜底：所有候选顶边都放不下，放在所有块下方
+  const maxBottom = state.items.reduce((m, it) => Math.max(m, layoutOf(it).y + layoutOf(it).h), vy)
+  return { x: leftBase, y: Math.round(maxBottom + ARRANGE_GAP) }
+}
+
+// 把视角平移到指定块：让块中心落在视口中心。
+// 因屏幕位置 = 存储坐标*zoom + origin + pan（canvas 只 translate），故反解 pan；移动端锁水平只调 y
+const panToBlock = (id: string) => {
+  const item = state.items.find((it) => it.id === id)
+  if (!item) return
+  const layout = layoutOf(item)
+  const cont = canvasContainerRef.value
+  const vw = cont?.clientWidth ?? window.innerWidth
+  const vh = cont?.clientHeight ?? window.innerHeight
+  const cx = (layout.x + layout.w / 2) * zoom.value
+  const cy = (layout.y + layout.h / 2) * zoom.value
+  if (!mobileMode.value) pan.x = Math.round(vw / 2 - origin.x - cx)
+  pan.y = Math.round(vh / 2 - origin.y - cy)
+}
+
 const addComponent = (key: CanvasItem['component']) => {
   const meta = componentMetaOf(key)
   if (!meta) return
   const id = generateId()
-  // 因新块需落在当前视口可见处（屏幕位置 = 存储坐标 + 原点 + pan），故存储坐标 = 视口内偏移 - 原点 - 平移
-  // 因画布被 scale(zoom)，视口偏移需换算回 content 坐标（除以 zoom）
-  const baseX = (nextX - pan.x - origin.x) / zoom.value
-  const baseY = (nextY - pan.y - origin.y) / zoom.value
+  const { x, y } = freeSpotFor(meta.defaultSize.w, meta.defaultSize.h)
   const newItem: CanvasItem = {
     id,
     component: key,
     config: meta.defaultConfig(),
     layout: {
-      desktop: { x: baseX, y: baseY, ...meta.defaultSize },
-      mobile: { x: baseX, y: baseY, ...meta.defaultSize },
+      desktop: { x, y, ...meta.defaultSize },
+      // 因移动端宽度运行时拉伸（x 恒 0），故此处仅占位，首次进移动端时自动纵向堆叠
+      mobile: { x: 0, y, ...meta.defaultSize },
     },
+    // 当前端已落位；另一端留待首次进入时自动布局
+    arranged: { desktop: !mobileMode.value, mobile: mobileMode.value },
   }
   state.items.push(newItem)
   if (mobileMode.value && canvasWidth.value > 0) {
     stretchMobileWidth(newItem)
   }
-  nextX += STEP
-  nextY += STEP
-  if (nextX > 500) {
-    nextX = 20
-    nextY += 50
-  }
+  // 因新块可能落在视口外（移动端追加到列表末尾、桌面端视口已满时兜底放块群下方），
+  // 故添加后平移视角到新块，使其在视口内居中可见
+  panToBlock(newItem.id)
 }
 
 const save = () => {
@@ -1537,6 +1648,7 @@ const save = () => {
       desktop: toSaveRect(it.layout.desktop),
       mobile: { x: 0, y: Math.round(it.layout.mobile.y + origin.y + pan.y - cy), h: Math.round(it.layout.mobile.h) },
     },
+    arranged: { ...it.arranged },
   }))
   return JSON.stringify({ origin: { x: cx, y: cy }, items: serializable, links: Array.from(linkedPairs.value) })
 }
@@ -1557,11 +1669,25 @@ const normalizeLoadedItem = (it: any): CanvasItem => {
   desktop.y = typeof desktop.y === 'number' ? desktop.y : 0
   mobile.x = typeof mobile.x === 'number' ? mobile.x : 0
   mobile.y = typeof mobile.y === 'number' ? mobile.y : 0
+  // arranged：新数据读持久化标志；旧数据无该字段时，desktop 视为已排（保存的主布局），
+  // mobile 若与 desktop 完全一致（纯副本）则视为未排，首次进移动端自动纵向堆叠
+  let arranged = { desktop: true, mobile: true }
+  if (it.arranged && typeof it.arranged === 'object') {
+    arranged = {
+      desktop: it.arranged.desktop !== false,
+      mobile: it.arranged.mobile !== false,
+    }
+  } else {
+    const savedMobile = it.layout?.mobile
+    const mobileIsCopy = !savedMobile || (savedMobile.y === desktop.y && savedMobile.h === desktop.h)
+    arranged = { desktop: true, mobile: !mobileIsCopy }
+  }
   return {
     id: typeof it.id === 'string' && it.id ? it.id : generateId(),
     component,
     config: (it.config ?? componentMetaOf(component)?.defaultConfig() ?? {}) as WidgetConfig,
     layout: { desktop, mobile },
+    arranged,
   }
 }
 
@@ -1605,6 +1731,8 @@ const load = async (raw: string) => {
     updateCanvasWidth()
     applyMobileLayout()
   }
+  // 首次加载即处于某端（如窄屏直启移动端）时，未排的块也自动布局
+  autoArrange(mobileMode.value ? 'mobile' : 'desktop')
   state.items.forEach((item) => {
     componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
