@@ -641,12 +641,15 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
     const target = state.items.find((it) => it.id === id)
     if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
   })
-  // 因曲别针"粘贴"的块需随被拖块一起移动，故把链接传递可达的块也加入拖拽组
-  collectLinkedIds(item.id).forEach((id) => {
-    if (customDragGroup[id]) return
-    const target = state.items.find((it) => it.id === id)
-    if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
-  })
+  // 因曲别针"粘贴"的块需随被拖块一起移动，故把链接传递可达的块也加入拖拽组；
+  // 因移动端不启用块联结（曲别针隐藏），故仅桌面端收集
+  if (!mobileMode.value) {
+    collectLinkedIds(item.id).forEach((id) => {
+      if (customDragGroup[id]) return
+      const target = state.items.find((it) => it.id === id)
+      if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+    })
+  }
   window.addEventListener('pointermove', onCustomDragMove)
   window.addEventListener('pointerup', onCustomDragUp)
   window.addEventListener('mousemove', onCustomDragMove)
@@ -1014,10 +1017,13 @@ const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: n
 // 因需记录 resize 会话起始（手柄、链接组各块起始矩形、起始 pan）供后续补偿与传播，故监听 resizestart
 const onResizeStart = (item: CanvasItem, handle: string) => {
   const starts: Record<string, Rect> = {}
-  collectLinkedIds(item.id).forEach((id) => {
-    const target = state.items.find((it) => it.id === id)
-    if (target) starts[id] = { ...layoutOf(target) }
-  })
+  // 因移动端不启用块联结（曲别针隐藏、缩放只调高度不联动），故仅桌面端收集链接块起始矩形
+  if (!mobileMode.value) {
+    collectLinkedIds(item.id).forEach((id) => {
+      const target = state.items.find((it) => it.id === id)
+      if (target) starts[id] = { ...layoutOf(target) }
+    })
+  }
   resizeSession = {
     itemId: item.id,
     handle,
