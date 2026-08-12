@@ -14,7 +14,7 @@
         @resizestart="(handle: string) => onResizeStart(item, handle)"
         @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
-        <div class="block-container bg-white elevation-1 rounded">
+        <div class="block-container bg-surface elevation-1 rounded">
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
               :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
@@ -33,8 +33,8 @@
             :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
             :data-id="item.id" :style="handleBarStyle(item)"
             @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
-            <v-icon size="16" color="grey-darken-2" :icon="mdiDragVariant" class="mr-1" />
-            <span class="text-caption text-grey-darken-2 user-select-none">
+            <v-icon size="16" color="on-surface-variant" :icon="mdiDragVariant" class="mr-1" />
+            <span class="text-caption text-medium-emphasis user-select-none">
               {{ componentLabelOf(item.component) }}
             </span>
           </div>
@@ -2002,7 +2002,7 @@ defineExpose({
   min-height: 0;
   position: relative;
   overflow: hidden;
-  background-color: #f7f8fa;
+  background-color: rgb(var(--v-theme-surface));
 }
 
 /* 因点阵背景需随 pan 合成移动且不露白，层仅比容器大一圈（transform 最多移一个 tile）；pointer-events 穿透不挡交互 */
@@ -2012,7 +2012,7 @@ defineExpose({
   left: -24px;
   right: -24px;
   bottom: -24px;
-  background-image: radial-gradient(circle, #e3e6eb 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(var(--v-theme-on-surface), 0.15) 1px, transparent 1px);
   background-repeat: repeat;
   background-size: 24px 24px;
   pointer-events: none;
@@ -2038,7 +2038,8 @@ defineExpose({
 
 .selection-box {
   position: absolute;
-  border: 1px dashed var(--v-theme-primary);
+  /* 因 --v-theme-primary 为 RGB 分量，直接作 border 颜色无效（虚线不显示），故用 rgb() 包裹 */
+  border: 1px dashed rgb(var(--v-theme-primary));
   background: rgba(var(--v-theme-primary), 0.12);
   pointer-events: none;
   z-index: 55;
@@ -2090,7 +2091,7 @@ defineExpose({
 .snap-paperclip.linked {
   background: rgb(var(--v-theme-primary));
   border-color: rgb(var(--v-theme-primary));
-  color: #fff;
+  color: rgb(var(--v-theme-on-primary));
 }
 
 /* 因行高亮 popup 弹出时块顶部正中间缩放手柄（.handle-tm）会插在 popup 上方，
@@ -2104,7 +2105,7 @@ defineExpose({
   width: 100%;
   position: relative;
   overflow: visible;
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   border-radius: 4px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   box-sizing: border-box;
@@ -2134,8 +2135,8 @@ body.block-handle-dragging .floating-handle {
   display: flex;
   align-items: center;
   cursor: grab;
-  background: #f5f5f5;
-  border: 1px solid #e0e0e0;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
   z-index: 16;
@@ -2150,33 +2151,36 @@ body.block-handle-dragging .floating-handle {
 
 .drag-handle.handle-bottom {
   border-top: 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-radius: 0 0 4px 4px;
 }
 
 .drag-handle:hover {
-  background: #eaeaea;
+  background: rgba(var(--v-theme-on-surface), 0.12);
 }
 
-/* 设置栏：与拖拽栏同款样式（白底描边、圆角），显示在块右上角、垂直对齐拖拽栏；
-   栏高收敛到 24px、右侧留边距，齿轮按钮压缩到 18px */
 .side-settings {
   position: absolute;
-  height: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
-  background: #f5f5f5;
-  border: 1px solid #e0e0e0;
+  cursor: grab;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
-  z-index: 998;
+  z-index: 16;
   padding: 0 4px;
+  white-space: nowrap;
   box-sizing: border-box;
   user-select: none;
+  transition: background 0.2s;
+  /* 贴边 ±1px 微调由内联 --handle-y 变量提供（替代原内联 transform） */
+  transform: translateY(var(--handle-y, -1px));
 }
 .side-settings.handle-bottom {
   border-top: 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-radius: 0 0 4px 4px;
 }
 .side-settings :deep(.v-btn) {
@@ -2198,7 +2202,7 @@ body.block-handle-dragging .floating-handle {
 
 .handle-label {
   font-size: 12px;
-  color: #666;
+  color: rgba(var(--v-theme-on-surface), 0.6);
   margin-left: 4px;
 }
 

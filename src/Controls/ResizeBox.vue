@@ -194,9 +194,10 @@ onUnmounted(cleanup)
 .handle {
   box-sizing: border-box;
   position: absolute;
-  background: #ffffff;
-  border: 1px solid #333;
-  box-shadow: 0 0 2px #bbb;
+  /* 因手柄需在明暗主题下都与块背景有对比，故用 on-surface 半透明填充（暗色下浅、浅色下深）配高对比边框 */
+  background: rgba(var(--v-theme-on-surface), 0.18);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.8);
+  box-shadow: 0 0 2px rgba(var(--v-theme-on-surface), 0.4);
   /* 与 Z_LAYER.resizeHandle 一致（CSS 无法引用 TS 常量） */
   z-index: 1002;
 }
