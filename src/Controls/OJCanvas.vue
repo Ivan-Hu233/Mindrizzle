@@ -22,7 +22,9 @@
         </div>
       </ResizeBox>
 
-      <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
+      <v-fade-transition :duration="120">
+        <div v-if="selectionBox" class="selection-box" :style="selectionBoxStyle"></div>
+      </v-fade-transition>
       <template v-for="item in state.items" :key="`handle-${item.id}`">
         <Transition name="pop-up">
           <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
@@ -40,8 +42,10 @@
       <!-- 因选中描边环需绘制在拖拽栏之上（描边连贯不被 handle 遮断），
            故用独立高层 overlay 渲染描边，块自身不再用 box-shadow -->
       <template v-for="item in state.items" :key="`outline-${item.id}`">
-        <div v-if="isEditMode && state.selectedIds.has(item.id)" class="selected-outline"
-          :style="selectedOutlineStyle(item)" />
+        <v-fade-transition :duration="120">
+          <div v-if="isEditMode && state.selectedIds.has(item.id)" class="selected-outline"
+            :style="selectedOutlineStyle(item)" />
+        </v-fade-transition>
       </template>
 
       <!-- 曲别针：两块相邻吸附时显示在连接点，已粘贴为实色、未粘贴为灰，点击切换粘贴/分离 -->
