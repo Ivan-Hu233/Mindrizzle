@@ -39,6 +39,33 @@
         </Transition>
       </template>
 
+      <!-- 因富文本块级设置（高度自适应）需独立于内容区，故在块右侧单开一栏放齿轮按钮 -->
+      <template v-for="item in state.items" :key="`side-${item.id}`">
+        <Transition name="pop-up">
+          <div v-if="isEditMode && state.selectedIds.has(item.id) && item.component === 'RichTextEditor'"
+            class="side-settings" :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
+            :data-id="item.id" :style="sideSettingsStyle(item)">
+            <v-menu location="bottom end" :close-on-content-click="false" :close-on-back="false">
+              <template #activator="{ props: menuProps }">
+                <v-btn v-bind="menuProps" size="x-small" variant="tonal" color="grey" icon
+                  title="块设置" @mousedown.stop @click.stop>
+                  <v-icon :icon="mdiCogOutline" size="13" />
+                </v-btn>
+              </template>
+              <v-card min-width="240" class="auto-height-menu">
+                <v-list density="compact">
+                  <v-list-item>
+                    <v-switch :model-value="isAutoHeight(item)" color="primary"
+                      label="高度自适应内容" hint="块高随内容自动调整" persistent-hint hide-details
+                      @update:model-value="(v: unknown) => setAutoHeight(item, !!v)" />
+                  </v-list-item>
+                </v-list>
+              </v-card>
+            </v-menu>
+          </div>
+        </Transition>
+      </template>
+
       <!-- 因选中描边环需绘制在拖拽栏之上（描边连贯不被 handle 遮断），
            故用独立高层 overlay 渲染描边，块自身不再用 box-shadow -->
       <template v-for="item in state.items" :key="`outline-${item.id}`">
@@ -67,6 +94,8 @@ import type { NodeJSON } from '@prosekit/core'
 // 因这些类型需在普通 <script> 中导出供父组件复用，故置于此处
 export interface RichTextConfig {
   content: NodeJSON | null
+  // 因块高是否随内容自适应由富文本设置栏控制，故持久化于 config
+  autoHeight?: boolean
 }
 
 export interface CodeBlockConfig {
@@ -87,7 +116,7 @@ export interface ComponentController {
 import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch, type CSSProperties } from 'vue'
 import ResizeBox from './ResizeBox.vue'
 
-import { mdiDragVariant, mdiPaperclip } from '@mdi/js'
+import { mdiDragVariant, mdiPaperclip, mdiCogOutline } from '@mdi/js'
 import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
@@ -538,9 +567,13 @@ const selectionBoxStyle = computed(() => {
 
 const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
+    const cfg = item.config as RichTextConfig
     return {
-      doc: (item.config as RichTextConfig).content,
+      doc: cfg.content,
       compact: mobileMode.value,
+      autoHeight: cfg.autoHeight === true,
+      // 因 autoHeight 状态存于父组件 config，故经事件回写，块内不维护副本
+      'onUpdate:autoHeight': (v: boolean) => { cfg.autoHeight = v },
     }
   }
   if (item.component === 'EditableCodeBlock') {
@@ -610,6 +643,22 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
     // --handle-slide 复用 HANDLE_HEIGHT，避免与高度硬编码重复
     '--handle-y': '0px',
     '--handle-slide': `${bottom ? -HANDLE_HEIGHT : HANDLE_HEIGHT}px`,
+  }
+}
+
+// 因设置栏需与拖拽栏垂直对齐（top/bottom 同放置逻辑）且显示在块右上角，
+// 故垂直用 handlePlacementOf 同款计算、水平右对齐块右缘并留右边距（与拖拽栏左对齐相呼应）
+const SIDE_SETTINGS_WIDTH = 28
+const SIDE_SETTINGS_MARGIN = 8
+const sideSettingsStyle = (item: CanvasItem): CSSProperties => {
+  const l = layoutOf(item)
+  const bottom = handlePlacementOf(item) === 'bottom'
+  const top = bottom ? roundToPx(l.y + l.h) : roundToPx(l.y) - roundToPx(HANDLE_HEIGHT)
+  return {
+    position: 'absolute',
+    top: `${top}px`,
+    left: `${roundToPx(l.x + l.w) - roundToPx(SIDE_SETTINGS_WIDTH) - roundToPx(SIDE_SETTINGS_MARGIN)}px`,
+    zIndex: Z_LAYER.dragHandle,
   }
 }
 
@@ -795,9 +844,21 @@ const connectionPoint = (a: Rect, b: Rect): { x: number; y: number } => {
 // 因缩放手柄已 Teleport 到 .canvas 顶层（z=1000 高于曲别针 998），曲别针无需再让位，
 // 保持 CSS 的 z=998 即可在选中块（z=500）之上可点，故不再动态降 z
 
+// 因富文本开启"高度自适应"时块高由内容驱动、用户不可垂直缩放，故以此判定过滤垂直手柄
+const isAutoHeight = (item: CanvasItem): boolean =>
+  item.component === 'RichTextEditor' && (item.config as RichTextConfig).autoHeight === true
+
+// 因开关状态存于父组件 config，经事件回写即可驱动 RichTextEditor 的 autoHeight prop
+const setAutoHeight = (item: CanvasItem, v: boolean) => {
+  if (item.component !== 'RichTextEditor') return
+  ;(item.config as RichTextConfig).autoHeight = v
+}
+
 // 因 ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
 // 而手柄已 Teleport 脱离 .drag-wrapper（原 CSS 隐藏规则失效），故按 popup 显隐过滤 tm 手柄
 const resizeHandlesOf = (item: CanvasItem): string[] => {
+  // 因 autoHeight 时高度由内容决定，故隐藏全部含垂直方向的手柄，仅保留水平
+  if (isAutoHeight(item)) return ['ml', 'mr']
   if (mobileMode.value) return ['tm', 'bm']
   if (popupBlockId.value === item.id) return ['tl', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
   return ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
@@ -1024,7 +1085,13 @@ const neighborsOf = (id: string): string[] => {
 const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
   const rs = resizeSession
   if (!rs || rs.itemId !== item.id) return
-  const { starts } = rs
+  propagateLinkedEdges(item, { x, y, w, h }, rs.starts)
+}
+
+// 沿链接图 BFS 传播共享边（resize 与 autoHeight 共用）：每块的共享边跟随其父块移动后的边，
+// 尺寸按自身 min/max 钳制（与 VDR 的 min=minWidth+8 一致）；链中间块被钳制后其远端边位移继续传给下一块。
+// 位置按"起始 + 父块总位移"重算（不逐帧累加，防长距离错位）。
+const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<string, Rect>) => {
   const positions: Record<string, Rect> = {}
   // 因 autoPan 平移改变了联结块 layout，positions 用当前布局初始化以保留自由边平移；
   // 方位判定与位移仍基于 starts（会话起始，避免随动干扰）
@@ -1032,7 +1099,7 @@ const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: n
     const target = state.items.find((it) => it.id === id)
     positions[id] = target ? { ...layoutOf(target) } : { ...starts[id] }
   })
-  positions[item.id] = { x, y, w, h }
+  positions[item.id] = { ...rect }
   // 分维 BFS 传播共享边（一块可分别从水平父与垂直父继承 x/w 与 y/h）。
   // 左/上邻居反向跟当前块（共享边贴合当前块的左/上缘），右/下邻居正向传播（跟随右/下缘）——
   // 链条中间块位置被上游驱动后，其反向邻居继续跟随，保持整链贴合。
@@ -1163,6 +1230,48 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
     layout.h = Math.round(h)
   }
   resizeSession = null
+}
+
+// 因 autoHeight 块高度由内容驱动（富文本经 omnijot:auto-height 上报），故写入当前布局并保底 minHeight
+const onAutoHeight = (e: Event) => {
+  const detail = (e as CustomEvent<{ id?: string; height?: number; cursorY?: number }>).detail
+  if (!detail?.id || typeof detail.height !== 'number') return
+  const item = state.items.find((it) => it.id === detail.id)
+  if (!item || item.component !== 'RichTextEditor') return
+  const minH = (constraintsOf(item).minHeight ?? 0) + 8
+  const h = Math.max(Math.round(detail.height), minH)
+  const layout = layoutOf(item)
+  if (layout.h !== h) {
+    // 因 autoHeight 改变高度会移动共享边，若该块与邻块粘贴（曲别针）则须沿链接传播，
+    // 否则下方/右侧钳制块不跟随、链接错位；移动端不启用联结故跳过
+    if (!mobileMode.value && neighborsOf(item.id).length) {
+      const starts: Record<string, Rect> = {}
+      collectLinkedIds(item.id).forEach((id) => {
+        const target = state.items.find((it) => it.id === id)
+        if (target) starts[id] = { ...layoutOf(target) }
+      })
+      starts[item.id] = { ...layout } // 方位判定基于旧矩形（贴合关系未破坏前）
+      layout.h = h
+      propagateLinkedEdges(item, { ...layout }, starts)
+    } else {
+      layout.h = h
+    }
+  }
+  // 因输入行随内容增长会超出视口，故光标行超出视口底部时平移画布使其可见
+  if (typeof detail.cursorY === 'number') followCursor(item, detail.cursorY)
+}
+
+// 因 autoHeight 输入时需让光标行保持在视口内，故按光标行视觉位置与视口底界差平移 pan.y
+const CURSOR_VISIBLE_MARGIN = 24
+const followCursor = (item: CanvasItem, cursorY: number) => {
+  const cont = canvasContainerRef.value
+  if (!cont) return
+  const cr = cont.getBoundingClientRect()
+  const l = layoutOf(item)
+  // 块视觉顶 = 容器顶 + 块坐标*zoom + origin + pan（pan/origin 为视口像素）；cursorY 为已缩放视觉像素
+  const cursorBottom = cr.top + l.y * zoom.value + origin.y + pan.y + cursorY
+  const over = cursorBottom - (cr.bottom - CURSOR_VISIBLE_MARGIN)
+  if (over > 0) pan.y -= Math.round(over)
 }
 
 const handleSelect = (id: string, e?: MouseEvent) => {
@@ -1329,9 +1438,25 @@ const hitHandleBar = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
+// 因设置栏是块外浮层、可能盖在背后块矩形上（e.target 或被高 z 普通块盖住），
+// 故按坐标命中设置栏时标记，避免 hover 聚焦切到背后块
+const hitSettingsBar = (clientX: number, clientY: number): boolean => {
+  for (const item of state.items) {
+    if (!state.selectedIds.has(item.id)) continue
+    const el = document.querySelector<HTMLElement>(`.side-settings[data-id="${item.id}"]`)
+    if (!el) continue
+    const r = el.getBoundingClientRect()
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return true
+  }
+  return false
+}
+
 // 因手柄提升到顶层、可能被别的块矩形框覆盖，故鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
 const hitTestBlockAt = (e: MouseEvent): string | null => {
-  const handleEl = (e.target as HTMLElement).closest<HTMLElement>('.drag-handle')
+  const target = e.target as HTMLElement
+  // 因设置栏是块外浮层（可能盖在背后块矩形上），鼠标悬停其上不聚焦背后的块
+  if (target.closest('.side-settings') || hitSettingsBar(e.clientX, e.clientY)) return null
+  const handleEl = target.closest<HTMLElement>('.drag-handle')
   if (handleEl?.dataset.id) return handleEl.dataset.id
   const { clientX, clientY } = e
   const barHit = hitHandleBar(clientX, clientY)
@@ -1783,6 +1908,7 @@ onMounted(() => {
   window.addEventListener('omnijot:canvas-pan', onCanvasPanEvent)
   window.addEventListener('omnijot:block-popup', onBlockPopupChange)
   window.addEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
+  window.addEventListener('omnijot:auto-height', onAutoHeight)
 })
 
 onUnmounted(() => {
@@ -1800,6 +1926,7 @@ onUnmounted(() => {
   window.removeEventListener('omnijot:canvas-pan', onCanvasPanEvent)
   window.removeEventListener('omnijot:block-popup', onBlockPopupChange)
   window.removeEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
+  window.removeEventListener('omnijot:auto-height', onAutoHeight)
 })
 
 defineExpose({
@@ -1989,6 +2116,39 @@ body.block-handle-dragging .floating-handle {
 
 .drag-handle:hover {
   background: #eaeaea;
+}
+
+/* 设置栏：与拖拽栏同款样式（白底描边、圆角），显示在块右上角、垂直对齐拖拽栏；
+   栏高收敛到 24px、右侧留边距，齿轮按钮压缩到 18px */
+.side-settings {
+  position: absolute;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  z-index: 998;
+  padding: 0 4px;
+  box-sizing: border-box;
+  user-select: none;
+}
+.side-settings.handle-bottom {
+  border-top: 0;
+  border-bottom: 1px solid #e0e0e0;
+  border-radius: 0 0 4px 4px;
+}
+.side-settings :deep(.v-btn) {
+  height: 18px;
+  width: 18px;
+  min-width: 18px;
+}
+
+/* 因菜单 teleport 到 body，v-list-item__content 默认 overflow:hidden 会裁掉 switch
+   滑块（thumb）左侧扩散的阴影，故对该菜单放开裁剪让阴影完整显示 */
+:global(.auto-height-menu .v-list-item__content) {
+  overflow: visible;
 }
 
 .left-handle {

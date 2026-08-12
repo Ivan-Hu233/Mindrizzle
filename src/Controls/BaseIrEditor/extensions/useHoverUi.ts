@@ -95,6 +95,7 @@ export function useHoverUi(options: {
   // 因 ProseKit hover 有约 380ms 节流/失效缓冲才清 hoverState，故监听内容 DOM 的
   // pointerleave 短缓冲后主动清，避免 popup/高亮延迟消失
   let leaveTimer: ReturnType<typeof setTimeout> | null = null
+  let hideTimer: ReturnType<typeof setTimeout> | null = null
   let leaveBound = false
   let scrollBoundEl: HTMLElement | null = null
   let wrapperBoundEl: HTMLElement | null = null
@@ -109,12 +110,22 @@ export function useHoverUi(options: {
     }, 100)
   }
 
-  // 因快速移过 popup 触发 keepAlive 后移出时，仅靠 view.dom 的 pointerleave 会被
-  // keepAlive 的周期假 pointermove 重新设回，故离开整个编辑器区域时显式
-  // stopKeepAlive + 关 popupKeep 才能真正清掉
+  // 因 popup 已 Teleport 到 .canvas（不在 wrapper DOM 内），鼠标从 wrapper 移向 popup 时会先触发
+  // wrapper 的 pointerleave；若立即 suppressUI 会把 popup 置为 pointer-events:none 导致鼠标到不了
+  // popup，故延迟缓冲让鼠标有机会进入 popup（onPopupEnter 置 popupKeep 并取消本定时），否则再隐藏
   function onWrapperPointerLeave() {
     cancelLeave()
-    suppressUI()
+    if (hideTimer) return
+    hideTimer = setTimeout(() => {
+      hideTimer = null
+      if (!popupKeep.value) suppressUI()
+    }, 160)
+  }
+  function cancelHide() {
+    if (hideTimer) {
+      clearTimeout(hideTimer)
+      hideTimer = null
+    }
   }
 
   // 因 ProseKit hover 是纯指针驱动、编辑器失焦不会自动清 popup，
@@ -219,6 +230,7 @@ export function useHoverUi(options: {
 
   function onPopupEnter() {
     cancelLeave() // 因需保留高亮与 popup，故取消“移出编辑器”的待清除定时
+    cancelHide() // 鼠标已进入 popup，取消 wrapper 缓冲后的延迟隐藏
     popupKeep.value = true
     startKeepAlive()
   }
@@ -249,6 +261,7 @@ export function useHoverUi(options: {
   onUnmounted(() => {
     stopKeepAlive()
     cancelLeave()
+    cancelHide()
     if (leaveBound) {
       window.removeEventListener('omnijot:canvas-transform', onCanvasTransform)
       view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)

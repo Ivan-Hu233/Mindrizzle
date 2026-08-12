@@ -12,7 +12,9 @@ export function getView(editor?: Editor | null): any {
 
 export function getBlockEl(view: any, pos: number): HTMLElement | null {
   try {
-    return view.nodeDOM(pos) as HTMLElement | null
+    // 因 nodeDOM 可能返回文本节点（无 getBoundingClientRect），故仅接受元素节点
+    const el = view.nodeDOM(pos)
+    return el instanceof HTMLElement ? el : null
   } catch {
     return null
   }

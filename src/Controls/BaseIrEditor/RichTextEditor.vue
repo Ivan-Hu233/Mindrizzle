@@ -1,7 +1,8 @@
 <template>
   <div
+    ref="wrapperRef"
     class="editor-wrapper"
-    :class="{ compact: useCompact }"
+    :class="{ compact: useCompact, 'auto-height': autoHeight }"
     :style="{
       color: 'var(--v-theme-on-surface)',
       background: 'var(--v-theme-surface)',
@@ -39,7 +40,7 @@ import 'prosekit/pm/view/style/prosemirror.css'
 import blockHandle from './extensions/block-handle.vue'
 import RowDropIndicator from './extensions/RowDropIndicator.vue'
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { ProseKit } from '@prosekit/vue'
+import { ProseKit, useDocChange } from '@prosekit/vue'
 import { useDisplay } from 'vuetify'
 
 import { defineExtension } from './extension.ts'
@@ -49,6 +50,7 @@ interface Props {
   dir?: 'ltr' | 'rtl'
   compact?: boolean
   doc?: NodeJSON | null
+  autoHeight?: boolean
 }
 const props = defineProps<Props>()
 
@@ -59,6 +61,41 @@ const useCompact = computed(() => props.compact ?? isMobile.value)
 const extension = defineExtension()
 const editor = createEditor({ extension })
 const editorMount = ref<HTMLDivElement>()
+const wrapperRef = ref<HTMLDivElement>()
+
+// 因 autoHeight 时块高需随内容实时调整，故经块 id 上报内容高度给画布
+const blockId = (): string | null => {
+  let el: HTMLElement | null = wrapperRef.value ?? null
+  while (el && !el.classList.contains('drag-wrapper')) el = el.parentElement
+  return el?.getAttribute('data-id') ?? null
+}
+// 因块高还需补 .content-area 上下 padding(8) 与 .editor-wrapper border(2)，共 10 content 单位
+const AUTO_HEIGHT_EXTRA = 10
+// 因 auto-height 类解除了 .editor-scroll 的 height:100% 钳制（否则内容缩短时
+// scrollHeight 仍等于块高、测量值不变），故其 offsetHeight 即内容自然高度；
+// 未开启 autoHeight 时不测量
+const syncAutoHeight = () => {
+  if (!props.autoHeight) return
+  const id = blockId()
+  const scrollEl = wrapperRef.value?.querySelector('.editor-scroll') as HTMLElement | null
+  if (!id || !scrollEl) return
+  const height = Math.ceil(scrollEl.offsetHeight + AUTO_HEIGHT_EXTRA)
+  // 光标所在行在块内的 y（视觉像素、未缩放），供画布跟随输入滚动
+  let cursorY = height
+  const head = editor.view?.state.selection.head
+  const wrapperRect = wrapperRef.value?.getBoundingClientRect()
+  if (head != null && wrapperRect) {
+    const coords = editor.view!.coordsAtPos(head)
+    if (coords) cursorY = Math.min(Math.max(coords.bottom - wrapperRect.top, 0), height)
+  }
+  window.dispatchEvent(new CustomEvent('omnijot:auto-height', { detail: { id, height, cursorY } }))
+}
+
+// 因 autoHeight 需文档编辑时实时跟随块高，故监听 doc change（内部按开关与否跳过）
+useDocChange(() => syncAutoHeight(), { editor })
+
+// 因 zoom 变化会导致内容重排（宽度变→高度变），故画布变换后重测一次
+const onCanvasTransform = () => requestAnimationFrame(() => syncAutoHeight())
 
 onMounted(() => {
   if (editorMount.value) {
@@ -71,11 +108,20 @@ onMounted(() => {
     if (props.doc) {
       editor.setContent(props.doc)
     }
+    // 因内容渲染需在 mount/setContent 完成后才可测量，故 rAF 后测一次
+    requestAnimationFrame(() => syncAutoHeight())
   }
+  window.addEventListener('omnijot:canvas-transform', onCanvasTransform)
 })
 
 onUnmounted(() => {
   editor.unmount()
+  window.removeEventListener('omnijot:canvas-transform', onCanvasTransform)
+})
+
+// 因切换开关时需立即按当前内容调整块高，故开启瞬间测一次
+watch(() => props.autoHeight, (v) => {
+  if (v) requestAnimationFrame(() => syncAutoHeight())
 })
 
 function importJSON(json: NodeJSON) {
@@ -122,6 +168,9 @@ defineExpose({
   overflow: visible;
   transition: border-color 0.15s ease;
   touch-action: auto; /* 因需保证触摸滚动正常，故设为 auto */
+  /* 因 popup 已 Teleport 到 .canvas、左右 gutter 仅为视觉留白，若保留命中会拦截
+     该区域的画布左键框选，故整体穿透；内容区/设置按钮单独恢复 pointer-events */
+  pointer-events: none;
 }
 
 /* 因滚动条需紧贴文本区右侧、不被 popup gutter 偏移，故滚动容器宽度与文本区一致（不进 gutter） */
@@ -130,6 +179,13 @@ defineExpose({
   height: 100%;
   overflow: auto;
   box-sizing: border-box;
+  pointer-events: auto;
+}
+
+/* 因 auto-height 需量取内容自然高度（否则被 height:100% 钳制到块高、缩短时测不到），
+   故解除钳制让容器随内容撑开，块高 = 内容 + 固定开销 */
+.editor-wrapper.auto-height .editor-scroll {
+  height: auto;
 }
 
 .editor-wrapper.compact {
