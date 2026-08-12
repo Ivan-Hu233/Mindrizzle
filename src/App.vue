@@ -96,7 +96,11 @@ const newFileRef = shallowRef(false)
     </v-navigation-drawer>
 
     <v-main class="no-scrollbar">
-      <RouterView style="height: 100%;" />
+      <RouterView style="height: 100%;" v-slot="{ Component }">
+        <v-fade-transition hide-on-leave>
+          <component :is="Component" />
+        </v-fade-transition>
+      </RouterView>
     </v-main>
   </v-app>
 </template>
