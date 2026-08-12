@@ -910,6 +910,55 @@ const applyPanCorrection = (
   return out
 }
 
+// 因 resize 需与拖拽一致支持边缘吸附，故按被拖边（手柄方向）对齐其他块的边/中线；
+// 仅调整被拖边（锚定边不动），吸附容差同拖拽 SNAP_TOLERANCE，并保持 min/max 钳制
+const snapResizeEdges = (handle: string, rect: Rect, c: Required<ResizeConstraints>): Rect => {
+  const out = { ...rect }
+  const minW = (c.minWidth ?? 0) + 8, maxW = c.maxWidth ?? null
+  const minH = (c.minHeight ?? 0) + 8, maxH = c.maxHeight ?? null
+  // 找离当前边最近且 ≤ 容差的目标边位移（0 表示无吸附）
+  const nearest = (cur: number, targets: number[]): number => {
+    let best = 0
+    let bestAbs = Infinity
+    targets.forEach((t) => {
+      const d = t - cur
+      const abs = Math.abs(d)
+      if (abs <= SNAP_TOLERANCE && abs < bestAbs) {
+        bestAbs = abs
+        best = d
+      }
+    })
+    return best
+  }
+  const xs: number[] = []
+  const ys: number[] = []
+  state.items.forEach((other) => {
+    if (other.id === resizeSession?.itemId) return
+    const o = layoutOf(other)
+    xs.push(o.x, o.x + o.w, o.x + o.w / 2)
+    ys.push(o.y, o.y + o.h, o.y + o.h / 2)
+  })
+  if (handle.includes('r')) out.w = clampVal(out.w + nearest(out.x + out.w, xs), minW, maxW)
+  if (handle.includes('l')) {
+    const d = nearest(out.x, xs)
+    if (d !== 0) {
+      const nw = clampVal(out.w - d, minW, maxW)
+      out.x = out.x + out.w - nw // 右缘锚定
+      out.w = nw
+    }
+  }
+  if (handle.includes('b')) out.h = clampVal(out.h + nearest(out.y + out.h, ys), minH, maxH)
+  if (handle.includes('t')) {
+    const d = nearest(out.y, ys)
+    if (d !== 0) {
+      const nh = clampVal(out.h - d, minH, maxH)
+      out.y = out.y + out.h - nh // 下缘锚定
+      out.h = nh
+    }
+  }
+  return out
+}
+
 // 因被拖块坐标由组件受控（prop 即 content 世界坐标），故把补偿结果直接写回 layout；
 // 且因 autoPan 滚动时联结块 B 若贴 A 底会被钉屏压缩，故滚动期间冻结联结传播（B 整体随画布滚）
 const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
@@ -923,12 +972,13 @@ const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
     (pan.x - rs.panStartX) / zoom.value,
     (pan.y - rs.panStartY) / zoom.value,
   )
+  const snapped = snapResizeEdges(rs.handle, final, constraintsOf(item))
   const layout = layoutOf(item)
-  layout.x = Math.round(final.x)
-  layout.y = Math.round(final.y)
-  layout.w = Math.round(final.w)
-  layout.h = Math.round(final.h)
-  if (propagate) syncLinkedEdges(item, final.x, final.y, final.w, final.h)
+  layout.x = Math.round(snapped.x)
+  layout.y = Math.round(snapped.y)
+  layout.w = Math.round(snapped.w)
+  layout.h = Math.round(snapped.h)
+  if (propagate) syncLinkedEdges(item, snapped.x, snapped.y, snapped.w, snapped.h)
 }
 
 // 因 autoPan 每帧 pan 变化且鼠标可能停住（无 mousemove），故在 rAF 循环内补偿被拖块（见 autoPanTick）；
