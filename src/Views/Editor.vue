@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { mdiFormatHeader1, mdiFormatBold, mdiFormatItalic, mdiMouse } from '@mdi/js'
+import { mdiFormatHeader1, mdiFormatUnderline , mdiFormatBold, mdiFormatItalic, mdiMouse } from '@mdi/js'
 import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
 
 const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
@@ -60,10 +60,11 @@ const componentOf = computed(() => {
 
 // 因按钮项各自携带图标与操作且轮换按索引推进，故集中为单一常量源
 const OPTIONS = [
+  { icon: mdiMouse, action: () => {} },
   { icon: mdiFormatHeader1, action: () => batchToggleHeading(1) },
   { icon: mdiFormatBold, action: () => batchToggleBold() },
   { icon: mdiFormatItalic, action: () => batchToggleItalic() },
-  { icon: mdiMouse, action: () => {} }
+  { icon: mdiFormatUnderline, action: () => batchToggleUnderline() }
 ] as const
 
 // 因按钮组需单选高亮且默认选中首项，故记录当前索引；切换选中块时重置为首项
@@ -159,6 +160,13 @@ const batchToggleItalic = () => {
   const refs = getComponentRefs()
   Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
     refs[id]?.commands?.toggleItalic?.()
+  })
+}
+
+const batchToggleUnderline = () => {
+  const refs = getComponentRefs()
+  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+    refs[id]?.commands?.toggleUnderline?.()
   })
 }
 

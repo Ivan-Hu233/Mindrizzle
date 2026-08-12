@@ -6,7 +6,7 @@ import 'vuetify/styles'
 
 const vuetify = createVuetify({
   theme: {
-    defaultTheme: 'dark',
+    defaultTheme: 'light',
   },
   icons: {
     defaultSet: 'mdi',

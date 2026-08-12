@@ -174,6 +174,8 @@ onUnmounted(cleanup)
 
 <template>
   <div ref="rootEl" class="drag-wrapper resize-box" :style="boxStyle">
+    <!-- 因块无边框背景，故用虚线框常驻标注内容区范围 -->
+    <div class="content-guide" aria-hidden="true" />
     <slot />
     <!-- 因手柄需固定视觉尺寸渲染（避开 .canvas 的 scale 缩放模糊）且不被邻块盖住，故 Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
     <Teleport :to="canvasEl" :disabled="!canvasEl">
@@ -191,12 +193,23 @@ onUnmounted(cleanup)
   box-sizing: border-box;
   touch-action: none;
 }
+.content-guide {
+  position: absolute;
+  inset: 0;
+  /* 因需常驻标注内容区边界且不遮挡内容/交互，故用低对比度虚线并穿透点击；
+     层级高于块背景（可见）低于拖拽栏/缩放手柄（不挡操作） */
+  border: 1px dashed rgb(var(--v-theme-on-surface));
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 10;
+  box-sizing: border-box;
+}
 .handle {
   box-sizing: border-box;
   position: absolute;
   /* 因手柄需在明暗主题下都与块背景有对比，故用 on-surface 半透明填充（暗色下浅、浅色下深）配高对比边框 */
-  background: rgba(var(--v-theme-on-surface), 0.18);
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.8);
+  background: rgb(var(--v-theme-background));
+  border: 1px solid rgb(var(--v-theme-on-surface));
   box-shadow: 0 0 2px rgba(var(--v-theme-on-surface), 0.4);
   /* 与 Z_LAYER.resizeHandle 一致（CSS 无法引用 TS 常量） */
   z-index: 1002;

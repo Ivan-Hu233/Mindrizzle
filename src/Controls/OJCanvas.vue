@@ -1246,6 +1246,26 @@ const shiftBlocksBelow = (item: CanvasItem, delta: number) => {
     .forEach((it) => { it.layout.mobile.y += delta })
 }
 
+// 因 autoHeight 块增长到与别的块重叠时需像钳制一样把重叠块下推（单向推动：
+// 高度减小不移动别的块，避免无条件联结传播把邻块拉来推去），
+// 故把横向重叠（x 相交）的块按上缘排序后，仅在块顶压到推动线时下推贴线并连锁；
+// 未压到的块保持原位（否则累积底边会把不重叠的块也误推走）
+const pushOverlapped = (item: CanvasItem) => {
+  const layout = layoutOf(item)
+  const isOverlappingX = (o: Rect) => layout.x < o.x + o.w && layout.x + layout.w > o.x
+  const column = state.items
+    .filter((other) => other.id !== item.id && isOverlappingX(layoutOf(other)))
+    .sort((a, b) => layoutOf(a).y - layoutOf(b).y)
+  let cursor = layout.y + layout.h
+  column.forEach((other) => {
+    const o = layoutOf(other)
+    if (o.y < cursor) {
+      o.y = cursor
+      cursor = o.y + o.h
+    }
+  })
+}
+
 // 因 autoHeight 块高度由内容驱动（富文本经 omnijot:auto-height 上报），故写入当前布局并保底 minHeight
 const onAutoHeight = (e: Event) => {
   const detail = (e as CustomEvent<{ id?: string; height?: number; cursorY?: number }>).detail
@@ -1256,23 +1276,16 @@ const onAutoHeight = (e: Event) => {
   const h = Math.max(Math.round(detail.height), minH)
   const layout = layoutOf(item)
   if (layout.h !== h) {
-    // 因 autoHeight 改变高度会移动共享边，若该块与邻块粘贴（曲别针）则须沿链接传播，
-    // 否则下方/右侧钳制块不跟随、链接错位；移动端不启用联结故跳过
-    if (!mobileMode.value && neighborsOf(item.id).length) {
-      const starts: Record<string, Rect> = {}
-      collectLinkedIds(item.id).forEach((id) => {
-        const target = state.items.find((it) => it.id === id)
-        if (target) starts[id] = { ...layoutOf(target) }
-      })
-      starts[item.id] = { ...layout } // 方位判定基于旧矩形（贴合关系未破坏前）
-      layout.h = h
-      propagateLinkedEdges(item, { ...layout }, starts)
-    } else if (mobileMode.value) {
+    if (mobileMode.value) {
       // 因移动端纵向堆叠，高度变化后须将下方堆叠块整体平移以保持不重叠（先算 delta 再覆盖高度）
       shiftBlocksBelow(item, h - layout.h)
       layout.h = h
     } else {
+      const prevH = layout.h
       layout.h = h
+      // 因 autoHeight 块高度由内容驱动、非用户拖拽，故不沿联结传播推动邻块（否则输入时邻块被持续推走）；
+      // 仅当增长到与别的块重叠时像钳制一样把重叠块下推让位（单向：高度减小不移动别的块）
+      if (h > prevH) pushOverlapped(item)
     }
   }
   // 因输入行随内容增长会超出视口，故光标行超出视口底部时平移画布使其可见；
