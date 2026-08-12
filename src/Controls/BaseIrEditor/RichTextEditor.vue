@@ -94,8 +94,14 @@ const syncAutoHeight = () => {
 // 因 autoHeight 需文档编辑时实时跟随块高，故监听 doc change（内部按开关与否跳过）
 useDocChange(() => syncAutoHeight(), { editor })
 
-// 因 zoom 变化会导致内容重排（宽度变→高度变），故画布变换后重测一次
-const onCanvasTransform = () => requestAnimationFrame(() => syncAutoHeight())
+// 因仅 zoom 变化会重排内容（宽变→高变），pan 纯平移无需重测（否则拖动画布时每帧测量会卡顿），故仅 zoom 变化时重测
+let lastTransformZoom: number | null = null
+const onCanvasTransform = (e: Event) => {
+  const z = (e as CustomEvent<{ zoom?: number }>).detail?.zoom
+  if (z == null || z === lastTransformZoom) return
+  lastTransformZoom = z
+  requestAnimationFrame(() => syncAutoHeight())
+}
 
 onMounted(() => {
   if (editorMount.value) {

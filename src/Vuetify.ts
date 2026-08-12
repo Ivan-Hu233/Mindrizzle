@@ -6,13 +6,18 @@ import 'vuetify/styles'
 
 const vuetify = createVuetify({
   theme: {
-    defaultTheme: 'light',
+    defaultTheme: 'dark',
   },
   icons: {
     defaultSet: 'mdi',
     aliases,
     sets: {
       mdi,
+    },
+  },
+  defaults: {
+    global: {
+      density: 'comfortable',
     },
   },
   components,

@@ -6,7 +6,16 @@
       <v-btn v-for="comp in OJCRef?.ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="OJCRef?.addComponent(comp.key)">
         ➕ 添加{{ comp.label }}
       </v-btn>
-      <v-btn @click="batchToggleHeading(2)">选中设为二级标题</v-btn>
+      <v-btn-toggle
+        
+        :model-value="opIdx"
+        @update:model-value="onSelectOption"
+        mandatory
+      >
+        <v-btn v-for="(opt, index) in OPTIONS" :key="index" :value="index">
+          <v-icon :icon="opt.icon"/>
+        </v-btn>
+      </v-btn-toggle>
       <v-btn @click="toggleEditMode">
         {{ OJCRef?.isEditMode ? '切换到只读' : '切换到编辑' }}
       </v-btn>
@@ -32,14 +41,70 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { mdiFormatHeader1, mdiFormatBold, mdiFormatItalic, mdiMouse } from '@mdi/js'
 import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
 
 const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
 
 const getComponentRefs = (): Record<string, ComponentController | undefined> =>
   OJCRef.value!.componentRefs as unknown as Record<string, ComponentController | undefined>
+
+// 因标题命令仅富文本块支持且批量操作语义不清晰，故工具栏仅"单选富文本块"时显示
+const componentOf = computed(() => {
+  const ids = OJCRef.value?.state.selectedIds ?? new Set<string>()
+  if (ids.size !== 1) return false
+  const id = Array.from(ids)[0]
+  return OJCRef.value?.state.items.find((it) => it.id === id)?.component
+})
+
+// 因按钮项各自携带图标与操作且轮换按索引推进，故集中为单一常量源
+const OPTIONS = [
+  { icon: mdiFormatHeader1, action: () => batchToggleHeading(1) },
+  { icon: mdiFormatBold, action: () => batchToggleBold() },
+  { icon: mdiFormatItalic, action: () => batchToggleItalic() },
+  { icon: mdiMouse, action: () => {} }
+] as const
+
+// 因按钮组需单选高亮且默认选中首项，故记录当前索引；切换选中块时重置为首项
+const opIdx = ref(0)
+watch(componentOf, () => { opIdx.value = 0 })
+
+// 因操作已由各按钮项的 action 字段声明，故此处仅按索引分发对应操作
+const onSelectOption = (index: number | null) => {
+  if (index == null) return
+  opIdx.value = index
+}
+
+// 因需整个界面任意位置滚轮循环切换按钮项，故按 deltaY 方向在索引间循环；
+// 因仅选中富文本块时才有按钮组，故此时才拦截滚轮；
+// 因编辑器/文本框内滚轮需滚动内容，故豁免，避免循环切项挡住阅读
+const cycleOption = (e: WheelEvent) => {
+  if (componentOf.value !== 'RichTextEditor') return
+  e.preventDefault()
+  const len = OPTIONS.length
+  const next = e.deltaY > 0 ? (opIdx.value + 1) % len : (opIdx.value - 1 + len) % len
+  onSelectOption(next)
+}
+
+// 因仅富文本块内选中文本时应自动应用当前按钮项操作，故要求选区非空且落在当前选中块内
+const selectionInBlock = (): boolean => {
+  const sel = window.getSelection()
+  const id = Array.from(OJCRef.value!.state.selectedIds)[0]
+  const block = document.querySelector(`[data-id="${id}"]`)
+  return !!sel && !sel.isCollapsed && !!block &&
+    !!sel.anchorNode && !!sel.focusNode && block.contains(sel.anchorNode) && block.contains(sel.focusNode)
+}
+
+// 因仅 mouseup 时选区才算定稿（拖动选字中途 selectionchange 高频误触发、暂停即会提前应用），
+// 故不监听 selectionchange，改在 mouseup 时校验选区并应用当前按钮项操作；
+// 操作会改动选区但不会触发 mouseup，故仅保留冷却屏蔽连点
+let applyLockUntil = 0
+const onMouseUp = () => {
+  if (componentOf.value !== 'RichTextEditor' || Date.now() < applyLockUntil || !selectionInBlock()) return
+  applyLockUntil = Date.now() + 300
+  OPTIONS[opIdx.value]?.action()
+}
 
 const mobileButtonLabel = computed(() => {
   if (OJCRef.value?.forceMobile === null) return '模拟移动端'
@@ -79,7 +144,21 @@ const load = async () => {
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   const refs = getComponentRefs()
   Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
-    refs[id]?.commands?.toggleHeading?.(level)
+    refs[id]?.commands?.toggleHeading?.({ level })
+  })
+}
+
+const batchToggleBold = () => {
+  const refs = getComponentRefs()
+  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+    refs[id]?.commands?.toggleBold?.()
+  })
+}
+
+const batchToggleItalic = () => {
+  const refs = getComponentRefs()
+  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+    refs[id]?.commands?.toggleItalic?.()
   })
 }
 
@@ -94,10 +173,15 @@ const deleteSelected = () => {
 
 onMounted(() => {
   load()
+  // 因需整个界面任意位置滚轮切换按钮项且需阻止默认滚动，故挂 window 级监听并显式非 passive（否则 preventDefault 无效）
+  window.addEventListener('wheel', cycleOption, { passive: false })
+  // 因拖动选字可能跨出编辑器范围，mouseup 会落在编辑器外，故挂 window 级 mouseup 确保松开时都能定稿应用
+  window.addEventListener('mouseup', onMouseUp)
 })
 
 onUnmounted(() => {
-  
+  window.removeEventListener('wheel', cycleOption)
+  window.removeEventListener('mouseup', onMouseUp)
 })
 </script>
 
@@ -115,8 +199,8 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  background: #fafafa;
-  border-bottom: 1px solid #e0e0e0;
+  background: rgb(var(--v-theme-surface));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 
 .zoom-slider {

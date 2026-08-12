@@ -1,11 +1,11 @@
 import {
   union,
+  createEditor,
   defineBaseCommands,
   defineBaseKeymap,
   defineCommands,
   defineHistory,
   insertNode,
-  setBlockType,
 } from '@prosekit/core'
 import { defineDoc } from '@prosekit/extensions/doc'
 import { defineList } from 'prosekit/extensions/list'
@@ -35,17 +35,9 @@ import { defineBlockquote } from 'prosekit/extensions/blockquote'
 import { defineSubscript } from 'prosekit/extensions/subscript'
 import { defineSuperscript } from 'prosekit/extensions/superscript'
 
-// 因父组件需统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.(2)），故注册自定义命令
+// 因父组件需统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.({ level })），故注册自定义命令
+// 注：标题切换复用 defineHeading() 内置的 toggleHeading({ level })，避免同名命令被合并成交叉类型
 const customCommands = defineCommands({
-  toggleHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
-    return (state, dispatch) => {
-      const node = state.selection.$from.node(state.selection.$from.depth)
-      if (node && node.type.name === 'heading' && node.attrs.level === level) {
-        return setBlockType({ type: 'paragraph' })(state, dispatch)
-      }
-      return setBlockType({ type: 'heading', attrs: { level } })(state, dispatch)
-    }
-  },
   insertVueComponent(componentName: string, props: Record<string, any> = {}) {
     return (state, dispatch, view) => {
       if (!view) return false
@@ -112,3 +104,6 @@ export function defineExtension() {
   )
 }
 export type EditorExtension = ReturnType<typeof defineExtension>
+// 因父组件需统一经 editor.commands 命令链调用（含自定义与各扩展命令）且要 IDE 补全，
+// 故直接以 createEditor 实例的 commands 推导精确命令类型，而非手写宽泛索引签名
+export type EditorCommands = ReturnType<typeof createEditor<EditorExtension>>['commands']
