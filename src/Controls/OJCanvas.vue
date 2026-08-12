@@ -419,6 +419,8 @@ const autoPanTick = () => {
     // 因 resize 时画布自动滚动，被拖块坐标由组件受控（prop 即 content 坐标），
     // 故按"基准矩形 + 相对起始 pan 位移"重算其 content 坐标使缩放手柄跟随鼠标
     compensateResizeAutoPan()
+    // 因框选时鼠标停住也需随画布滚动扩展选择框（无 mousemove 驱动），故用最近鼠标位置每帧刷新框选
+    if (selectionState.active) updateSelectionAt(lastMouse.x, lastMouse.y)
   }
   requestAnimationFrame(autoPanTick)
 }
@@ -1216,16 +1218,23 @@ const startSelection = (e: MouseEvent) => {
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
+  startAutoPan() // 框选拖到视口边缘时画布自动滚动
+}
+
+// 因框选自动滚动时鼠标可能停住（无 mousemove 驱动），故把"由坐标刷新框选"独立供 autoPan 每帧调用
+const updateSelectionAt = (clientX: number, clientY: number) => {
+  if (!selectionState.active) return
+  const rect = canvasContainerRef.value?.getBoundingClientRect()
+  if (!rect) return
+  selectionState.currentX = (clientX - rect.left - pan.x - origin.x) / zoom.value
+  selectionState.currentY = (clientY - rect.top - pan.y - origin.y) / zoom.value
+  updateSelectionBox()
 }
 
 const updateSelection = (e: MouseEvent) => {
   if (!selectionState.active) return
-  const rect = canvasContainerRef.value?.getBoundingClientRect()
-  if (!rect) return
   e.preventDefault()
-  selectionState.currentX = (e.clientX - rect.left - pan.x - origin.x) / zoom.value
-  selectionState.currentY = (e.clientY - rect.top - pan.y - origin.y) / zoom.value
-  updateSelectionBox()
+  updateSelectionAt(e.clientX, e.clientY)
 }
 
 const onCanvasMousemove = (e: MouseEvent) => {
@@ -1362,6 +1371,7 @@ const hoverFocusBlock = (e: MouseEvent) => {
 const finishSelection = () => {
   if (!selectionState.active) return
   selectionState.active = false
+  stopAutoPan() // 框选结束停止边缘自动滚动
   const rect = selectionBox.value
   if (rect) {
     const matchedIds = state.items.filter((item) => isRectIntersectingItem(rect, item)).map((item) => item.id)
