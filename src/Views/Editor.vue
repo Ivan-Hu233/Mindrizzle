@@ -37,6 +37,23 @@
     </v-sheet>
     
     <OJCanvas class="editor-wrapper" ref="OJCRef"/>
+
+    <!-- 因格式操作需用户确认而非直接应用，故弹 overlay 询问：
+         任意位置左键应用、右键取消并清选区（用全屏捕获层接管事件，避开 v-overlay 根透传限制） -->
+    <v-overlay v-model="pendingApply" persistent scroll-strategy="none">
+      <div class="apply-layer" @click.left="confirmApply" @mousedown.right="cancelApply" @contextmenu.prevent="cancelApply">
+        <v-card class="apply-card" min-width="240" :class="{ 'place-below': overlayPos.below }"
+          :style="{ left: `${overlayPos.left}px`, top: `${overlayPos.top}px` }">
+          <v-card-text class="text-center">
+            应用「{{ pendingLabel }}」？
+          </v-card-text>
+          <v-card-actions class="justify-space-between">
+            <span class="text-caption text-medium-emphasis ml-3">右键取消</span>
+            <v-btn size="small" color="primary" class="mr-1">左键应用</v-btn>
+          </v-card-actions>
+        </v-card>
+      </div>
+    </v-overlay>
   </v-sheet>
 </template>
 
@@ -60,11 +77,11 @@ const componentOf = computed(() => {
 
 // 因按钮项各自携带图标与操作且轮换按索引推进，故集中为单一常量源
 const OPTIONS = [
-  { icon: mdiMouse, action: () => {} },
-  { icon: mdiFormatHeader1, action: () => batchToggleHeading(1) },
-  { icon: mdiFormatBold, action: () => batchToggleBold() },
-  { icon: mdiFormatItalic, action: () => batchToggleItalic() },
-  { icon: mdiFormatUnderline, action: () => batchToggleUnderline() }
+  { icon: mdiMouse, label: '指针', action: () => {} },
+  { icon: mdiFormatHeader1, label: '标题', action: () => batchToggleHeading(1) },
+  { icon: mdiFormatBold, label: '加粗', action: () => batchToggleBold() },
+  { icon: mdiFormatItalic, label: '斜体', action: () => batchToggleItalic() },
+  { icon: mdiFormatUnderline, label: '下划线', action: () => batchToggleUnderline() }
 ] as const
 
 // 因按钮组需单选高亮且默认选中首项，故记录当前索引；切换选中块时重置为首项
@@ -98,13 +115,67 @@ const selectionInBlock = (): boolean => {
 }
 
 // 因仅 mouseup 时选区才算定稿（拖动选字中途 selectionchange 高频误触发、暂停即会提前应用），
-// 故不监听 selectionchange，改在 mouseup 时校验选区并应用当前按钮项操作；
-// 操作会改动选区但不会触发 mouseup，故仅保留冷却屏蔽连点
+// 故不监听 selectionchange，改在 mouseup 时校验选区；操作不直接执行，
+// 而是弹 overlay 询问用户：左键应用、右键取消并清选区
 let applyLockUntil = 0
+const pendingApply = ref(false)
+const pendingActionIndex = ref(0)
+const pendingLabel = computed(() => OPTIONS[pendingActionIndex.value]?.label ?? '更改')
+// 因 v-card 需显示在选区附近，故记录选区矩形的中心 x 与上缘 y（上方空间不足时改放下方）
+const overlayPos = ref({ left: 0, top: 0, below: false })
+
 const onMouseUp = () => {
+  if (pendingApply.value) return // 询问中不重复触发
   if (componentOf.value !== 'RichTextEditor' || Date.now() < applyLockUntil || !selectionInBlock()) return
+  if (opIdx.value === 0) return // 指针模式无可应用操作
   applyLockUntil = Date.now() + 300
-  OPTIONS[opIdx.value]?.action()
+  pendingActionIndex.value = opIdx.value
+  // 因卡片需贴近选区显示，故以选区矩形为锚点并夹紧到视口内（防超出屏幕）：
+  // 水平中心限在卡片半宽+间距内；垂直优先放选区上方，上方不足放下方，均不足选空间大一侧
+  const rangeRect = window.getSelection()?.getRangeAt(0).getBoundingClientRect()
+  if (rangeRect && rangeRect.width > 0) {
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const CARD_W = 240
+    const CARD_H = 110
+    const M = 8
+    const left = Math.min(Math.max(rangeRect.left + rangeRect.width / 2, CARD_W / 2 + M), vw - CARD_W / 2 - M)
+    const aboveSpace = rangeRect.top - M
+    const belowSpace = vh - rangeRect.bottom - M
+    let top: number
+    let below: boolean
+    if (aboveSpace >= CARD_H) {
+      top = rangeRect.top
+      below = false
+    } else if (belowSpace >= CARD_H) {
+      top = rangeRect.bottom
+      below = true
+    } else if (aboveSpace >= belowSpace) {
+      top = Math.max(rangeRect.top, M)
+      below = false
+    } else {
+      top = Math.min(rangeRect.bottom, vh - M)
+      below = true
+    }
+    overlayPos.value = { left, top, below }
+  }
+  pendingApply.value = true
+}
+
+const confirmApply = () => {
+  pendingApply.value = false
+  OPTIONS[pendingActionIndex.value]?.action()
+  // 因应用后选区仍保留会经 mouseup 再次询问，故同取消一样清除选区并失焦
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  window.getSelection()?.removeAllRanges()
+}
+
+const cancelApply = () => {
+  pendingApply.value = false
+  // 因 ProseMirror 失焦前会保持并恢复内部选区，仅 removeAllRanges 后右键的 mouseup
+  // 仍会经 onMouseUp 重开询问，故让编辑器失焦使 DOM 选区保持为空
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  window.getSelection()?.removeAllRanges()
 }
 
 const mobileButtonLabel = computed(() => {
@@ -212,5 +283,24 @@ onUnmounted(() => {
 
 .zoom-slider {
   margin: 0 8px;
+}
+
+/* 因需 overlay 任意位置响应左键/右键，故用全屏捕获层接管；
+   因 v-overlay__content 容器尺寸为 0（inset 失效），故用 vw/vh 显式铺满并置 z 高于 scrim */
+.apply-layer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+}
+/* 因 v-card 需显示在选区上方且水平居中于选区中心，故绝对定位 + translate 上移整卡；空间不足时由 place-below 改放选区下方 */
+.apply-card {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+}
+.apply-card.place-below {
+  transform: translate(-50%, 8px);
 }
 </style>
