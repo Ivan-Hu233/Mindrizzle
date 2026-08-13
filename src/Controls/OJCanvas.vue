@@ -131,6 +131,7 @@ import { Z_LAYER } from './zIndex'
 
 import { useDisplay } from 'vuetify'
 
+// #region 显示模式
 const { xs } = useDisplay()
 const isMobile = computed(() => xs.value)
 
@@ -145,7 +146,9 @@ const nextForceMobile = (): boolean | null => {
 }
 
 const isEditMode = ref(true)
+// #endregion 显示模式
 
+// #region 核心类型
 interface Rect {
   x: number
   y: number
@@ -167,7 +170,9 @@ interface CanvasItem {
     mobile: boolean
   }
 }
+// #endregion 核心类型
 
+// #region 组件注册与尺寸约束
 const componentMap = {
   RichTextEditor,
   EditableCodeBlock,
@@ -228,7 +233,9 @@ const constraintsOf = (item: CanvasItem): Required<ResizeConstraints> => {
   if (!raw) return CANVAS_DEFAULT_CONSTRAINTS
   return normalizeConstraints(raw)
 }
+// #endregion 组件注册与尺寸约束
 
+// #region 画布状态与 z 层
 const state = reactive({
   items: [] as CanvasItem[],
   selectedIds: new Set<string>(),
@@ -271,9 +278,11 @@ const setCanvasContainerRef = (el: unknown) => {
   canvasContainerRef.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
 }
 const canvasWidth = ref(0)
+// #endregion 画布状态与 z 层
 
 // 因块以世界坐标自由放置（VDR 无 parent 不受边界约束）且平移无界，
 // 故点阵背景固定在视口容器上以保证任何位置不露白
+// #region 平移与原点重定位
 const pan = reactive({ x: 0, y: 0 })
 const isPanning = ref(false)
 
@@ -320,8 +329,10 @@ const panSession = reactive({
   startPanX: 0,
   startPanY: 0,
 })
+// #endregion 平移与原点重定位
 
 // 因需等比例缩放画布（视觉缩放、交互坐标按 /zoom 换算），故 zoom 状态供 canvas 变换与各交互换算共用
+// #region 缩放与画布变换
 const zoom = ref(1)
 // 因 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致边缘/内容模糊，渲染层统一圆整到整数视觉像素
 const roundToPx = (v: number) => Math.round(v * zoom.value) / zoom.value
@@ -374,11 +385,13 @@ const canvasStyle = computed<CSSProperties>(() => ({
   transform: `translate3d(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px, 0) scale(${zoom.value})`,
   transformOrigin: '0 0',
 }))
+// #endregion 缩放与画布变换
 
 // 因点阵背景需在任意平移位置都不露白，故固定在视口容器上且 transform 随 pan 平移（GPU 合成，避免 background-position 每帧重绘卡顿）；
 // 因点阵需附着在画布内容网格上（缩放时随内容等比放大），故周期 = tile*zoom；
 // 因 content(0,0) 的屏幕位置恒为 pan+origin（.canvas 的 translate 不受 scale 影响），
 // 故原点对齐用 (pan+origin+extend) 对周期取余，extend=周期保证层覆盖最大偏移不露白
+// #region 点阵背景与容器样式
 const DOTS_TILE = 24
 const dotsStyle = computed<CSSProperties>(() => {
   const period = DOTS_TILE * zoom.value
@@ -399,9 +412,11 @@ const containerStyle = computed<CSSProperties>(() => ({
   // scoped CSS 的 min-height:0 在 v-sheet（Vuetify 组件根）上未生效，故 inline 强制允许收缩填满剩余
   minHeight: '0',
 }))
+// #endregion 点阵背景与容器样式
 
 // 因块被拖到视口边缘时画布需自动平移（方向与 block-handle 拖段落一致），故按距边缘距离驱动每帧平移
 // 因触发边缘过宽（60px）易在拖拽/缩放时误触，故收窄到 32px：需更靠近视口边缘才开始自动滚动
+// #region 自动平移
 const AUTOPAN_EDGE = 32 // 距视口边缘多少 px 触发
 // 因每帧 8px 偏快、易被感知为"突然滚动"，故降为 6px 更平缓
 const AUTOPAN_MAX = 6 // 每帧最大平移 px
@@ -507,7 +522,9 @@ const stopAutoPan = () => {
   panCompAcc.x = 0
   panCompAcc.y = 0
 }
+// #endregion 自动平移
 
+// #region 手动平移（右键拖拽）
 const startPan = (e: MouseEvent) => {
   // 因需任意位置右键拖拽都平移，故仅响应右键且不依赖 Vue 的 .right 修饰符（兼容性更稳）
   if (e.button !== 2) return
@@ -584,6 +601,9 @@ const onCanvasPanEvent = (e: Event) => {
   if (!mobileMode.value) pan.x += Math.round(dx)
   pan.y += Math.round(dy)
 }
+// #endregion 手动平移（右键拖拽）
+
+// #region 框选状态
 const selectionBox = ref<{ x: number; y: number; w: number; h: number } | null>(null)
 const selectionState = reactive({
   active: false,
@@ -605,7 +625,9 @@ const selectionBoxStyle = computed(() => {
     height: `${roundToPx(h)}px`,
   }
 })
+// #endregion 框选状态
 
+// #region 组件数据读写
 const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
     const cfg = item.config as RichTextConfig
@@ -647,10 +669,12 @@ const setComponentRef = (id: string, el: any) => {
 }
 
 const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
+// #endregion 组件数据读写
 
 // 因需“重叠接触段融合、露出段保留边框”，故不整边隐藏，而是为每块生成
 // 接触段的遮罩（块内相对坐标），用 surface 同色盖住该段 border；
 // b 在 a 左侧紧贴 → 融合段沿 a 左边/ b 右边；b 在 a 上侧紧贴 → 沿 a 上边/ b 下边
+// #region 贴合遮罩与圆角
 interface EdgeMask {
   side: 'l' | 'r' | 't' | 'b'
   start: number
@@ -746,10 +770,12 @@ const cornerStyleOf = (id: string): CSSProperties => {
   if (radius === `${ROUNDED}px ${ROUNDED}px ${ROUNDED}px ${ROUNDED}px`) return {}
   return { borderRadius: radius }
 }
+// #endregion 贴合遮罩与圆角
 
 // 因手柄高 28px、块贴近视口顶部时上方放不下（会被画布容器裁剪），
 // 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方；
 // 因手柄视觉高随 zoom 缩放，故阈值取视觉高度，避免高缩放时误判顶部放不下
+// #region 手柄与描边样式
 const HANDLE_HEIGHT = 28
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
   visualY(layoutOf(item).y) < Math.round(HANDLE_HEIGHT * zoom.value) ? 'bottom' : 'top'
@@ -814,7 +840,9 @@ const selectedOutlineStyle = (item: CanvasItem): CSSProperties => {
     height: `${roundToPx(l.h) + roundToPx(OUTLINE_PX * 2)}px`,
   }
 }
+// #endregion 手柄与描边样式
 
+// #region 自定义拖拽与联结
 const getSelectedItemIds = (item: CanvasItem) => {
   const selected = state.selectedIds.has(item.id) && state.selectedIds.size > 1
     ? Array.from(state.selectedIds)
@@ -1063,9 +1091,11 @@ const onCustomDragUp = () => {
   resolveDragConflict()
   maybeRebaseOrigin()
 }
+// #endregion 自定义拖拽与联结
 
 // resize 会话：记录手柄、链接组各块起始矩形、最近一次组件上报的基准矩形与起始 pan
 // （autoPan 补偿 = 基准矩形 + 相对起始 pan 的位移，坐标全为 content 世界坐标）
+// #region 尺寸调整与联结传播
 interface ResizeSession {
   itemId: string
   handle: string
@@ -1362,8 +1392,10 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
   }
   resizeSession = null
 }
+// #endregion 尺寸调整与联结传播
 
 // 因移动端块纵向堆叠，某块 autoHeight 高度变化后其下方块位置须跟随平移（delta 可正可负），否则互相重叠
+// #region 高度自适应
 const shiftBlocksBelow = (item: CanvasItem, delta: number) => {
   if (delta === 0) return
   state.items
@@ -1431,7 +1463,9 @@ const followCursor = (item: CanvasItem, cursorY: number) => {
   const over = cursorBottom - (cr.bottom - CURSOR_VISIBLE_MARGIN)
   if (over > 0) pan.y -= Math.round(over)
 }
+// #endregion 高度自适应
 
+// #region 选中与聚焦
 const handleSelect = (id: string, e?: MouseEvent) => {
   const isSelected = state.selectedIds.has(id)
   const selectedCount = state.selectedIds.size
@@ -1538,9 +1572,11 @@ const focusBlockContent = (id: string) => {
     if (ta) ta.focus({ preventScroll: true })
   })
 }
+// #endregion 选中与聚焦
 
 // 因 ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
 // 故按 popup 显隐记录所在块 id，以便只隐藏该块 tm（其余缩放手柄不受影响）
+// #region 弹层与命中测试
 const popupBlockId = ref<string | null>(null)
 const onBlockPopupChange = (e: Event) => {
   const detail = (e as CustomEvent).detail as { open?: boolean; blockId?: string | null }
@@ -1654,7 +1690,9 @@ const hoverFocusBlock = (e: MouseEvent) => {
   state.selectedIds = new Set([id])
   focusBlockContent(id)
 }
+// #endregion 弹层与命中测试
 
+// #region 框选收尾与点击
 const finishSelection = () => {
   if (!selectionState.active) return
   selectionState.active = false
@@ -1697,8 +1735,10 @@ const handleCanvasFocusin = (e: FocusEvent) => {
   }
   bringToTop(id)
 }
+// #endregion 框选收尾与点击
 
 // 因各组件内部数据需统一同步回 item.config，故经组件自定义的 saveConfig 接口收集
+// #region 数据同步与布局刷新
 const syncComponentData = () => {
   state.items.forEach((item) => {
     const inst = componentRefs.value[item.id]
@@ -1779,8 +1819,10 @@ watch(
 )
 
 const onResize = () => refreshLayout()
+// #endregion 数据同步与布局刷新
 
 // 移动端自动布局：未排的块按桌面端阅读顺序纵向堆叠在已排块下方（x 恒 0，宽度由 applyMobileLayout 拉伸）
+// #region 自动布局与添加
 const autoArrangeMobile = () => {
   const pending = state.items.filter((it) => !it.arranged.mobile)
   if (pending.length === 0) return
@@ -1910,7 +1952,9 @@ const addComponent = (key: CanvasItem['component']) => {
   // 故添加后平移视角到新块，使其在视口内居中可见
   panToBlock(newItem.id)
 }
+// #endregion 自动布局与添加
 
+// #region 保存与加载
 const save = () => {
   syncComponentData()
   // 因块坐标需保持小值避免数据溢出，故以块群包围盒中心为新原点保存相对坐标，
@@ -2034,7 +2078,9 @@ const load = async (raw: string) => {
     componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
 }
+// #endregion 保存与加载
 
+// #region 命令与生命周期
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   Array.from(state.selectedIds).forEach((id) => {
     componentRefs.value[id]?.commands?.toggleHeading?.({ level })
@@ -2133,6 +2179,7 @@ defineExpose({
   deleteSelected,
   compensateResizeAutoPan,
 })
+// #endregion 命令与生命周期
 </script>
 
 <style scoped>

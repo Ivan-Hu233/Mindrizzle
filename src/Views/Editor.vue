@@ -1,6 +1,6 @@
 <template>
   <v-sheet class="editor-wrapper">
-    <v-sheet class="toolbar" color="surface">
+    <v-sheet class="toolbar">
       <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn>
       <v-btn v-for="comp in OJCRef?.ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="OJCRef?.addComponent(comp.key)">
