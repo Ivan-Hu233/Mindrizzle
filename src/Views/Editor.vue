@@ -1,6 +1,6 @@
 <template>
   <v-sheet class="editor-wrapper">
-    <div class="toolbar">
+    <v-sheet class="toolbar" color="surface">
       <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn>
       <v-btn v-for="comp in OJCRef?.ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="OJCRef?.addComponent(comp.key)">
@@ -34,7 +34,7 @@
         :disabled="OJCRef?.mobileMode"
         @update:model-value="setZoom"
       />
-    </div>
+    </v-sheet>
     
     <OJCanvas class="editor-wrapper" ref="OJCRef"/>
   </v-sheet>
@@ -207,7 +207,6 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 

@@ -112,27 +112,13 @@ watch([handleVisible, handlePlacement], () => {
         @pointerleave="onPopupLeave"
       >
         <BlockHandleAdd class="block-handle-btn">
-          <svg
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            fill="currentColor"
-          >
-            <path :d="mdiPlus" />
-          </svg>
+          <v-icon :icon="mdiPlus" size="20" />
         </BlockHandleAdd>
         <BlockHandleDraggable
           class="block-handle-btn block-handle-drag"
           @pointerdown.prevent="onDragPointerDown"
         >
-          <svg
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            fill="currentColor"
-          >
-            <path :d="mdiDragVerticalVariant" />
-          </svg>
+          <v-icon :icon="mdiDragVerticalVariant" size="20" />
         </BlockHandleDraggable>
       </BlockHandlePopup>
       </BlockHandlePositioner>

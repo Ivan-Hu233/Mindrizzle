@@ -1,5 +1,5 @@
 <template>
-  <v-sheet class="canvas-container" :ref="setCanvasContainerRef" :style="containerStyle" @click="handleCanvasClick"
+  <v-sheet class="canvas-container" color="surface" :ref="setCanvasContainerRef" :style="containerStyle" @click="handleCanvasClick"
     @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
     <!-- 因点阵背景随 pan 平移若用 background-position 会每帧重绘整容器（大视口下卡顿），故独立成层用 transform 合成移动 -->
     <div class="canvas-dots" :style="dotsStyle" aria-hidden="true" />
@@ -14,14 +14,14 @@
         @resizestart="(handle: string) => onResizeStart(item, handle)"
         @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
-        <div class="block-container bg-surface elevation-1 rounded">
+        <v-sheet class="block-container" color="surface" elevation="1" rounded>
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
               :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
               @update:model-value="(val: string) => updateCode(item.id, val)"
               @update:language="(lang: string) => updateLanguage(item.id, lang)" class="inner-component" />
           </div>
-        </div>
+        </v-sheet>
       </ResizeBox>
 
       <v-fade-transition :duration="120">
@@ -2015,7 +2015,6 @@ defineExpose({
   min-height: 0;
   position: relative;
   overflow: hidden;
-  background-color: rgb(var(--v-theme-surface));
 }
 
 /* 因点阵背景需随 pan 合成移动且不露白，层仅比容器大一圈（transform 最多移一个 tile）；pointer-events 穿透不挡交互 */
@@ -2118,9 +2117,6 @@ defineExpose({
   width: 100%;
   position: relative;
   overflow: visible;
-  background: rgb(var(--v-theme-surface));
-  border-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
