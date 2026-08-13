@@ -198,7 +198,7 @@ onUnmounted(cleanup)
   inset: 0;
   /* 因需常驻标注内容区边界且不遮挡内容/交互，故用低对比度虚线并穿透点击；
      层级高于块背景（可见）低于拖拽栏/缩放手柄（不挡操作） */
-  border: 1px dashed rgb(var(--v-theme-on-surface));
+  /* border: 1px dashed rgb(var(--v-theme-on-surface)); */
   opacity: 0.35;
   pointer-events: none;
   z-index: 10;

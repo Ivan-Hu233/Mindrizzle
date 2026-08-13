@@ -14,7 +14,11 @@
         @resizestart="(handle: string) => onResizeStart(item, handle)"
         @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
-        <v-sheet class="block-container" color="surface" elevation="1" rounded>
+        <v-sheet class="block-container" color="surface" elevation="0" rounded :style="cornerStyleOf(item.id)">
+          <!-- 因需只盖住重叠接触段的边框（露出段保留），故按段渲染同色遮罩 -->
+          <template v-for="m in masksOf(item.id)" :key="`${m.side}-${m.start}`">
+            <div class="edge-mask" :style="maskStyle(m)" />
+          </template>
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
               :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
@@ -334,7 +338,22 @@ const forceRecomposite = () => {
     el.style.willChange = 'transform'
   })
 }
-watch(zoom, forceRecomposite)
+// 因 .canvas 以左上角为缩放锚点，直接改 zoom 会让视口中心内容随缩放跑偏，
+// 故以容器中心为锚点反解补偿 pan，使锚点处 content 坐标缩放前后屏幕位置不变；
+// 因移动端锁水平且缩放被禁用（仅模式切换归零 zoom），故仅桌面端补偿
+let zoomAnchorPrev = 1
+watch(zoom, (z2) => {
+  const z1 = zoomAnchorPrev
+  zoomAnchorPrev = z2
+  forceRecomposite()
+  if (z1 === z2) return
+  const cont = canvasContainerRef.value
+  if (!cont) return
+  const w = cont.clientWidth
+  const h = cont.clientHeight
+  if (!mobileMode.value) pan.x = Math.round(pan.x + (w / 2 - (pan.x + origin.x)) * (1 - z2 / z1))
+  pan.y = Math.round(pan.y + (h / 2 - (pan.y + origin.y)) * (1 - z2 / z1))
+})
 
 // 因画布平移/缩放只改 .canvas 变换、不触发编辑器内 scroll/hover 事件，
 // 而 block-handle 行高亮/弹层补偿是 fixed 视口定位需随画布重算，
@@ -356,15 +375,23 @@ const canvasStyle = computed<CSSProperties>(() => ({
   transformOrigin: '0 0',
 }))
 
-// 因点阵背景需在任意平移位置都不露白，故固定在视口容器上且 background-position 随 pan 平移
-// 因点阵背景随 pan 平移且需 GPU 合成（background-position 每帧重绘会卡顿），故独立成层；
-// 因图案 24px 周期重复，背景只需移动 (pan+origin) 对周期的余数，层仅比容器大一圈即可
-// 永不露白，且 transform 变化极小（大合成层快速移动反而会跳变）
+// 因点阵背景需在任意平移位置都不露白，故固定在视口容器上且 transform 随 pan 平移（GPU 合成，避免 background-position 每帧重绘卡顿）；
+// 因点阵需附着在画布内容网格上（缩放时随内容等比放大），故周期 = tile*zoom；
+// 因 content(0,0) 的屏幕位置恒为 pan+origin（.canvas 的 translate 不受 scale 影响），
+// 故原点对齐用 (pan+origin+extend) 对周期取余，extend=周期保证层覆盖最大偏移不露白
 const DOTS_TILE = 24
 const dotsStyle = computed<CSSProperties>(() => {
-  const x = ((pan.x + origin.x) % DOTS_TILE + DOTS_TILE) % DOTS_TILE
-  const y = ((pan.y + origin.y) % DOTS_TILE + DOTS_TILE) % DOTS_TILE
-  return { transform: `translate3d(${x}px, ${y}px, 0)` }
+  const period = DOTS_TILE * zoom.value
+  const extend = period
+  const mod = (v: number) => ((v % period) + period) % period
+  return {
+    top: `${-extend}px`,
+    left: `${-extend}px`,
+    right: `${-extend}px`,
+    bottom: `${-extend}px`,
+    backgroundSize: `${period}px ${period}px`,
+    transform: `translate3d(${mod(pan.x + origin.x + extend)}px, ${mod(pan.y + origin.y + extend)}px, 0)`,
+  }
 })
 
 const containerStyle = computed<CSSProperties>(() => ({
@@ -620,6 +647,105 @@ const setComponentRef = (id: string, el: any) => {
 }
 
 const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
+
+// 因需“重叠接触段融合、露出段保留边框”，故不整边隐藏，而是为每块生成
+// 接触段的遮罩（块内相对坐标），用 surface 同色盖住该段 border；
+// b 在 a 左侧紧贴 → 融合段沿 a 左边/ b 右边；b 在 a 上侧紧贴 → 沿 a 上边/ b 下边
+interface EdgeMask {
+  side: 'l' | 'r' | 't' | 'b'
+  start: number
+  len: number
+}
+const EDGE_TOL = 1
+const edgeMasks = computed<Record<string, EdgeMask[]>>(() => {
+  const map: Record<string, EdgeMask[]> = {}
+  const items = state.items
+  items.forEach((it) => { map[it.id] = [] })
+  for (const a of items) {
+    const ra = layoutOf(a)
+    for (const b of items) {
+      if (a.id === b.id) continue
+      const rb = layoutOf(b)
+      const yOverlap = Math.max(ra.y, rb.y) < Math.min(ra.y + ra.h, rb.y + rb.h)
+      const xOverlap = Math.max(ra.x, rb.x) < Math.min(ra.x + ra.w, rb.x + rb.w)
+      if (yOverlap && Math.abs(rb.x + rb.w - ra.x) <= EDGE_TOL) {
+        const y0 = Math.max(ra.y, rb.y)
+        const len = Math.min(ra.y + ra.h, rb.y + rb.h) - y0
+        if (len > 0) {
+          map[a.id].push({ side: 'l', start: y0 - ra.y, len })
+          map[b.id].push({ side: 'r', start: y0 - rb.y, len })
+        }
+      }
+      if (xOverlap && Math.abs(rb.y + rb.h - ra.y) <= EDGE_TOL) {
+        const x0 = Math.max(ra.x, rb.x)
+        const len = Math.min(ra.x + ra.w, rb.x + rb.w) - x0
+        if (len > 0) {
+          map[a.id].push({ side: 't', start: x0 - ra.x, len })
+          map[b.id].push({ side: 'b', start: x0 - rb.x, len })
+        }
+      }
+    }
+  }
+  return map
+})
+const masksOf = (id: string): EdgeMask[] => edgeMasks.value[id] ?? []
+// 因遮罩绝对定位相对 padding box（left:0 在 border 内侧 1px 处），故向外偏 1px 覆盖 border，
+// 宽度取 2px 一并盖掉邻接处的 content-guide 虚线；内容区 padding 4px 不受影响
+const maskStyle = (m: EdgeMask): CSSProperties => {
+  const base: CSSProperties = {
+    position: 'absolute',
+    pointerEvents: 'none',
+    zIndex: 16,
+  }
+  // 因接触段需以虚线提示“可分离”（替代原实线 border），故遮罩在 surface 底色上间隔画淡灰虚线段，
+  // 同时盖住下方实线 border；水平条（t/b）沿 x 画虚线，垂直条（l/r）沿 y 画虚线
+  const dashH = `repeating-linear-gradient(90deg, rgb(var(--v-theme-surface)) 0 4px, rgba(var(--v-theme-on-surface), 0.35) 4px 6px, rgb(var(--v-theme-surface)) 6px 8px)`
+  const dashV = `repeating-linear-gradient(180deg, rgb(var(--v-theme-surface)) 0 4px, rgba(var(--v-theme-on-surface), 0.35) 4px 6px, rgb(var(--v-theme-surface)) 6px 8px)`
+  // 因遮罩相对 padding box 定位（left:0 即块边界内侧 1px），右端会溢出盖住相邻垂直边框（右缝断开），
+  // 故沿接触方向两端各留 1px：左端由定位天然留出、右端缩 len-2，使贴合处四角边框连贯
+  const span = Math.max(m.len - 2, 0)
+  if (m.side === 'l') return { ...base, left: '-1px', top: `${m.start}px`, width: '1px', height: `${span}px`, background: dashV }
+  if (m.side === 'r') return { ...base, right: '-1px', top: `${m.start}px`, width: '1px', height: `${span}px`, background: dashV }
+  if (m.side === 't') return { ...base, top: '-1px', left: `${m.start}px`, height: '1px', width: `${span}px`, background: dashH }
+  return { ...base, bottom: '-1px', left: `${m.start}px`, height: '1px', width: `${span}px`, background: dashH }
+}
+
+// 因贴合处角落若保留圆角会在接触边两端露出弧形缺口，故按“接触段是否延伸到块的角”判断
+// 哪些角需归零圆角（直角相接使贴合连贯）；非接触角保持 v-sheet 默认 4px
+const ROUNDED = 4
+const cornerHits = computed<Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }>>(() => {
+  const map: Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }> = {}
+  const items = state.items
+  items.forEach((it) => { map[it.id] = { tl: false, tr: false, bl: false, br: false } })
+  items.forEach((it) => {
+    const { w, h } = layoutOf(it)
+    ;(edgeMasks.value[it.id] ?? []).forEach((m) => {
+      const endHit = m.start + m.len
+      if (m.side === 'l') {
+        if (m.start <= EDGE_TOL) map[it.id].tl = true
+        if (endHit >= h - EDGE_TOL) map[it.id].bl = true
+      } else if (m.side === 'r') {
+        if (m.start <= EDGE_TOL) map[it.id].tr = true
+        if (endHit >= h - EDGE_TOL) map[it.id].br = true
+      } else if (m.side === 't') {
+        if (m.start <= EDGE_TOL) map[it.id].tl = true
+        if (endHit >= w - EDGE_TOL) map[it.id].tr = true
+      } else {
+        if (m.start <= EDGE_TOL) map[it.id].bl = true
+        if (endHit >= w - EDGE_TOL) map[it.id].br = true
+      }
+    })
+  })
+  return map
+})
+const cornerStyleOf = (id: string): CSSProperties => {
+  const c = cornerHits.value[id]
+  if (!c) return {}
+  const r = (hit: boolean) => (hit ? 0 : ROUNDED)
+  const radius = `${r(c.tl)}px ${r(c.tr)}px ${r(c.br)}px ${r(c.bl)}px`
+  if (radius === `${ROUNDED}px ${ROUNDED}px ${ROUNDED}px ${ROUNDED}px`) return {}
+  return { borderRadius: radius }
+}
 
 // 因手柄高 28px、块贴近视口顶部时上方放不下（会被画布容器裁剪），
 // 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方；
@@ -1628,7 +1754,9 @@ watch(mobileMode, () => {
       state.items.forEach((it) => { it.layout.desktop.x += origin.x })
       origin.x = 0
     }
-    // 因移动端禁用缩放（布局按视口宽度拉伸），故切换时归零缩放
+    // 因移动端禁用缩放（布局按视口宽度拉伸），故切换时归零缩放；
+    // 归零属模式重置而非用户缩放，故同步锚点基准跳过视口补偿
+    zoomAnchorPrev = 1
     zoom.value = 1
   }
   // 因移动端浏览滚动残留的 pan.y 会把另一布局画布顶出视口（块跑到视口外），故切换时归零平移（与 load 一致）
@@ -2020,13 +2148,9 @@ defineExpose({
 /* 因点阵背景需随 pan 合成移动且不露白，层仅比容器大一圈（transform 最多移一个 tile）；pointer-events 穿透不挡交互 */
 .canvas-dots {
   position: absolute;
-  top: -24px;
-  left: -24px;
-  right: -24px;
-  bottom: -24px;
+  /* 层尺寸与 background-size 由 dotsStyle 随 zoom 动态提供（周期 = tile*zoom，extend 防露白） */
   background-image: radial-gradient(circle, rgba(var(--v-theme-on-surface), 0.15) 1px, transparent 1px);
   background-repeat: repeat;
-  background-size: 24px 24px;
   pointer-events: none;
 }
 
@@ -2120,7 +2244,18 @@ defineExpose({
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  /* 因块未选中时需常驻淡灰描边区分边界；用 border 而非 outline——
+     两块紧贴时 outline 画在盒外会各自越界叠到对方区域（接触处变深），border 在盒内不越界 */
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
 }
+
+/* 因选中时主题色描边环（selected-outline）负责外框，故隐藏常驻淡灰 border 避免双层框；
+   用 transparent 保持边框占位，避免 border-box 下内容区跳动 */
+.drag-wrapper.selected .block-container {
+  border-color: transparent;
+}
+
+/* 融合遮罩样式全部内联于 maskStyle（含定位/背景/z-index），此处无需额外 CSS */
 
 /* 因手柄提升到 .canvas 顶层（脱离块内层叠上下文），
    故覆盖 .drag-handle/.right-handle 的块内定位（bottom:100% 等）以纯 top/left 定位 */
