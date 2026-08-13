@@ -9,7 +9,7 @@ import {
   BlockHandleRoot,
 } from 'prosekit/vue/block-handle'
 import type { Editor } from '@prosekit/core'
-import { createStoreResolver, getView } from './blockHandleUtils'
+import { createStoreResolver, getScrollEl, getView } from './blockHandleUtils'
 import { useHoverState } from './useHoverState'
 import { useHoverUi } from './useHoverUi'
 import { useBlockDrag } from './useBlockDrag'
@@ -91,6 +91,32 @@ watch([handleVisible, handlePlacement], () => {
   const topOpen = !!handleVisible.value && handlePlacement.value === 'top'
   window.dispatchEvent(new CustomEvent('omnijot:block-popup-top', { detail: { open: topOpen } }))
 })
+
+// 因 popup 弹出时鼠标移向 popup 会经过上方的组件，若画布 hover 聚焦把焦点切到背后块 popup 即消失，
+// 故派发事件通知画布"该块 popup 激活"，让 hover 聚焦暂停直至 popup 关闭
+watch(handleVisible, (visible) => {
+  const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
+  const blockId = wrapper?.dataset.id ?? null
+  window.dispatchEvent(new CustomEvent('omnijot:block-handle-active', { detail: { active: !!visible, blockId } }))
+})
+
+// 因 popup 贴右缘时可能盖住滚动条，此时 wheel 目标落在 popup 上（其祖先无滚动容器），
+// 故鼠标位于滚动条矩形内时手动转发 delta 并 stopPropagation 防止被切项逻辑拦截
+const onPopupWheel = (e: WheelEvent) => {
+  const scrollEl = getScrollEl(getView(props.editor))
+  if (!scrollEl) return
+  const r = scrollEl.getBoundingClientRect()
+  const vBarW = scrollEl.offsetWidth - scrollEl.clientWidth
+  const hBarH = scrollEl.offsetHeight - scrollEl.clientHeight
+  const x = e.clientX
+  const y = e.clientY
+  const onVBar = vBarW > 0 && x >= r.right - vBarW && x <= r.right && y >= r.top && y <= r.bottom
+  const onHBar = hBarH > 0 && y >= r.bottom - hBarH && y <= r.bottom && x >= r.left && x <= r.right
+  if (!onVBar && !onHBar) return
+  if (onVBar) scrollEl.scrollTop += e.deltaY
+  if (onHBar) scrollEl.scrollLeft += e.deltaX
+  e.stopPropagation()
+}
 </script>
 
 <template>
@@ -110,6 +136,7 @@ watch([handleVisible, handlePlacement], () => {
         :class="{ 'popup-keep': popupKeep, 'forced-open': handleVisible, 'ui-hidden': !handleVisible }"
         @pointerenter="onPopupEnter"
         @pointerleave="onPopupLeave"
+        @wheel="onPopupWheel"
       >
         <BlockHandleAdd class="block-handle-btn">
           <v-icon :icon="mdiPlus" size="20" />
@@ -137,7 +164,9 @@ watch([handleVisible, handlePlacement], () => {
   overflow: visible;
   width: min-content;
   height: min-content;
-  /* 因 popup 需显示在曲别针之上，故置 Z_LAYER.popup（1005，.canvas 内最高层，随画布缩放） */
+  /* 因 popup 需显示在曲别针之上，故置 Z_LAYER.popup（1005，.canvas 内最高层，随画布缩放）；
+     因 z-index 仅对定位元素生效，故显式 absolute，避免 floating-ui 未注入定位时 popup 被上方组件盖住 */
+  position: absolute;
   z-index: 1005;
   transition: transform 0.1s ease-out;
   pointer-events: none;

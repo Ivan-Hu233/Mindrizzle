@@ -1,6 +1,6 @@
 <template>
   <v-sheet class="editor-wrapper">
-    <v-sheet class="toolbar">
+    <v-container class="toolbar">
       <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn>
       <v-btn v-for="comp in OJCRef?.ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="OJCRef?.addComponent(comp.key)">
@@ -34,7 +34,7 @@
         :disabled="OJCRef?.mobileMode"
         @update:model-value="setZoom"
       />
-    </v-sheet>
+    </v-container>
     
     <OJCanvas class="editor-wrapper" ref="OJCRef"/>
 
@@ -94,11 +94,26 @@ const onSelectOption = (index: number | null) => {
   opIdx.value = index
 }
 
+// 因鼠标在富文本块滚动条上时滚轮应滚动内容而非循环切项，故命中滚动条矩形则放行默认滚动
+const isOnScrollbar = (e: WheelEvent): boolean => {
+  const x = e.clientX
+  const y = e.clientY
+  for (const el of document.querySelectorAll<HTMLElement>('.editor-scroll')) {
+    const r = el.getBoundingClientRect()
+    const vBarW = el.offsetWidth - el.clientWidth
+    const hBarH = el.offsetHeight - el.clientHeight
+    const onVBar = vBarW > 0 && x >= r.right - vBarW && x <= r.right && y >= r.top && y <= r.bottom
+    const onHBar = hBarH > 0 && y >= r.bottom - hBarH && y <= r.bottom && x >= r.left && x <= r.right
+    if (onVBar || onHBar) return true
+  }
+  return false
+}
+
 // 因需整个界面任意位置滚轮循环切换按钮项，故按 deltaY 方向在索引间循环；
 // 因仅选中富文本块时才有按钮组，故此时才拦截滚轮；
 // 因编辑器/文本框内滚轮需滚动内容，故豁免，避免循环切项挡住阅读
 const cycleOption = (e: WheelEvent) => {
-  if (componentOf.value !== 'RichTextEditor') return
+  if (componentOf.value !== 'RichTextEditor' || isOnScrollbar(e)) return
   e.preventDefault()
   const len = OPTIONS.length
   const next = e.deltaY > 0 ? (opIdx.value + 1) % len : (opIdx.value - 1 + len) % len
@@ -283,6 +298,12 @@ onUnmounted(() => {
 
 .zoom-slider {
   margin: 0 8px;
+}
+
+/* 因未选中按钮默认背景与工具栏 v-sheet 相同（纯 surface 色），看不出按钮组边界，
+   故给未选中按钮补半透明 on-surface 底色以区分；选中态仍保留默认高亮 */
+.v-btn-toggle :deep(.v-btn:not(.v-btn--selected)) {
+  background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
 /* 因需 overlay 任意位置响应左键/右键，故用全屏捕获层接管；

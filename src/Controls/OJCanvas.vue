@@ -33,7 +33,7 @@
       </v-fade-transition>
       <template v-for="item in state.items" :key="`handle-${item.id}`">
         <Transition name="pop-up">
-          <div v-if="isEditMode && state.selectedIds.has(item.id)" class="floating-handle drag-handle"
+          <div v-if="isEditMode && state.selectedIds.has(item.id) && popupBlockId !== item.id" class="floating-handle drag-handle"
             :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
             :data-id="item.id" :style="handleBarStyle(item)"
             @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
@@ -495,13 +495,17 @@ const autoPanTick = () => {
     const compY = Math.round(panCompAcc.y)
     panCompAcc.x -= compX
     panCompAcc.y -= compY
-    Object.keys(customDragGroup).forEach((id) => {
-      const target = state.items.find((it) => it.id === id)
-      if (!target) return
-      const layout = layoutOf(target)
-      if (!mobileMode.value) layout.x += compX
-      layout.y += compY
-    })
+    // 因补偿仅对被拖块生效（拖拽中 customDragGroup 才有意义），故框选等场景不补偿任何块；
+    // 否则上次拖拽残留的块会在框选自动滚动时被误当"被拖块"，出现块被移动/钉屏
+    if (customDrag.active) {
+      Object.keys(customDragGroup).forEach((id) => {
+        const target = state.items.find((it) => it.id === id)
+        if (!target) return
+        const layout = layoutOf(target)
+        if (!mobileMode.value) layout.x += compX
+        layout.y += compY
+      })
+    }
     // 因 resize 时画布自动滚动，被拖块坐标由组件受控（prop 即 content 坐标），
     // 故按"基准矩形 + 相对起始 pan 位移"重算其 content 坐标使缩放手柄跟随鼠标
     compensateResizeAutoPan()
@@ -1079,6 +1083,8 @@ const resolveDragConflict = () => {
 
 const onCustomDragUp = () => {
   customDrag.active = false
+  // 因拖拽组仅本会话有效，故结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
+  customDragGroup = {}
   window.removeEventListener('pointermove', onCustomDragMove)
   window.removeEventListener('pointerup', onCustomDragUp)
   window.removeEventListener('mousemove', onCustomDragMove)
@@ -1589,6 +1595,20 @@ const onBlockPopupChange = (e: Event) => {
   }
 }
 
+// 因 popup 是否弹出与"是否覆盖缩放手柄"是两回事（popupBlockId 仅在覆盖 tm 时设置用于隐藏 tm），
+// 而 hover 聚焦需按"popup 是否弹出"跳过，故单独维护 popupActiveBlockId
+const popupActiveBlockId = ref<string | null>(null)
+const onBlockHandleActiveChange = (e: Event) => {
+  const detail = (e as CustomEvent).detail as { active?: boolean; blockId?: string | null }
+  // 因块间切换时旧块的关闭事件会误清新块的 popupActiveBlockId，
+  // 故仅当关闭事件与当前 popupActiveBlockId 匹配时才清除，其余情况保持
+  if (detail.active && detail.blockId) {
+    popupActiveBlockId.value = detail.blockId
+  } else if (!detail.active && detail.blockId && popupActiveBlockId.value === detail.blockId) {
+    popupActiveBlockId.value = null
+  }
+}
+
 // 因富文本 popup 上侧开启时会盖住连接点处的曲别针，故该状态为 true 时隐藏全部曲别针
 const popupTopOpen = ref(false)
 const onBlockPopupTopChange = (e: Event) => {
@@ -1681,6 +1701,9 @@ const hoverFocusBlock = (e: MouseEvent) => {
   if (selectionState.active || customDrag.active) return
   // 因 resize 拖动手柄时鼠标会扫过其他块，若按悬停切选中会令被拖块失活、手柄消失，故 resize 期间不抢选中
   if (resizeSession) return
+  // 因 popup 弹出时鼠标移到 popup 上方的组件会触发 hover 聚焦、把焦点切到背后块导致 popup 消失，
+  // 故 popup 激活期间不抢选中（popup 关闭后恢复）
+  if (popupActiveBlockId.value) return
   if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
   if (state.selectedIds.size > 1) return
   const id = hitTestBlockAt(e)
@@ -2122,6 +2145,7 @@ onMounted(() => {
   window.addEventListener('omnijot:canvas-pan', onCanvasPanEvent)
   window.addEventListener('omnijot:block-popup', onBlockPopupChange)
   window.addEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
+  window.addEventListener('omnijot:block-handle-active', onBlockHandleActiveChange)
   window.addEventListener('omnijot:auto-height', onAutoHeight)
   // 因 mouseup 丢失时需及时兜底重置会话，故挂失焦/指针取消兜底
   window.addEventListener('blur', abortSessions)
@@ -2143,6 +2167,7 @@ onUnmounted(() => {
   window.removeEventListener('omnijot:canvas-pan', onCanvasPanEvent)
   window.removeEventListener('omnijot:block-popup', onBlockPopupChange)
   window.removeEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
+  window.removeEventListener('omnijot:block-handle-active', onBlockHandleActiveChange)
   window.removeEventListener('omnijot:auto-height', onAutoHeight)
   window.removeEventListener('blur', abortSessions)
   window.removeEventListener('pointercancel', abortSessions)
