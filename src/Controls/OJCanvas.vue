@@ -1653,33 +1653,28 @@ const onCanvasMousemove = (e: MouseEvent) => {
 
 // 因"添加块状态"需在鼠标处显示将添加块的主题色预览框（无选中块且编辑态时跟随鼠标），
 // 故由 Editor 通过 addPreviewKey 指定当前添加类型、此处只负责记录鼠标的 content 坐标；
-// 因 mousemove 频率高于帧率、且落位解析需遍历块检测重叠，故用 rAF 合并到每帧最多一次
+// 因落位解析每帧需遍历块检测重叠（O(N)）、块多时开销大，故节流到 ~30fps 足够预览跟随
 const addPreviewKey = ref<CanvasItem['component'] | null>(null)
 const addPreviewPos = ref<{ x: number; y: number } | null>(null)
-let previewTarget: { x: number; y: number } | null = null
-let previewRafId = 0
+const PREVIEW_UPDATE_MS = 33
+let previewLastTs = 0
 const updateAddPreview = (e: MouseEvent) => {
   if (!isEditMode.value || state.selectedIds.size > 0 || !addPreviewKey.value) {
-    if (previewRafId) cancelAnimationFrame(previewRafId)
-    previewRafId = 0
-    previewTarget = null
+    previewLastTs = 0
     if (addPreviewPos.value) addPreviewPos.value = null
     return
   }
   const rect = viewRect.value ?? canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
-  previewTarget = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
-  if (previewRafId) return
-  previewRafId = requestAnimationFrame(() => {
-    previewRafId = 0
-    if (previewTarget) addPreviewPos.value = previewTarget
-  })
+  const now = performance.now()
+  if (now - previewLastTs < PREVIEW_UPDATE_MS) return
+  previewLastTs = now
+  addPreviewPos.value = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
 }
 
 // 因 Editor 需把当前添加类型同步给预览层，故经方法设置（避免直接暴露 ref 的类型解包问题）
 const setAddPreview = (key: CanvasItem['component'] | null) => {
-  if (previewRafId) cancelAnimationFrame(previewRafId)
-  previewRafId = 0
+  previewLastTs = 0
   addPreviewKey.value = key
   if (!key) addPreviewPos.value = null
 }
@@ -1820,7 +1815,7 @@ const onBlockPopupTopChange = (e: Event) => {
 }
 
 // 因需"鼠标落在哪个块的 VDR 框区域内就聚焦哪个块"（只按框区域判断，不看内容元素），
-// 故用鼠标坐标对每个块的 getBoundingClientRect 做点在矩形内测试；重叠时取 z 最高的块。
+// 故经 target.closest 直接命中所在块（被覆盖块不可见、target 不会是其后代，天然取最上层）；
 // 因手柄让出 2px 给选中块的 box-shadow 描边，鼠标从内容区平滑移到拖拽栏会先经过这条缝隙，
 // 故缝隙带（手柄朝向块一侧 HANDLE_GAP 内）也命中手柄所属块，避免中途焦点转移到背后组件
 const HANDLE_GAP = 2
@@ -1903,25 +1898,16 @@ const hitTestBlockAt = (e: MouseEvent): string | null => {
   if (barHit) return barHit
   const gapHit = hitHandleGap(clientX, clientY)
   if (gapHit) return gapHit
-  let hitId: string | null = null
-  let hitZ = -Infinity
-  state.items.forEach((item) => {
-    const el = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${item.id}"]`)
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return
-    const z = itemZ(item.id)
-    if (z > hitZ) {
-      hitZ = z
-      hitId = item.id
-    }
-  })
-  return hitId
+  // 因鼠标在块上时 target 必为其后代（被覆盖的块不可见、target 不会是其后代），
+  // 故经 closest 直接命中，跳过每 mousemove 遍历所有块做矩形测试（块多时消除大量 reflow）
+  return target.closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null
 }
 
 // 因"鼠标在空白处移动也要让浮层在选中块间切换显示（跟随离鼠标最近者）"，
 // 故按鼠标到各选中块矩形的最小距离取最近者（点在矩形内距离为 0，此处仅空白命中时调用）
 const nearestSelectedBlockId = (clientX: number, clientY: number): string | null => {
+  // 因无选中块时无"最近选中块"可言，故短路避免每 mousemove 遍历全部块（预览开启时高频触发）
+  if (state.selectedIds.size === 0) return null
   let bestId: string | null = null
   let bestDist = Infinity
   state.items.forEach((item) => {
@@ -2231,6 +2217,21 @@ const isRectVisibleInViewport = (rect: Rect): boolean => {
   return tl.x < cr.right && br.x > cr.left && tl.y < cr.bottom && br.y > cr.top
 }
 
+// 因预览/添加的落位解析需遍历块检测重叠、块多时每帧 O(N)，故用块群包围盒粗筛：
+// 待放置矩形完全落在包围盒外时必不重叠，可直接跳过精检
+const itemsBounds = computed(() => {
+  if (state.items.length === 0) return null
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  state.items.forEach((it) => {
+    const l = layoutOf(it)
+    if (l.x < minX) minX = l.x
+    if (l.y < minY) minY = l.y
+    if (l.x + l.w > maxX) maxX = l.x + l.w
+    if (l.y + l.h > maxY) maxY = l.y + l.h
+  })
+  return { minX, minY, maxX, maxY }
+})
+
 // 因"落位"（鼠标处不重叠用鼠标处、重叠则自动排列）需添加与预览共用，故抽出统一解析
 const resolveAddSpot = (key: CanvasItem['component'], at?: { x: number; y: number }): { spot: { x: number; y: number } } => {
   const meta = componentMetaOf(key)
@@ -2241,11 +2242,14 @@ const resolveAddSpot = (key: CanvasItem['component'], at?: { x: number; y: numbe
     return { spot: { x: 0, y: Math.round(at.y) } }
   }
   const { w, h } = meta.defaultSize
-  const overlapsAt = (x: number, y: number) =>
-    state.items.some((it) => {
+  const overlapsAt = (x: number, y: number) => {
+    const b = itemsBounds.value
+    if (b && (x + w <= b.minX || x >= b.maxX || y + h <= b.minY || y >= b.maxY)) return false
+    return state.items.some((it) => {
       const l = layoutOf(it)
       return x < l.x + l.w && x + w > l.x && y < l.y + l.h && y + h > l.y
     })
+  }
   const spot = { x: Math.round(at.x), y: Math.round(at.y) }
   return overlapsAt(spot.x, spot.y)
     ? { spot: freeSpotFor(w, h) }
