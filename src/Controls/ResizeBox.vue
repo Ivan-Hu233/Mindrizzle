@@ -212,7 +212,7 @@ onUnmounted(cleanup)
   border: 1px solid rgb(var(--v-theme-on-surface));
   box-shadow: 0 0 2px rgba(var(--v-theme-on-surface), 0.4);
   /* 与 Z_LAYER.resizeHandle 一致（CSS 无法引用 TS 常量） */
-  z-index: 1002;
+  z-index: 1003;
 }
 @media only screen and (max-width: 768px) {
   [class*="handle-"]:before {

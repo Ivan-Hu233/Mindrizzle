@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onUnmounted, watch } from 'vue'
 import { mdiPlus, mdiDragVerticalVariant } from '@mdi/js'
 import {
   BlockHandleAdd,
@@ -13,6 +13,7 @@ import { createStoreResolver, getScrollEl, getView } from './blockHandleUtils'
 import { useHoverState } from './useHoverState'
 import { useHoverUi } from './useHoverUi'
 import { useBlockDrag } from './useBlockDrag'
+import { activeHandleBlockId } from './blockHandleOwner'
 
 interface Props {
   dir?: 'ltr' | 'rtl'
@@ -55,6 +56,35 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
 const blockId = computed(() => {
   const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
   return wrapper?.dataset.id ?? null
+})
+
+// 因 blockId computed 依赖 props.editor 引用不变时不重算、挂载时序可能取到 null，
+// 故协调逻辑用函数实时查 DOM，避免 id 过期为 null 导致误隐藏自己
+const currentBlockId = () => getView(props.editor)?.dom?.closest('.drag-wrapper')?.dataset.id ?? null
+
+// 因模块级 ref 是响应式的，任一实例把 owner 改成别的块时其余实例立即收到更新并强制收起自己，
+// 保证同一时刻只显示离鼠标最近（最后激活）的块
+watch(activeHandleBlockId, (ownerId) => {
+  if (!ownerId) return
+  const id = currentBlockId()
+  if (id && ownerId !== id) suppressUI()
+})
+
+// 自己显隐变化时注册/注销 owner（仅在确实显示时占有，避免隐藏残留块仍占 owner）
+watch(handleVisible, (visible) => {
+  const id = currentBlockId()
+  if (visible && id) {
+    activeHandleBlockId.value = id
+  } else if (!visible && activeHandleBlockId.value === id) {
+    activeHandleBlockId.value = null
+  }
+})
+
+// 组件卸载时释放 owner，避免残留块 id 阻塞其他块显示
+onUnmounted(() => {
+  if (activeHandleBlockId.value === currentBlockId()) {
+    activeHandleBlockId.value = null
+  }
 })
 
 // 因行高亮 popup（top 放置）只有真正盖住块顶部正中间缩放手柄（.handle-tm）时才需隐藏该 tm，

@@ -33,7 +33,10 @@
       </v-fade-transition>
       <template v-for="item in state.items" :key="`handle-${item.id}`">
         <Transition name="pop-up">
-          <div v-if="isEditMode && state.selectedIds.has(item.id) && popupBlockId !== item.id" class="floating-handle drag-handle"
+          <!-- 因多选时各选中块都显示拖拽栏会互相干扰（"折叠"），故仅显示离鼠标最近（hover 命中）的块的拖拽栏；拖拽中只显源块 -->
+          <div v-if="isEditMode && state.selectedIds.has(item.id) && popupBlockId !== item.id
+            && (customDrag.active ? customDrag.sourceItemId === item.id : hoveredBlockId === item.id)"
+            class="floating-handle drag-handle"
             :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
             :data-id="item.id" :style="handleBarStyle(item)"
             @mousedown="(e: MouseEvent) => startCustomDrag(item, e)">
@@ -48,7 +51,9 @@
       <!-- 因富文本块级设置（高度自适应）需独立于内容区，故在块右侧单开一栏放齿轮按钮 -->
       <template v-for="item in state.items" :key="`side-${item.id}`">
         <Transition name="pop-up">
-          <div v-if="isEditMode && state.selectedIds.has(item.id) && item.component === 'RichTextEditor'"
+          <!-- 因与拖拽栏同为块浮层 UI，故同样只在 hover 命中块或拖拽源块上显示 -->
+          <div v-if="isEditMode && state.selectedIds.has(item.id) && item.component === 'RichTextEditor'
+            && (customDrag.active ? customDrag.sourceItemId === item.id : hoveredBlockId === item.id)"
             class="side-settings" :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
             :data-id="item.id" :style="sideSettingsStyle(item)">
             <v-menu location="bottom end" :close-on-content-click="false" :close-on-back="false">
@@ -495,12 +500,10 @@ const autoPanTick = () => {
     const compY = Math.round(panCompAcc.y)
     panCompAcc.x -= compX
     panCompAcc.y -= compY
-    // 因补偿仅对被拖块生效（拖拽中 customDragGroup 才有意义），故框选等场景不补偿任何块；
+    // 因补偿仅对被拖块生效（拖拽中 customDragItems 才有意义），故框选等场景不补偿任何块；
     // 否则上次拖拽残留的块会在框选自动滚动时被误当"被拖块"，出现块被移动/钉屏
     if (customDrag.active) {
-      Object.keys(customDragGroup).forEach((id) => {
-        const target = state.items.find((it) => it.id === id)
-        if (!target) return
+      customDragItems.forEach((target) => {
         const layout = layoutOf(target)
         if (!mobileMode.value) layout.x += compX
         layout.y += compY
@@ -800,8 +803,8 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
     top: `${handleTop}px`,
     left: `${roundToPx(layout.x + 10)}px`,
     height: `${roundToPx(HANDLE_HEIGHT)}px`,
-    // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z），故置 Z_LAYER.dragHandle：
-    // 低于选中描边环让描边连贯盖过拖拽栏，也低于缩放手柄不被其遮挡
+    // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z）且不被其他选中块盖住，
+    // 故置 Z_LAYER.dragHandle（1001）：高于选中块与描边环、低于缩放手柄
     zIndex: Z_LAYER.dragHandle,
     padding: '0 10px',
     display: 'flex',
@@ -836,12 +839,16 @@ const sideSettingsStyle = (item: CanvasItem): CSSProperties => {
 const OUTLINE_PX = 2
 const selectedOutlineStyle = (item: CanvasItem): CSSProperties => {
   const l = layoutOf(item)
+  // 因多选时"浮层归属块"的拖拽栏需盖住别的块高亮、又不遮断自己块高亮，
+  // 故归属块描边环用 outline（1002）在其上、其余选中块描边环降到 dragHandle 之下（1000）
+  const zIndex = outlineOwnerId.value === item.id ? Z_LAYER.outline : Z_LAYER.dragHandle - 1
   // 因 .canvas 整体 scale(zoom)，按块边缘视觉分别取整外扩，保证描边环贴齐块边缘
   return {
     left: `${roundToPx(l.x) - roundToPx(OUTLINE_PX)}px`,
     top: `${roundToPx(l.y) - roundToPx(OUTLINE_PX)}px`,
     width: `${roundToPx(l.w) + roundToPx(OUTLINE_PX * 2)}px`,
     height: `${roundToPx(l.h) + roundToPx(OUTLINE_PX * 2)}px`,
+    zIndex,
   }
 }
 // #endregion 手柄与描边样式
@@ -864,8 +871,12 @@ const customDrag = reactive({
   panStartY: 0,
   // 按下时 handle 的放置（top/bottom），拖拽中锁定该放置防 handlePlacementOf 切换导致 handle 跳位
   placementLocked: false,
+  // 拖拽源块 id（拖拽栏只显示该块的浮层，多选联动块不显示，避免"折叠"）
+  sourceItemId: null as string | null,
 })
 let customDragGroup: Record<string, { x: number; y: number }> = {}
+// 因拖拽中每帧按 id 遍历 state.items 查找会随块数增长卡顿，故会话开始时缓存被拖块引用到 Map
+let customDragItems = new Map<string, CanvasItem>()
 // 粘贴链接：记录已用曲别针"粘贴"的块对（key 为两 id 排序后 join），拖动一个时另一块跟着动
 const linkedPairs = ref<Set<string>>(new Set())
 const pairKey = (a: string, b: string) => [a, b].sort().join('|')
@@ -892,11 +903,22 @@ const toggleLink = (a: string, b: string) => {
   linkedPairs.value = next
 }
 
+// 因仅加 body 类需等下次 hover state-change 才让 popup/高亮收起，拖拽首帧会残留"折叠中"的 popup，
+// 故向所有编辑器派发块外指针事件，触发扩展失效缓冲立即清除 hover（body 类已置，state-change 会置 null）
+const hideAllBlockHandles = () => {
+  const emptyPoint = { bubbles: true, clientX: -9999, clientY: -9999, pointerId: 1 }
+  document.querySelectorAll<HTMLElement>('.ProseMirror').forEach((dom) => {
+    dom.dispatchEvent(new PointerEvent('pointermove', emptyPoint))
+    dom.dispatchEvent(new PointerEvent('pointerout', emptyPoint))
+  })
+}
+
 const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   if (e.button !== 0) return
   if (!isEditMode.value) return
   handleSelect(item.id, e)
   customDrag.active = true
+  customDrag.sourceItemId = item.id
   customDrag.startClientX = e.clientX
   customDrag.startClientY = e.clientY
   customDrag.panStartX = pan.x
@@ -904,9 +926,13 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   // 锁定按下时的 handle 放置，拖拽中不随 handlePlacementOf 切换（否则块拖到视口顶部时 handle 跳向块下方）
   customDrag.placementLocked = handlePlacementOf(item) === 'bottom'
   customDragGroup = {}
+  customDragItems = new Map()
   getSelectedItemIds(item).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
-    if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+    if (target) {
+      customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+      customDragItems.set(id, target)
+    }
   })
   // 因曲别针"粘贴"的块需随被拖块一起移动，故把链接传递可达的块也加入拖拽组；
   // 因移动端不启用块联结（曲别针隐藏），故仅桌面端收集
@@ -914,7 +940,10 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
     collectLinkedIds(item.id).forEach((id) => {
       if (customDragGroup[id]) return
       const target = state.items.find((it) => it.id === id)
-      if (target) customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+      if (target) {
+        customDragGroup[id] = { x: layoutOf(target).x, y: layoutOf(target).y }
+        customDragItems.set(id, target)
+      }
     })
   }
   window.addEventListener('pointermove', onCustomDragMove)
@@ -924,23 +953,39 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   e.preventDefault()
   // 因拖拽中鼠标会扫过编辑器触发 block-handle popup/高亮，故复用 body 类跨编辑器全局抑制
   document.body.classList.add('block-handle-dragging')
+  // 因仅加 body 类要等下次 hover state-change 才让 popup/高亮收起，拖拽首帧会残留折叠中的 popup，
+  // 故立即向所有编辑器派发块外指针事件，使其马上隐藏
+  hideAllBlockHandles()
   // 因拖拽中块可能超出视口使 document 出现竖向滚动条，故临时锁 html/body 滚动、松开恢复
   document.documentElement.style.overflow = 'hidden'
   document.body.style.overflow = 'hidden'
   startAutoPan() // 拖到视口边缘时画布自动平移
 }
 
+// 因 mousemove 触发频率高于帧率，多选时每帧更新多个块布局并做吸附计算，
+// 逐事件处理会堆积无效更新导致拖拽卡顿，故用 rAF 合并到每帧最多一次
+let customDragRafId = 0
+let customDragLastX = 0
+let customDragLastY = 0
+
 const onCustomDragMove = (e: MouseEvent) => {
   if (!customDrag.active) return
+  customDragLastX = e.clientX
+  customDragLastY = e.clientY
+  if (customDragRafId) return
+  customDragRafId = requestAnimationFrame(applyCustomDrag)
+}
+
+const applyCustomDrag = () => {
+  customDragRafId = 0
+  if (!customDrag.active) return
   // 因画布被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
-  const dx = (e.clientX - customDrag.startClientX) / zoom.value
-  const dy = (e.clientY - customDrag.startClientY) / zoom.value
+  const dx = (customDragLastX - customDrag.startClientX) / zoom.value
+  const dy = (customDragLastY - customDrag.startClientY) / zoom.value
   // 因 pan 是外部像素平移，换算成 content 位移需再除 zoom
   const panDx = (pan.x - customDrag.panStartX) / zoom.value
   const panDy = (pan.y - customDrag.panStartY) / zoom.value
-  Object.keys(customDragGroup).forEach((id) => {
-    const target = state.items.find((it) => it.id === id)
-    if (!target) return
+  customDragItems.forEach((target, id) => {
     const origin = customDragGroup[id]
     const layout = layoutOf(target)
     // 因块屏幕位置（= 块坐标 + pan）需落在整数像素上，故取整
@@ -1009,8 +1054,8 @@ const connectionPoint = (a: Rect, b: Rect): { x: number; y: number } => {
   return { x: (acx + bcx) / 2, y: (acy + bcy) / 2 }
 }
 
-// 因缩放手柄已 Teleport 到 .canvas 顶层（z=1000 高于曲别针 998），曲别针无需再让位，
-// 保持 CSS 的 z=998 即可在选中块（z=500）之上可点，故不再动态降 z
+// 因缩放手柄与曲别针的层级在 zIndex.ts 已固定（1002/1003）且缩放手柄 Teleport 到 .canvas 顶层，
+// 故曲别针无需运行时降 z，保持 CSS 层级即可在选中块之上可点
 
 // 因富文本开启"高度自适应"时块高由内容驱动、用户不可垂直缩放，故以此判定过滤垂直手柄
 const isAutoHeight = (item: CanvasItem): boolean =>
@@ -1083,11 +1128,17 @@ const resolveDragConflict = () => {
 
 const onCustomDragUp = () => {
   customDrag.active = false
+  customDrag.sourceItemId = null
   // 因冲突检测需读取拖拽组（被拖块及各自起点），故须在清空 customDragGroup 前执行，
   // 否则清空后 draggedIds 为空集、检测恒不命中
   resolveDragConflict()
   // 因拖拽组仅本会话有效，故结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
   customDragGroup = {}
+  customDragItems = new Map()
+  if (customDragRafId) {
+    cancelAnimationFrame(customDragRafId)
+    customDragRafId = 0
+  }
   window.removeEventListener('pointermove', onCustomDragMove)
   window.removeEventListener('pointerup', onCustomDragUp)
   window.removeEventListener('mousemove', onCustomDragMove)
@@ -1644,8 +1695,8 @@ const hitHandleGap = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
-// 因拖拽栏 z（998）可能低于 itemZ 递增后的普通块、被背后块盖住时 e.target 落在背后块上
-// closest('.drag-handle') 失效，故按坐标命中拖拽栏优先返回所属块，避免 hover 聚焦切到背后块
+// 因拖拽栏 z 提升到 1001（高于选中块）后，仍可能低于部分 itemZ 递增后的普通块覆盖，
+// 故按坐标命中拖拽栏优先返回所属块，避免 hover 聚焦切到背后块
 const hitHandleBar = (clientX: number, clientY: number): string | null => {
   let hit: string | null = null
   state.items.forEach((item) => {
@@ -1722,9 +1773,35 @@ const hitTestBlockAt = (e: MouseEvent): string | null => {
   return hitId
 }
 
+// 因"鼠标在空白处移动也要让浮层在选中块间切换显示（跟随离鼠标最近者）"，
+// 故按鼠标到各选中块矩形的最小距离取最近者（点在矩形内距离为 0，此处仅空白命中时调用）
+const nearestSelectedBlockId = (clientX: number, clientY: number): string | null => {
+  let bestId: string | null = null
+  let bestDist = Infinity
+  state.items.forEach((item) => {
+    if (!state.selectedIds.has(item.id)) return
+    const el = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${item.id}"]`)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const dx = Math.max(r.left - clientX, 0, clientX - r.right)
+    const dy = Math.max(r.top - clientY, 0, clientY - r.bottom)
+    const dist = Math.hypot(dx, dy)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestId = item.id
+    }
+  })
+  return bestId
+}
+
 // 因需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
 // 故画布 mousemove 时按坐标命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
 let lastHoverId: string | null = null
+// 因"多选时只显示离鼠标最近的块的浮层 UI（拖拽栏/设置栏）"，故无论单/多选都记录"命中或最近"的块 id 驱动显隐
+const hoveredBlockId = ref<string | null>(null)
+// 因多选时"浮层归属块（最近的块）"的拖拽栏需在别的块高亮之上、自己块高亮之下，
+// 故以该块 id 区分描边环层级（归属块 outline 之上、其余降到 dragHandle 之下）
+const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemId : hoveredBlockId.value)
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
@@ -1734,19 +1811,23 @@ const hoverFocusBlock = (e: MouseEvent) => {
   // 故 popup 激活期间不抢选中（popup 关闭后恢复）
   if (popupActiveBlockId.value) return
   if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
-  if (state.selectedIds.size > 1) return
-  const id = hitTestBlockAt(e)
+  const hitId = hitTestBlockAt(e)
+  // 因鼠标在空白处也需浮层跟随"离鼠标最近的选中块"切换，故空白时按距离取最近选中块
+  const id = hitId ?? nearestSelectedBlockId(e.clientX, e.clientY)
   if (id === lastHoverId) return
   lastHoverId = id
-  if (!id) {
+  hoveredBlockId.value = id
+  // 因多选时不抢选中（白板式反选仅单选生效），故命中后直接返回
+  if (state.selectedIds.size > 1) return
+  if (!hitId) {
     // 因需"鼠标移出所有块即取消选中"（白板式反选），故空白处清空选中；
     // 拖拽栏/设置栏等块附属 UI 已由 hitTestBlockAt 命中所属块 id，不会误走此分支
     state.selectedIds = new Set()
     return
   }
-  if (!state.items.some((i) => i.id === id)) return
-  state.selectedIds = new Set([id])
-  focusBlockContent(id)
+  if (!state.items.some((i) => i.id === hitId)) return
+  state.selectedIds = new Set([hitId])
+  focusBlockContent(hitId)
 }
 // #endregion 弹层与命中测试
 
@@ -2299,8 +2380,8 @@ defineExpose({
   position: absolute;
   border: 2px solid rgb(var(--v-theme-primary));
   pointer-events: none;
-  /* 因描边环需绘制在拖拽栏之上、又在缩放手柄之下，故置 Z_LAYER.outline（999） */
-  z-index: 999;
+  /* 因选中高亮边需绘制在拖拽栏之上（不被手柄遮断），故置 Z_LAYER.outline（1002） */
+  z-index: 1002;
   box-sizing: border-box;
 }
 
@@ -2316,8 +2397,8 @@ defineExpose({
   justify-content: center;
   border-radius: 50%;
   cursor: pointer;
-  /* 因曲别针需显示在选中描边环与大小手柄之上，故置 Z_LAYER.paperclip（1003，连接点曲别针优先） */
-  z-index: 1003;
+  /* 因曲别针需显示在选中描边环与大小手柄之上，故置 Z_LAYER.paperclip（1004，连接点曲别针优先） */
+  z-index: 1004;
   user-select: none;
   background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-theme-on-surface), 0.22);
@@ -2369,7 +2450,8 @@ defineExpose({
 .floating-handle {
   position: absolute;
   bottom: auto;
-  z-index: 999;
+  /* 因需高于选中块（块重叠时拖拽栏不被盖住），故置 Z_LAYER.dragHandle（1001） */
+  z-index: 1001;
 }
 
 /* 因 handle 出现时播放 pop-up 滑出动画，若动画未完成即开始拖拽，
@@ -2386,7 +2468,8 @@ body.block-handle-dragging .floating-handle {
   display: flex;
   align-items: center;
   cursor: grab;
-  background: rgba(var(--v-theme-on-surface), 0.06);
+  /* 因需不透明实底且贴合 Vuetify 主题，故用 surface 纯色替代原先 on-surface 低透明度 */
+  background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
@@ -2407,7 +2490,9 @@ body.block-handle-dragging .floating-handle {
 }
 
 .drag-handle:hover {
-  background: rgba(var(--v-theme-on-surface), 0.12);
+  /* 因 surface-variant 发黑、混色难看，故 hover 仅以主题色描边提示，背景保持不透明 surface */
+  background: rgb(var(--v-theme-surface));
+  border-color: rgb(var(--v-theme-primary));
 }
 
 .side-settings {
@@ -2416,7 +2501,8 @@ body.block-handle-dragging .floating-handle {
   display: flex;
   align-items: center;
   cursor: grab;
-  background: rgba(var(--v-theme-on-surface), 0.06);
+  /* 因需不透明实底且贴合 Vuetify 主题，故用 surface 纯色替代原先 on-surface 低透明度 */
+  background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
@@ -2433,6 +2519,11 @@ body.block-handle-dragging .floating-handle {
   border-top: 0;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-radius: 0 0 4px 4px;
+}
+.side-settings:hover {
+  /* 因 surface-variant 发黑、混色难看，故 hover 仅以主题色描边提示，背景保持不透明 surface */
+  background: rgb(var(--v-theme-surface));
+  border-color: rgb(var(--v-theme-primary));
 }
 .side-settings :deep(.v-btn) {
   height: 18px;
