@@ -1083,6 +1083,9 @@ const resolveDragConflict = () => {
 
 const onCustomDragUp = () => {
   customDrag.active = false
+  // 因冲突检测需读取拖拽组（被拖块及各自起点），故须在清空 customDragGroup 前执行，
+  // 否则清空后 draggedIds 为空集、检测恒不命中
+  resolveDragConflict()
   // 因拖拽组仅本会话有效，故结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
   customDragGroup = {}
   window.removeEventListener('pointermove', onCustomDragMove)
@@ -1094,7 +1097,6 @@ const onCustomDragUp = () => {
   document.body.classList.remove('block-handle-dragging')
   document.documentElement.style.overflow = ''
   document.body.style.overflow = ''
-  resolveDragConflict()
   maybeRebaseOrigin()
 }
 // #endregion 自定义拖拽与联结
@@ -1529,7 +1531,9 @@ const startSelection = (e: MouseEvent) => {
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
-  startAutoPan() // 框选拖到视口边缘时画布自动滚动
+  // 因"点击空白"也会激活框选会话，若在此立即启动 autoPan，
+  // 鼠标停在画布边缘（未拖动）就会被 autoPanTick 判为边缘而滚屏，
+  // 故推迟到 updateSelectionAt 真正拖出框选框后再启动
 }
 
 // 因框选自动滚动时鼠标可能停住（无 mousemove 驱动），故把"由坐标刷新框选"独立供 autoPan 每帧调用
@@ -1540,6 +1544,8 @@ const updateSelectionAt = (clientX: number, clientY: number) => {
   selectionState.currentX = (clientX - rect.left - pan.x - origin.x) / zoom.value
   selectionState.currentY = (clientY - rect.top - pan.y - origin.y) / zoom.value
   updateSelectionBox()
+  // 因 autoPan 已推迟至此处启动（见 startSelection），故仅在真正形成框选框后启动边缘自动滚动
+  if (selectionBox.value) startAutoPan()
 }
 
 const updateSelection = (e: MouseEvent) => {
@@ -1653,23 +1659,46 @@ const hitHandleBar = (clientX: number, clientY: number): string | null => {
 }
 
 // 因设置栏是块外浮层、可能盖在背后块矩形上（e.target 或被高 z 普通块盖住），
-// 故按坐标命中设置栏时标记，避免 hover 聚焦切到背后块
-const hitSettingsBar = (clientX: number, clientY: number): boolean => {
+// 故按坐标命中设置栏时返回所属块，避免 hover 聚焦切到背后块或误判为空白
+const hitSettingsBar = (clientX: number, clientY: number): string | null => {
   for (const item of state.items) {
     if (!state.selectedIds.has(item.id)) continue
     const el = document.querySelector<HTMLElement>(`.side-settings[data-id="${item.id}"]`)
     if (!el) continue
     const r = el.getBoundingClientRect()
-    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return true
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return item.id
   }
-  return false
+  return null
+}
+
+// 因 popup 已 Teleport 到 .canvas（块外浮层），鼠标移向 popup 经过其与块间的小空隙时
+// 会被判为"块外"而取消选中，故按坐标（含容差）命中 popup 并返回所属块；
+// 因 popup 紧贴块边缘、容差过大会误吞邻块空白，故取 4px 覆盖 1px 空隙即可
+const POPUP_HIT_MARGIN = 4
+const hitPopupBlock = (clientX: number, clientY: number): string | null => {
+  let hit: string | null = null
+  document.querySelectorAll<HTMLElement>('.block-handle-popup').forEach((el) => {
+    const blockId = el.dataset.blockId
+    if (!blockId) return
+    const r = el.getBoundingClientRect()
+    if (clientX >= r.left - POPUP_HIT_MARGIN && clientX <= r.right + POPUP_HIT_MARGIN &&
+        clientY >= r.top - POPUP_HIT_MARGIN && clientY <= r.bottom + POPUP_HIT_MARGIN) {
+      hit = blockId
+    }
+  })
+  return hit
 }
 
 // 因手柄提升到顶层、可能被别的块矩形框覆盖，故鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
 const hitTestBlockAt = (e: MouseEvent): string | null => {
   const target = e.target as HTMLElement
-  // 因设置栏是块外浮层（可能盖在背后块矩形上），鼠标悬停其上不聚焦背后的块
-  if (target.closest('.side-settings') || hitSettingsBar(e.clientX, e.clientY)) return null
+  // 因设置栏是块外浮层（可能盖在背后块矩形上），鼠标悬停其上视作所属块本体：
+  // 既避免聚焦背后块，也避免 hover 空白时误取消选中（设置栏仅选中块显示）
+  const settingsId = target.closest<HTMLElement>('.side-settings')?.dataset.id ?? hitSettingsBar(e.clientX, e.clientY)
+  if (settingsId) return settingsId
+  // 因 popup 是块外浮层（z 最高），鼠标在其上或其周边空隙时视作所属块本体，避免误取消选中
+  const popupHit = hitPopupBlock(e.clientX, e.clientY)
+  if (popupHit) return popupHit
   const handleEl = target.closest<HTMLElement>('.drag-handle')
   if (handleEl?.dataset.id) return handleEl.dataset.id
   const { clientX, clientY } = e
@@ -1709,7 +1738,13 @@ const hoverFocusBlock = (e: MouseEvent) => {
   const id = hitTestBlockAt(e)
   if (id === lastHoverId) return
   lastHoverId = id
-  if (!id || !state.items.some((i) => i.id === id)) return
+  if (!id) {
+    // 因需"鼠标移出所有块即取消选中"（白板式反选），故空白处清空选中；
+    // 拖拽栏/设置栏等块附属 UI 已由 hitTestBlockAt 命中所属块 id，不会误走此分支
+    state.selectedIds = new Set()
+    return
+  }
+  if (!state.items.some((i) => i.id === id)) return
   state.selectedIds = new Set([id])
   focusBlockContent(id)
 }

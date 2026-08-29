@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { mdiPlus, mdiDragVerticalVariant } from '@mdi/js'
 import {
   BlockHandleAdd,
@@ -48,6 +48,13 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   editor: props.editor ?? null,
   hoveredBlock,
   suppressUI,
+})
+
+// 因 popup 已 Teleport 到 .canvas（脱离 wrapper DOM），画布需经 data-block-id 反查所属块，
+// 故从 wrapper 取块 id 绑定到 popup（watcher 内亦用同款取法）
+const blockId = computed(() => {
+  const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
+  return wrapper?.dataset.id ?? null
 })
 
 // 因行高亮 popup（top 放置）只有真正盖住块顶部正中间缩放手柄（.handle-tm）时才需隐藏该 tm，
@@ -133,6 +140,7 @@ const onPopupWheel = (e: WheelEvent) => {
       >
       <BlockHandlePopup
         class="block-handle-popup"
+        :data-block-id="blockId"
         :class="{ 'popup-keep': popupKeep, 'forced-open': handleVisible, 'ui-hidden': !handleVisible }"
         @pointerenter="onPopupEnter"
         @pointerleave="onPopupLeave"
@@ -211,6 +219,39 @@ const onPopupWheel = (e: WheelEvent) => {
   scale: 1;
   position: relative;
   z-index: 1;
+}
+
+/* 因 popup 与行/块之间有间距空隙，鼠标经过空隙时块与 popup 的 pointerleave 先后触发、
+   未及进入 popup 就会先执行 100ms 失效清理让 popup 消失，故用伪元素向块方向扩展透明桥接区
+   （继承 popup 的 pointer-events:auto），使鼠标在空隙时即触发 popup 的 pointerenter 保持显示 */
+.block-handle-popup::before {
+  content: '';
+  position: absolute;
+  pointer-events: auto;
+}
+.block-handle-positioner.placement-top .block-handle-popup::before {
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 24px;
+}
+.block-handle-positioner.placement-bottom .block-handle-popup::before {
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 24px;
+}
+.block-handle-positioner.placement-right .block-handle-popup::before {
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 24px;
+}
+.block-handle-positioner.placement-left .block-handle-popup::before {
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 24px;
 }
 
 /* 因滚动条出现使文本右缘左移、右侧 popup 会偏移不对称，故按滚动条宽度（--block-handle-hshift）向右推回贴齐块外边缘 */

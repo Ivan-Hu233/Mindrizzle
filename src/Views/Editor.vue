@@ -1,13 +1,13 @@
 <template>
   <v-sheet class="editor-wrapper">
     <v-container class="toolbar">
-      <v-btn @click="save">保存</v-btn>
-      <v-btn @click="load">加载</v-btn>
+      <!-- <v-btn @click="save">保存</v-btn>
+      <v-btn @click="load">加载</v-btn> -->
       <v-btn v-for="comp in OJCRef?.ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="OJCRef?.addComponent(comp.key)">
         ➕ 添加{{ comp.label }}
       </v-btn>
       <v-btn-toggle
-        
+        v-if="componentOf == 'RichTextEditor' && OJCRef?.isEditMode"
         :model-value="opIdx"
         @update:model-value="onSelectOption"
         mandatory
@@ -25,7 +25,6 @@
       <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="OJCRef?.state.selectedIds.size === 0">
         删除
       </v-btn>
-      <!-- 等比例缩放画布：仅视觉 scale，交互坐标按 /zoom 换算 -->
       <v-slider
         class="zoom-slider"
         :model-value="OJCRef?.zoom ?? 1"
@@ -45,7 +44,7 @@
         <v-card class="apply-card" min-width="240" :class="{ 'place-below': overlayPos.below }"
           :style="{ left: `${overlayPos.left}px`, top: `${overlayPos.top}px` }">
           <v-card-text class="text-center">
-            应用「{{ pendingLabel }}」？
+            切换「{{ pendingLabel }}」？
           </v-card-text>
           <v-card-actions class="justify-space-between">
             <span class="text-caption text-medium-emphasis ml-3">右键取消</span>
@@ -67,7 +66,6 @@ const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
 const getComponentRefs = (): Record<string, ComponentController | undefined> =>
   OJCRef.value!.componentRefs as unknown as Record<string, ComponentController | undefined>
 
-// 因标题命令仅富文本块支持且批量操作语义不清晰，故工具栏仅"单选富文本块"时显示
 const componentOf = computed(() => {
   const ids = OJCRef.value?.state.selectedIds ?? new Set<string>()
   if (ids.size !== 1) return false
