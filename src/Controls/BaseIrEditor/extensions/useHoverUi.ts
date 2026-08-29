@@ -160,6 +160,8 @@ export function useHoverUi(options: {
   // 故监听 OJCanvas 派发的画布变换事件（首次 hover 时才挂载）；
   // OJCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），故此处直接重算即可
   function onCanvasTransform() {
+    // 因无 hover 的编辑器高亮/popup 均未显示，平移中每帧派发下跳过可显著减负（块多时收益明显）
+    if (!hoveredBlock.value && !activeHover.value) return
     updateHoverUi()
   }
   function ensureLeaveListener() {

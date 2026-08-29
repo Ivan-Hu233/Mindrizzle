@@ -1,11 +1,21 @@
 <template>
   <v-sheet class="editor-wrapper">
-    <v-container class="toolbar">
+    <v-container class="toolbar" style="height: 133px;">
       <!-- <v-btn @click="save">保存</v-btn>
       <v-btn @click="load">加载</v-btn> -->
-      <v-btn v-for="comp in OJCRef?.ADDABLE_COMPONENTS" :key="comp.key" :data-test="comp.addId" @click="OJCRef?.addComponent(comp.key)">
-        ➕ 添加{{ comp.label }}
-      </v-btn>
+      <!-- 因无选中块时进入"添加块"状态，故用单选组展示当前添加类型（滚轮切换、左键直接添加），
+           交互与富文本格式操作一致但不再弹确认 overlay -->
+      <v-btn-toggle
+        v-if="!hasSelection && OJCRef?.isEditMode"
+        :model-value="addIdx"
+        @update:model-value="onSelectAdd"
+        mandatory
+      >
+        <v-btn v-for="(opt, index) in ADD_OPTIONS" :key="opt.key" :value="index" :data-test="opt.addId">
+          <v-icon :icon="opt.icon" class="mr-1" />
+          {{ opt.label }}
+        </v-btn>
+      </v-btn-toggle>
       <v-btn-toggle
         v-if="componentOf == 'RichTextEditor' && OJCRef?.isEditMode"
         :model-value="opIdx"
@@ -58,8 +68,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { mdiFormatHeader1, mdiFormatUnderline , mdiFormatBold, mdiFormatItalic, mdiMouse } from '@mdi/js'
+import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces } from '@mdi/js'
 import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
+import { screenToContent } from '../utils/canvasCoords'
 
 const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
 
@@ -72,6 +83,30 @@ const componentOf = computed(() => {
   const id = Array.from(ids)[0]
   return OJCRef.value?.state.items.find((it) => it.id === id)?.component
 })
+
+// 因无选中块时进入"添加块"状态，滚轮在两种类型间循环、左键直接添加，故集中为单一常量源
+const ADD_OPTIONS = [
+  { key: 'RichTextEditor', label: '富文本', icon: mdiNoteText, addId: 'add-rich' },
+  { key: 'EditableCodeBlock', label: '代码块', icon: mdiCodeBraces, addId: 'add-code' },
+] as const
+const hasSelection = computed(() => (OJCRef.value?.state.selectedIds.size ?? 0) > 0)
+// 因添加块类型需单选高亮且默认首项，故记录当前索引
+const addIdx = ref(0)
+const onSelectAdd = (index: number | null) => {
+  if (index == null) return
+  addIdx.value = index
+}
+
+// 因添加块预览需随"当前类型/是否有选中/编辑态"同步，故经 OJCanvas.setAddPreview 驱动
+watch(
+  [addIdx, hasSelection, () => OJCRef.value?.isEditMode],
+  () => {
+    const ojc = OJCRef.value
+    if (!ojc) return
+    ojc.setAddPreview(hasSelection.value || !ojc.isEditMode ? null : ADD_OPTIONS[addIdx.value]?.key ?? null)
+  },
+  { immediate: true },
+)
 
 // 因按钮项各自携带图标与操作且轮换按索引推进，故集中为单一常量源
 const OPTIONS = [
@@ -108,10 +143,17 @@ const isOnScrollbar = (e: WheelEvent): boolean => {
 }
 
 // 因需整个界面任意位置滚轮循环切换按钮项，故按 deltaY 方向在索引间循环；
-// 因仅选中富文本块时才有按钮组，故此时才拦截滚轮；
+// 因无选中块时处于"添加块"状态，滚轮在添加类型间循环；有富文本选中时循环格式操作；
 // 因编辑器/文本框内滚轮需滚动内容，故豁免，避免循环切项挡住阅读
 const cycleOption = (e: WheelEvent) => {
-  if (componentOf.value !== 'RichTextEditor' || isOnScrollbar(e)) return
+  if (isOnScrollbar(e)) return
+  if (!hasSelection.value) {
+    e.preventDefault()
+    const len = ADD_OPTIONS.length
+    addIdx.value = e.deltaY > 0 ? (addIdx.value + 1) % len : (addIdx.value - 1 + len) % len
+    return
+  }
+  if (componentOf.value !== 'RichTextEditor') return
   e.preventDefault()
   const len = OPTIONS.length
   const next = e.deltaY > 0 ? (opIdx.value + 1) % len : (opIdx.value - 1 + len) % len
@@ -137,8 +179,29 @@ const pendingLabel = computed(() => OPTIONS[pendingActionIndex.value]?.label ?? 
 // 因 v-card 需显示在选区附近，故记录选区矩形的中心 x 与上缘 y（上方空间不足时改放下方）
 const overlayPos = ref({ left: 0, top: 0, below: false })
 
-const onMouseUp = () => {
+// 因"左键在画布处添加块"需落在鼠标位置，故把视口鼠标坐标经 utils 统一换算为画布 content 坐标
+const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null => {
+  const cont = document.querySelector<HTMLElement>('.canvas-container')
+  const ojc = OJCRef.value
+  if (!cont || !ojc) return null
+  return screenToContent(
+    { zoom: ojc.zoom, origin: ojc.origin, pan: ojc.pan },
+    cont.getBoundingClientRect(),
+    e.clientX,
+    e.clientY,
+  )
+}
+
+const onMouseUp = (e: MouseEvent) => {
   if (pendingApply.value) return // 询问中不重复触发
+  // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
+  if (!hasSelection.value) {
+    if (!OJCRef.value?.isEditMode || e.button !== 0) return
+    if ((e.target as HTMLElement).closest('.toolbar')) return
+    const key = ADD_OPTIONS[addIdx.value]?.key
+    if (key) OJCRef.value?.addComponent(key, canvasPointFromMouse(e) ?? undefined)
+    return
+  }
   if (componentOf.value !== 'RichTextEditor' || Date.now() < applyLockUntil || !selectionInBlock()) return
   if (opIdx.value === 0) return // 指针模式无可应用操作
   applyLockUntil = Date.now() + 300

@@ -94,6 +94,15 @@
           <v-icon size="16" :icon="mdiPaperclip" />
         </div>
       </template>
+
+      <!-- 添加块预览：无选中块时以主题色虚线框标出将添加的块并标注类型 -->
+      <div v-if="addPreviewPos && addPreviewKey && previewVisible" class="add-preview" :style="addPreviewStyle">
+        <span class="add-preview-label">{{ componentLabelOf(addPreviewKey) }}</span>
+      </div>
+    </div>
+    <!-- 因预览框在视口外时需在鼠标旁指示方向，故箭头定位在容器层（屏幕坐标、不随画布变换） -->
+    <div v-if="addPreviewPos && addPreviewKey && !previewVisible" class="add-preview-arrow" :style="previewArrowStyle">
+      <v-icon :icon="mdiArrowUp" size="16" />
     </div>
   </v-sheet>
 </template>
@@ -128,11 +137,12 @@ export interface ComponentController {
 import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch, type CSSProperties } from 'vue'
 import ResizeBox from './ResizeBox.vue'
 
-import { mdiDragVariant, mdiPaperclip, mdiCogOutline } from '@mdi/js'
+import { mdiDragVariant, mdiPaperclip, mdiCogOutline, mdiArrowUp } from '@mdi/js'
 import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
 import { Z_LAYER } from './zIndex'
+import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform } from '../utils/canvasCoords'
 
 import { useDisplay } from 'vuetify'
 
@@ -283,6 +293,12 @@ const setCanvasContainerRef = (el: unknown) => {
   canvasContainerRef.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
 }
 const canvasWidth = ref(0)
+// 因容器视口偏移在平移/预览每帧被多次读取、getBoundingClientRect 会触发布局 reflow，故缓存并在挂载/resize 时刷新
+const viewRect = ref<{ left: number; top: number; right: number; bottom: number } | null>(null)
+const refreshViewRect = () => {
+  const cr = canvasContainerRef.value?.getBoundingClientRect()
+  viewRect.value = cr ? { left: cr.left, top: cr.top, right: cr.right, bottom: cr.bottom } : null
+}
 // #endregion 画布状态与 z 层
 
 // 因块以世界坐标自由放置（VDR 无 parent 不受边界约束）且平移无界，
@@ -294,6 +310,13 @@ const isPanning = ref(false)
 // 因块坐标无限增长会导致数据溢出，故坐标过大时重定位画布原点
 // （块坐标整体平移并入 origin，屏幕位置 = 存储坐标 + origin + pan 不变）
 const origin = reactive({ x: 0, y: 0 })
+
+// 因坐标换算需统一的 transform（zoom/origin/pan），故构造一次性快照供 utils 换算复用
+const canvasTransform = (): CanvasTransform => ({
+  zoom: zoom.value,
+  origin: { x: origin.x, y: origin.y },
+  pan: { x: pan.x, y: pan.y },
+})
 
 const rebaseOrigin = (offset: { x: number; y: number }) => {
   const dx = Math.round(offset.x) || 0
@@ -340,8 +363,8 @@ const panSession = reactive({
 // #region 缩放与画布变换
 const zoom = ref(1)
 // 因 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致边缘/内容模糊，渲染层统一圆整到整数视觉像素
-const roundToPx = (v: number) => Math.round(v * zoom.value) / zoom.value
-const visualY = (v: number) => Math.round(v * zoom.value) + Math.round(pan.y + origin.y)
+const roundToPx = (v: number) => roundToVisual(zoom.value, v)
+const visualY = (v: number) => contentToVisual(canvasTransform(), 0, v).y
 
 // 因浏览器对 transform scale 的合成层按旧 scale 光栅化纹理、放大后显示旧纹理会模糊
 // （交互/内容变化才触发重新光栅化），故 zoom 变化后先销毁再重建 .canvas 合成层强制按新比例光栅化
@@ -576,18 +599,33 @@ const handleCanvasMouseDownCapture = (e: MouseEvent) => {
   e.stopPropagation()
 }
 
+// 因 mousemove 触发频率高于帧率，且块多时每次 pan 更新会触发 watch → 逐编辑器重算高亮/位置，
+// 逐事件处理会堆积无效更新导致右键拖拽卡顿，故用 rAF 合并到每帧最多一次
+let panRafId = 0
+let panTargetX = 0
+let panTargetY = 0
 const updatePan = (e: MouseEvent) => {
   if (!panSession.active) return
   // 因 .canvas 变换 translate(round(pan+origin)) 的平移量是外部像素（不受 scale 影响），故 pan 按视口像素直接累加、不除 zoom
-  const nx = panSession.startPanX + (e.clientX - panSession.startClientX)
-  const ny = panSession.startPanY + (e.clientY - panSession.startClientY)
+  panTargetX = panSession.startPanX + (e.clientX - panSession.startClientX)
+  panTargetY = panSession.startPanY + (e.clientY - panSession.startClientY)
+  if (panRafId) return
+  panRafId = requestAnimationFrame(applyPan)
+}
+const applyPan = () => {
+  panRafId = 0
+  if (!panSession.active) return
   // 因触摸/缩放屏下 clientX 可能为小数、亚像素平移会致界面模糊，故取整
   // 因移动端锁水平，故仅竖直方向平移、水平锁定
-  pan.x = mobileMode.value ? 0 : Math.round(nx)
-  pan.y = Math.round(ny)
+  pan.x = mobileMode.value ? 0 : Math.round(panTargetX)
+  pan.y = Math.round(panTargetY)
 }
 
 const stopPan = () => {
+  if (panRafId) {
+    cancelAnimationFrame(panRafId)
+    panRafId = 0
+  }
   if (!panSession.active) return
   panSession.active = false
   isPanning.value = false
@@ -1576,9 +1614,10 @@ const startSelection = (e: MouseEvent) => {
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  // 因事件已挂容器级而 .canvas 自带 pan 平移与 scale(zoom)，故换算存储坐标 = (视口 - 容器位置 - pan - origin) / zoom
-  selectionState.startX = (e.clientX - rect.left - pan.x - origin.x) / zoom.value
-  selectionState.startY = (e.clientY - rect.top - pan.y - origin.y) / zoom.value
+  // 因事件已挂容器级而 .canvas 自带 pan 平移与 scale(zoom)，故用 utils 统一换算视口→content
+  const pt = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
+  selectionState.startX = pt.x
+  selectionState.startY = pt.y
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
@@ -1592,8 +1631,9 @@ const updateSelectionAt = (clientX: number, clientY: number) => {
   if (!selectionState.active) return
   const rect = canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
-  selectionState.currentX = (clientX - rect.left - pan.x - origin.x) / zoom.value
-  selectionState.currentY = (clientY - rect.top - pan.y - origin.y) / zoom.value
+  const pt = screenToContent(canvasTransform(), rect, clientX, clientY)
+  selectionState.currentX = pt.x
+  selectionState.currentY = pt.y
   updateSelectionBox()
   // 因 autoPan 已推迟至此处启动（见 startSelection），故仅在真正形成框选框后启动边缘自动滚动
   if (selectionBox.value) startAutoPan()
@@ -1608,7 +1648,113 @@ const updateSelection = (e: MouseEvent) => {
 const onCanvasMousemove = (e: MouseEvent) => {
   updateSelection(e)
   hoverFocusBlock(e)
+  updateAddPreview(e)
 }
+
+// 因"添加块状态"需在鼠标处显示将添加块的主题色预览框（无选中块且编辑态时跟随鼠标），
+// 故由 Editor 通过 addPreviewKey 指定当前添加类型、此处只负责记录鼠标的 content 坐标；
+// 因 mousemove 频率高于帧率、且落位解析需遍历块检测重叠，故用 rAF 合并到每帧最多一次
+const addPreviewKey = ref<CanvasItem['component'] | null>(null)
+const addPreviewPos = ref<{ x: number; y: number } | null>(null)
+let previewTarget: { x: number; y: number } | null = null
+let previewRafId = 0
+const updateAddPreview = (e: MouseEvent) => {
+  if (!isEditMode.value || state.selectedIds.size > 0 || !addPreviewKey.value) {
+    if (previewRafId) cancelAnimationFrame(previewRafId)
+    previewRafId = 0
+    previewTarget = null
+    if (addPreviewPos.value) addPreviewPos.value = null
+    return
+  }
+  const rect = viewRect.value ?? canvasContainerRef.value?.getBoundingClientRect()
+  if (!rect) return
+  previewTarget = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
+  if (previewRafId) return
+  previewRafId = requestAnimationFrame(() => {
+    previewRafId = 0
+    if (previewTarget) addPreviewPos.value = previewTarget
+  })
+}
+
+// 因 Editor 需把当前添加类型同步给预览层，故经方法设置（避免直接暴露 ref 的类型解包问题）
+const setAddPreview = (key: CanvasItem['component'] | null) => {
+  if (previewRafId) cancelAnimationFrame(previewRafId)
+  previewRafId = 0
+  addPreviewKey.value = key
+  if (!key) addPreviewPos.value = null
+}
+
+// 因预览框需显示"实际放置位置"（鼠标处不重叠用鼠标处、重叠则自动排列），
+// 与真正添加时 resolveAddSpot 一致，故经同一解析函数计算（仅取 spot，manual 仅添加时用）
+const addPreviewSpot = computed(() => {
+  const key = addPreviewKey.value
+  const pos = addPreviewPos.value
+  if (!key || !pos) return null
+  return resolveAddSpot(key, pos).spot
+})
+
+// 因移动端块宽度按画布拉伸（x 恒 0），故预览宽度取画布宽而非默认尺寸
+const previewWidthOf = (key: CanvasItem['component']): number => {
+  const meta = componentMetaOf(key)
+  if (mobileMode.value) return canvasWidth.value || meta?.defaultSize.w || 0
+  return meta?.defaultSize.w ?? 0
+}
+
+// 预览框与鼠标指示的屏幕几何（content 坐标换算成视口像素，供可见性判断与箭头定位）
+const previewGeometry = computed(() => {
+  const key = addPreviewKey.value
+  const spot = addPreviewSpot.value
+  if (!key || !spot) return null
+  const cr = viewRect.value
+  if (!cr) return null
+  const z = zoom.value
+  const w = previewWidthOf(key)
+  const h = componentMetaOf(key)?.defaultSize.h ?? 0
+  const sc = contentToScreen(canvasTransform(), cr, spot.x, spot.y)
+  return {
+    left: sc.x,
+    top: sc.y,
+    right: sc.x + w * z,
+    bottom: sc.y + h * z,
+    centerX: sc.x + (w * z) / 2,
+    centerY: sc.y + (h * z) / 2,
+  }
+})
+const previewVisible = computed(() => {
+  const g = previewGeometry.value
+  const cr = viewRect.value
+  if (!g || !cr) return false
+  return g.left < cr.right && g.right > cr.left && g.top < cr.bottom && g.bottom > cr.top
+})
+// 因预览框在视口外时需在鼠标旁用小箭头指示其方向，故按预览中心相对鼠标的方向角定位箭头；
+// 因箭头定位在容器层（相对坐标），故用鼠标视口坐标减去容器偏移；方向角用视口坐标差（两者同坐标系）
+const previewArrowStyle = computed<CSSProperties>(() => {
+  const g = previewGeometry.value
+  const cr = viewRect.value
+  if (!g || !cr) return {}
+  const vx = mouseScreen.value.x
+  const vy = mouseScreen.value.y
+  const ang = Math.atan2(g.centerY - vy, g.centerX - vx)
+  const radius = 22
+  return {
+    left: `${vx - cr.left + Math.cos(ang) * radius}px`,
+    top: `${vy - cr.top + Math.sin(ang) * radius}px`,
+    transform: `translate(-50%, -50%) rotate(${ang + Math.PI / 2}rad)`,
+  }
+})
+// 因预览框 z 需高于普通块（且仅在无选中块时显示、与选中态浮层不冲突），故复用 Z_LAYER.outline
+const addPreviewStyle = computed<CSSProperties>(() => {
+  const key = addPreviewKey.value
+  const spot = addPreviewSpot.value
+  if (!key || !spot) return {}
+  return {
+    left: `${roundToPx(spot.x)}px`,
+    top: `${roundToPx(spot.y)}px`,
+    width: `${roundToPx(previewWidthOf(key))}px`,
+    height: `${roundToPx(componentMetaOf(key)?.defaultSize.h ?? 0)}px`,
+    zIndex: Z_LAYER.outline,
+  }
+})
 
 // 因画布容器 overflow:hidden 但内容会溢出，聚焦编辑器触发的默认 scrollIntoView
 // 会把容器滚出偏移、导致整个画面位移，故归零容器滚动并由 pan 独占控制位置
@@ -1802,6 +1948,8 @@ const hoveredBlockId = ref<string | null>(null)
 // 因多选时"浮层归属块（最近的块）"的拖拽栏需在别的块高亮之上、自己块高亮之下，
 // 故以该块 id 区分描边环层级（归属块 outline 之上、其余降到 dragHandle 之下）
 const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemId : hoveredBlockId.value)
+// 因选中/取消选中只应随"鼠标是否真的在块上"变化（浮层的最近块回退不影响选中），故单独跟踪真正的命中块
+let lastHitId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
@@ -1814,11 +1962,15 @@ const hoverFocusBlock = (e: MouseEvent) => {
   const hitId = hitTestBlockAt(e)
   // 因鼠标在空白处也需浮层跟随"离鼠标最近的选中块"切换，故空白时按距离取最近选中块
   const id = hitId ?? nearestSelectedBlockId(e.clientX, e.clientY)
-  if (id === lastHoverId) return
-  lastHoverId = id
-  hoveredBlockId.value = id
+  if (id !== lastHoverId) {
+    lastHoverId = id
+    hoveredBlockId.value = id
+  }
   // 因多选时不抢选中（白板式反选仅单选生效），故命中后直接返回
   if (state.selectedIds.size > 1) return
+  // 因鼠标所在块未变化时不重复处理选中/取消（含空白处移动），故以真正命中的块去重
+  if (hitId === lastHitId) return
+  lastHitId = hitId
   if (!hitId) {
     // 因需"鼠标移出所有块即取消选中"（白板式反选），故空白处清空选中；
     // 拖拽栏/设置栏等块附属 UI 已由 hitTestBlockAt 命中所属块 id，不会误走此分支
@@ -1957,7 +2109,10 @@ watch(
   }
 )
 
-const onResize = () => refreshLayout()
+const onResize = () => {
+  refreshViewRect()
+  refreshLayout()
+}
 // #endregion 数据同步与布局刷新
 
 // 移动端自动布局：未排的块按桌面端阅读顺序纵向堆叠在已排块下方（x 恒 0，宽度由 applyMobileLayout 拉伸）
@@ -2066,11 +2221,44 @@ const panToBlock = (id: string) => {
   pan.y = Math.round(vh / 2 - origin.y - cy)
 }
 
-const addComponent = (key: CanvasItem['component']) => {
+// 因需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，故判断块矩形与视口可见区是否相交
+const isRectVisibleInViewport = (rect: Rect): boolean => {
+  const cont = canvasContainerRef.value
+  if (!cont) return true
+  const cr = cont.getBoundingClientRect()
+  const tl = contentToScreen(canvasTransform(), cr, rect.x, rect.y)
+  const br = contentToScreen(canvasTransform(), cr, rect.x + rect.w, rect.y + rect.h)
+  return tl.x < cr.right && br.x > cr.left && tl.y < cr.bottom && br.y > cr.top
+}
+
+// 因"落位"（鼠标处不重叠用鼠标处、重叠则自动排列）需添加与预览共用，故抽出统一解析
+const resolveAddSpot = (key: CanvasItem['component'], at?: { x: number; y: number }): { spot: { x: number; y: number } } => {
+  const meta = componentMetaOf(key)
+  if (!meta) return { spot: { x: 0, y: 0 } }
+  if (!at) return { spot: freeSpotFor(meta.defaultSize.w, meta.defaultSize.h) }
+  if (mobileMode.value) {
+    // 移动端锁水平（x 恒 0、宽贴屏），但 y 跟随鼠标位置
+    return { spot: { x: 0, y: Math.round(at.y) } }
+  }
+  const { w, h } = meta.defaultSize
+  const overlapsAt = (x: number, y: number) =>
+    state.items.some((it) => {
+      const l = layoutOf(it)
+      return x < l.x + l.w && x + w > l.x && y < l.y + l.h && y + h > l.y
+    })
+  const spot = { x: Math.round(at.x), y: Math.round(at.y) }
+  return overlapsAt(spot.x, spot.y)
+    ? { spot: freeSpotFor(w, h) }
+    : { spot }
+}
+
+const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number }) => {
   const meta = componentMetaOf(key)
   if (!meta) return
   const id = generateId()
-  const { x, y } = freeSpotFor(meta.defaultSize.w, meta.defaultSize.h)
+  // 因需"在鼠标位置添加"，故经 resolveAddSpot 解析：鼠标处不重叠用鼠标处、重叠则自动排列（与预览一致）
+  const { spot } = resolveAddSpot(key, at)
+  const { x, y } = spot
   const newItem: CanvasItem = {
     id,
     component: key,
@@ -2087,9 +2275,8 @@ const addComponent = (key: CanvasItem['component']) => {
   if (mobileMode.value && canvasWidth.value > 0) {
     stretchMobileWidth(newItem)
   }
-  // 因新块可能落在视口外（移动端追加到列表末尾、桌面端视口已满时兜底放块群下方），
-  // 故添加后平移视角到新块，使其在视口内居中可见
-  panToBlock(newItem.id)
+  // 因需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，故按新块是否在视口可见区判断
+  if (!isRectVisibleInViewport(layoutOf(newItem))) panToBlock(newItem.id)
 }
 // #endregion 自动布局与添加
 
@@ -2244,6 +2431,7 @@ const abortSessions = () => {
 }
 
 onMounted(() => {
+  refreshViewRect()
   nextTick(refreshLayout)
   // 因整个视口（含负坐标区域、世界层外区域）右键拖拽都需平移，故捕获监听挂在视口容器上
   canvasContainerRef.value?.addEventListener('mousedown', handleCanvasMouseDownCapture, true)
@@ -2313,6 +2501,7 @@ defineExpose({
   updateLanguage,
   setComponentRef,
   addComponent,
+  setAddPreview,
   save,
   load,
   rebaseOrigin,
@@ -2383,6 +2572,40 @@ defineExpose({
   /* 因选中高亮边需绘制在拖拽栏之上（不被手柄遮断），故置 Z_LAYER.outline（1002） */
   z-index: 1002;
   box-sizing: border-box;
+}
+
+/* 添加块预览：主题色虚线框 + 半透明填充标出将添加的块（z 由 addPreviewStyle 置 Z_LAYER.outline） */
+.add-preview {
+  position: absolute;
+  border: 2px dashed rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.add-preview-label {
+  position: absolute;
+  top: -26px;
+  left: -2px;
+  background: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* 因预览框在视口外时需在鼠标旁指示方向，箭头定位在容器层（屏幕坐标、不随画布变换） */
+.add-preview-arrow {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--v-theme-primary));
+  pointer-events: none;
+  z-index: 1002;
 }
 
 /* 曲别针：表面色圆底 + 描边 + 阴影使其在画布/块边缘清晰可辨；
