@@ -1653,13 +1653,14 @@ const onCanvasMousemove = (e: MouseEvent) => {
 
 // 因"添加块状态"需在鼠标处显示将添加块的主题色预览框（无选中块且编辑态时跟随鼠标），
 // 故由 Editor 通过 addPreviewKey 指定当前添加类型、此处只负责记录鼠标的 content 坐标；
-// 因落位解析每帧需遍历块检测重叠（O(N)）、块多时开销大，故节流到 ~30fps 足够预览跟随
+// 因落位解析每帧需遍历块检测重叠（O(N)）、块多时开销大，故节流到 ~30fps 足够预览跟随；
+// 因左键拖拽（框选/拖块）进行中需隐藏预览，故这些会话激活时清空
 const addPreviewKey = ref<CanvasItem['component'] | null>(null)
 const addPreviewPos = ref<{ x: number; y: number } | null>(null)
 const PREVIEW_UPDATE_MS = 33
 let previewLastTs = 0
 const updateAddPreview = (e: MouseEvent) => {
-  if (!isEditMode.value || state.selectedIds.size > 0 || !addPreviewKey.value) {
+  if (!isEditMode.value || state.selectedIds.size > 0 || !addPreviewKey.value || selectionState.active || customDrag.active) {
     previewLastTs = 0
     if (addPreviewPos.value) addPreviewPos.value = null
     return
@@ -1936,6 +1937,8 @@ const hoveredBlockId = ref<string | null>(null)
 const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemId : hoveredBlockId.value)
 // 因选中/取消选中只应随"鼠标是否真的在块上"变化（浮层的最近块回退不影响选中），故单独跟踪真正的命中块
 let lastHitId: string | null = null
+// 因"添加块后不自动选中"（保持无选中以连续添加），故记录最近添加的块 id，鼠标在其上时忽略 hover 选中
+let recentAddId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
@@ -2281,6 +2284,8 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   }
   // 因需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，故按新块是否在视口可见区判断
   if (!isRectVisibleInViewport(layoutOf(newItem))) panToBlock(newItem.id)
+  // 因"添加块后不自动选中"（保持无选中以便连续添加），故锁定新块：鼠标在其上时忽略 hover 选中
+  recentAddId = newItem.id
 }
 // #endregion 自动布局与添加
 

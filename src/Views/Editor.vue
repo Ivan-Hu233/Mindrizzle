@@ -192,12 +192,28 @@ const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null =>
   )
 }
 
+// 因需区分"左键简单点击添加"与"左键拖动（框选）结束不添加"，故记录按下位置供 mouseup 比较位移
+const CLICK_DRAG_THRESHOLD = 4
+let mouseDownX = 0
+let mouseDownY = 0
+// 因 mousedown 时已存在选中 → 本次点击语义是"取消选中"，mouseup 添加块逻辑须据此跳过
+let isDeselectClick = false
+const trackMouseDown = (e: MouseEvent) => {
+  mouseDownX = e.clientX
+  mouseDownY = e.clientY
+  isDeselectClick = hasSelection.value
+}
+
 const onMouseUp = (e: MouseEvent) => {
   if (pendingApply.value) return // 询问中不重复触发
   // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
   if (!hasSelection.value) {
+    // 因"取消多选的点击"在 mouseup 时选中已被 OJCanvas 清空、会误入添加分支，故拦截
+    if (isDeselectClick) return
     if (!OJCRef.value?.isEditMode || e.button !== 0) return
     if ((e.target as HTMLElement).closest('.toolbar')) return
+    // 因"左键拖动（框选）结束"不应误添加块，故仅位移小于阈值的简单点击才添加
+    if (Math.hypot(e.clientX - mouseDownX, e.clientY - mouseDownY) > CLICK_DRAG_THRESHOLD) return
     const key = ADD_OPTIONS[addIdx.value]?.key
     if (key) OJCRef.value?.addComponent(key, canvasPointFromMouse(e) ?? undefined)
     return
@@ -332,11 +348,14 @@ onMounted(() => {
   window.addEventListener('wheel', cycleOption, { passive: false })
   // 因拖动选字可能跨出编辑器范围，mouseup 会落在编辑器外，故挂 window 级 mouseup 确保松开时都能定稿应用
   window.addEventListener('mouseup', onMouseUp)
+  // 因需记录按下位置以区分"简单点击添加"与"拖动框选不添加"，故挂 window 级 mousedown
+  window.addEventListener('mousedown', trackMouseDown)
 })
 
 onUnmounted(() => {
   window.removeEventListener('wheel', cycleOption)
   window.removeEventListener('mouseup', onMouseUp)
+  window.removeEventListener('mousedown', trackMouseDown)
 })
 </script>
 
