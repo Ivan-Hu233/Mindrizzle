@@ -86,8 +86,8 @@
         </v-fade-transition>
       </template>
 
-      <template v-for="p in paperclips" :key="`clip-${p.a}-${p.b}`">
-        <div class="snap-paperclip" :class="{ linked: p.linked }"
+      <template v-for="p in paperclipCandidates" :key="`clip-${p.a}-${p.b}`">
+        <div class="snap-paperclip" v-show="nearClipKey === p.key" :class="{ linked: p.linked }"
           :style="{ left: `${roundToPx(p.x)}px`, top: `${roundToPx(p.y)}px` }"
           :title="p.linked ? '点击分离' : '点击粘贴'"
           @mousedown.stop @click.stop="toggleLink(p.a, p.b)">
@@ -134,7 +134,7 @@ export interface ComponentController {
 </script>
 
 <script setup lang="ts">
-import { reactive, ref, nextTick, onMounted, onUnmounted, computed, watch, type CSSProperties } from 'vue'
+import { reactive, ref, shallowRef, nextTick, onMounted, onUnmounted, computed, watch, type CSSProperties } from 'vue'
 import ResizeBox from './ResizeBox.vue'
 
 import { mdiDragVariant, mdiPaperclip, mdiCogOutline, mdiArrowUp } from '@mdi/js'
@@ -450,13 +450,14 @@ const AUTOPAN_EDGE = 32 // 距视口边缘多少 px 触发
 const AUTOPAN_MAX = 6 // 每帧最大平移 px
 const autoPan = reactive({ active: false })
 const lastMouse = { x: 0, y: 0 }
-// 因曲别针需"鼠标靠近才显示"，故用响应式鼠标屏幕坐标驱动 paperclips 重算（lastMouse 仅供 autoPan 用）
+// 因预览箭头需按鼠标与预览中心的方向角定位，故用响应式鼠标屏幕坐标驱动（lastMouse 仅供 autoPan 用）
 const mouseScreen = ref({ x: -9999, y: -9999 })
 
 const updateMousePos = (e: MouseEvent) => {
   lastMouse.x = e.clientX
   lastMouse.y = e.clientY
   mouseScreen.value = { x: e.clientX, y: e.clientY }
+  updateNearClip(e.clientX, e.clientY)
 }
 
 // 因 resize 时只允许往"能调大块"的方向滚动画布（往调小方向滚会致块达钳制后偏离鼠标），
@@ -488,9 +489,9 @@ const restrictResizeAutoPan = (vx: number, vy: number): { vx: number; vy: number
 
 // 因 autoPan 由拖拽/缩放共用，故提取"鼠标距视口边缘的速度"，供 tick 滚动与 resize 联结传播判定复用
 const autoPanVelocity = (): { vx: number; vy: number } => {
-  const cont = canvasContainerRef.value
-  if (!cont) return { vx: 0, vy: 0 }
-  const r = cont.getBoundingClientRect()
+  // 因 autoPan 每帧调用、getBoundingClientRect 强制 reflow，故用缓存的容器矩形
+  const r = viewRect.value
+  if (!r) return { vx: 0, vy: 0 }
   let vx = 0
   let vy = 0
   if (lastMouse.x < r.left + AUTOPAN_EDGE) vx = Math.min(r.left + AUTOPAN_EDGE - lastMouse.x, AUTOPAN_MAX)
@@ -726,7 +727,9 @@ interface EdgeMask {
   len: number
 }
 const EDGE_TOL = 1
-const edgeMasks = computed<Record<string, EdgeMask[]>>(() => {
+// 因遮罩/圆角在拖拽缩放中每帧随 layout 重算（O(N²)）成本高，
+// 故由 computed 改为显式缓存（recomputeMasks 刷新）：交互会话期间不刷新即冻结，收尾再按最终布局刷新
+const computeEdgeMasks = (): Record<string, EdgeMask[]> => {
   const map: Record<string, EdgeMask[]> = {}
   const items = state.items
   items.forEach((it) => { map[it.id] = [] })
@@ -756,8 +759,9 @@ const edgeMasks = computed<Record<string, EdgeMask[]>>(() => {
     }
   }
   return map
-})
-const masksOf = (id: string): EdgeMask[] => edgeMasks.value[id] ?? []
+}
+const edgeMasksMap = shallowRef<Record<string, EdgeMask[]>>({})
+const masksOf = (id: string): EdgeMask[] => edgeMasksMap.value[id] ?? []
 // 因遮罩绝对定位相对 padding box（left:0 在 border 内侧 1px 处），故向外偏 1px 覆盖 border，
 // 宽度取 2px 一并盖掉邻接处的 content-guide 虚线；内容区 padding 4px 不受影响
 const maskStyle = (m: EdgeMask): CSSProperties => {
@@ -782,13 +786,13 @@ const maskStyle = (m: EdgeMask): CSSProperties => {
 // 因贴合处角落若保留圆角会在接触边两端露出弧形缺口，故按“接触段是否延伸到块的角”判断
 // 哪些角需归零圆角（直角相接使贴合连贯）；非接触角保持 v-sheet 默认 4px
 const ROUNDED = 4
-const cornerHits = computed<Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }>>(() => {
+const computeCornerHits = (): Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }> => {
   const map: Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }> = {}
   const items = state.items
   items.forEach((it) => { map[it.id] = { tl: false, tr: false, bl: false, br: false } })
   items.forEach((it) => {
     const { w, h } = layoutOf(it)
-    ;(edgeMasks.value[it.id] ?? []).forEach((m) => {
+    ;(edgeMasksMap.value[it.id] ?? []).forEach((m) => {
       const endHit = m.start + m.len
       if (m.side === 'l') {
         if (m.start <= EDGE_TOL) map[it.id].tl = true
@@ -806,14 +810,21 @@ const cornerHits = computed<Record<string, { tl: boolean; tr: boolean; bl: boole
     })
   })
   return map
-})
+}
+const cornerHitsMap = shallowRef<Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }>>({})
 const cornerStyleOf = (id: string): CSSProperties => {
-  const c = cornerHits.value[id]
+  const c = cornerHitsMap.value[id]
   if (!c) return {}
   const r = (hit: boolean) => (hit ? 0 : ROUNDED)
   const radius = `${r(c.tl)}px ${r(c.tr)}px ${r(c.br)}px ${r(c.bl)}px`
   if (radius === `${ROUNDED}px ${ROUNDED}px ${ROUNDED}px ${ROUNDED}px`) return {}
   return { borderRadius: radius }
+}
+
+// 因遮罩/圆角由 layout 推导且 O(N²)，故统一在此刷新（增删块/布局落定/交互收尾时调用）
+const recomputeMasks = () => {
+  edgeMasksMap.value = computeEdgeMasks()
+  cornerHitsMap.value = computeCornerHits()
 }
 // #endregion 贴合遮罩与圆角
 
@@ -1115,12 +1126,11 @@ const resizeHandlesOf = (item: CanvasItem): string[] => {
   return ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
 }
 
-// 曲别针列表：所有相邻（或已粘贴）的块对显示在连接点，标记是否已粘贴；
-// 不自动跟随——只有点击曲别针启用粘贴后，拖动一块才带动另一块；
-// 因曲别针只在鼠标靠近时才显示，故把布局坐标换算成屏幕坐标（layout + origin + pan）与鼠标判距；
-// 因富文本 popup 上侧开启会盖住连接点处的曲别针，故此时隐藏全部曲别针
-const paperclips = computed(() => {
-  const list: { a: string; b: string; x: number; y: number; linked: boolean }[] = []
+// 因"靠近才显示"由鼠标位置独立判定（见 updateNearClip），故曲别针候选只算几何不依赖鼠标，
+// 避免每帧 mousemove 重建列表（相邻或已粘贴的块对及其连接点）；
+// 因富文本 popup 上侧开启会盖住连接点处的曲别针，故此时清空
+const paperclipCandidates = computed(() => {
+  const list: { key: string; a: string; b: string; x: number; y: number; linked: boolean }[] = []
   if (mobileMode.value || popupTopOpen.value) return list
   const items = state.items
   for (let i = 0; i < items.length; i++) {
@@ -1131,18 +1141,32 @@ const paperclips = computed(() => {
       const linked = linkedPairs.value.has(key)
       if (!linked && !isAdjacent(ra, rb)) continue
       const pt = connectionPoint(ra, rb)
-      // 因曲别针渲染在 .canvas 内（随 pan+origin 变换、且 .canvas 位于容器下方工具栏之下），
-      // 故屏幕位置 = 布局坐标 + origin + pan + 画布容器的视口偏移，再与视口鼠标坐标判距
-      const cr = canvasContainerRef.value?.getBoundingClientRect()
-      // 因 .canvas 被 scale(zoom)，曲别针 content 坐标需乘 zoom 才等于其视口屏幕位置
-      const sx = pt.x * zoom.value + origin.x + pan.x + (cr?.left ?? 0)
-      const sy = pt.y * zoom.value + origin.y + pan.y + (cr?.top ?? 0)
-      if (Math.hypot(sx - mouseScreen.value.x, sy - mouseScreen.value.y) > PAPERCLIP_PROXIMITY) continue
-      list.push({ a: items[i].id, b: items[j].id, x: pt.x, y: pt.y, linked })
+      list.push({ key, a: items[i].id, b: items[j].id, x: pt.x, y: pt.y, linked })
     }
   }
   return list
 })
+
+// 因"鼠标靠近连接点才显示曲别针"，故每帧对缓存候选判距并记录最近命中 key（候选数少，开销可忽略）；
+// 显示/隐藏经模板 v-show 切换，不重建 DOM
+const nearClipKey = ref<string | null>(null)
+const updateNearClip = (clientX: number, clientY: number) => {
+  const cr = viewRect.value
+  if (!cr) return
+  let best: string | null = null
+  let bestDist = Infinity
+  paperclipCandidates.value.forEach((c) => {
+    // 因曲别针渲染在 .canvas 内（随 pan+origin 变换），故屏幕位置 = 布局坐标*zoom + origin + pan + 容器偏移
+    const sx = c.x * zoom.value + origin.x + pan.x + cr.left
+    const sy = c.y * zoom.value + origin.y + pan.y + cr.top
+    const d = Math.hypot(sx - clientX, sy - clientY)
+    if (d <= PAPERCLIP_PROXIMITY && d < bestDist) {
+      bestDist = d
+      best = c.key
+    }
+  })
+  if (nearClipKey.value !== best) nearClipKey.value = best
+}
 
 // 因 VDR 自带冲突检测仅在它自己的 dragging/resizing 结束触发，而块拖拽走自定义路径（draggable=false），
 // 故松开时自行检测被拖块与其他块重叠，重叠则回退到拖拽起点
@@ -1187,6 +1211,7 @@ const onCustomDragUp = () => {
   document.documentElement.style.overflow = ''
   document.body.style.overflow = ''
   maybeRebaseOrigin()
+  recomputeMasks() // 因拖拽期间遮罩/圆角已冻结，故落定后按最终布局刷新
 }
 // #endregion 自定义拖拽与联结
 
@@ -1488,6 +1513,7 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
     layout.h = Math.round(h)
   }
   resizeSession = null
+  recomputeMasks() // 因 resize 期间遮罩/圆角已冻结，故落定后按最终布局刷新
 }
 // #endregion 尺寸调整与联结传播
 
@@ -1542,6 +1568,7 @@ const onAutoHeight = (e: Event) => {
       // 仅当增长到与别的块重叠时像钳制一样把重叠块下推让位（单向：高度减小不移动别的块）
       if (h > prevH) pushOverlapped(item)
     }
+    recomputeMasks() // 因 autoHeight 高度变化会改变贴合关系，故刷新遮罩
   }
   // 因输入行随内容增长会超出视口，故光标行超出视口底部时平移画布使其可见；
   // 因用户手动拖画布（右键平移）时不应被光标跟随反向拉回，故拖拽中跳过
@@ -1629,7 +1656,8 @@ const startSelection = (e: MouseEvent) => {
 // 因框选自动滚动时鼠标可能停住（无 mousemove 驱动），故把"由坐标刷新框选"独立供 autoPan 每帧调用
 const updateSelectionAt = (clientX: number, clientY: number) => {
   if (!selectionState.active) return
-  const rect = canvasContainerRef.value?.getBoundingClientRect()
+  // 因框选更新频率高、getBoundingClientRect 强制 reflow，故用缓存的容器矩形
+  const rect = viewRect.value ?? canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
   const pt = screenToContent(canvasTransform(), rect, clientX, clientY)
   selectionState.currentX = pt.x
@@ -1909,15 +1937,18 @@ const hitTestBlockAt = (e: MouseEvent): string | null => {
 const nearestSelectedBlockId = (clientX: number, clientY: number): string | null => {
   // 因无选中块时无"最近选中块"可言，故短路避免每 mousemove 遍历全部块（预览开启时高频触发）
   if (state.selectedIds.size === 0) return null
+  const cr = viewRect.value
+  if (!cr) return null
   let bestId: string | null = null
   let bestDist = Infinity
   state.items.forEach((item) => {
     if (!state.selectedIds.has(item.id)) return
-    const el = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${item.id}"]`)
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    const dx = Math.max(r.left - clientX, 0, clientX - r.right)
-    const dy = Math.max(r.top - clientY, 0, clientY - r.bottom)
+    // 因块屏幕矩形可由 layout + 变换公式直接推得，故用数学计算替代 DOM getBoundingClientRect（消除 reflow）
+    const l = layoutOf(item)
+    const tl = contentToScreen(canvasTransform(), cr, l.x, l.y)
+    const br = contentToScreen(canvasTransform(), cr, l.x + l.w, l.y + l.h)
+    const dx = Math.max(tl.x - clientX, 0, clientX - br.x)
+    const dy = Math.max(tl.y - clientY, 0, clientY - br.y)
     const dist = Math.hypot(dx, dy)
     if (dist < bestDist) {
       bestDist = dist
@@ -2084,6 +2115,7 @@ watch(mobileMode, () => {
   pan.y = 0
   // 首次进入该端：尚未排好的块自动布局（移动端纵向堆叠 / 桌面端瀑布流平铺）
   autoArrange(mobileMode.value ? 'mobile' : 'desktop')
+  recomputeMasks() // 因布局端切换会改变贴合关系，故刷新遮罩
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
@@ -2101,6 +2133,7 @@ watch(
 const onResize = () => {
   refreshViewRect()
   refreshLayout()
+  recomputeMasks() // 因移动端宽度拉伸会改变贴合，故刷新遮罩
 }
 // #endregion 数据同步与布局刷新
 
@@ -2286,6 +2319,7 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   if (!isRectVisibleInViewport(layoutOf(newItem))) panToBlock(newItem.id)
   // 因"添加块后不自动选中"（保持无选中以便连续添加），故锁定新块：鼠标在其上时忽略 hover 选中
   recentAddId = newItem.id
+  recomputeMasks() // 因新块加入会改变贴合关系，故刷新遮罩
 }
 // #endregion 自动布局与添加
 
@@ -2412,6 +2446,7 @@ const load = async (raw: string) => {
   state.items.forEach((item) => {
     componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
+  recomputeMasks() // 因加载后按初始布局渲染，故刷新遮罩
 }
 // #endregion 保存与加载
 
@@ -2428,6 +2463,7 @@ const deleteSelected = () => {
   state.items = state.items.filter((it) => !ids.includes(it.id))
   state.selectedIds = new Set()
   ids.forEach(id => { delete componentRefs.value[id] })
+  recomputeMasks() // 因删除块会改变贴合关系，故刷新遮罩
 }
 
 // 因拖拽/框选/平移收尾依赖 window mouseup，鼠标拖出窗口或失焦时 mouseup 丢失、
