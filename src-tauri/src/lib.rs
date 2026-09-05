@@ -1,31 +1,32 @@
-mod hn_fs;
-mod hn_op;
-mod hn_struct;
-use crate::hn_op::get_hypernote;
+mod omnijot_file_cache;
+mod omnijot_file_dir;
+mod omnijot_file_op;
+mod omnijot_file_struct;
+mod omnijot_file_tar;
 
 use tauri_plugin_log::{
-    RotationStrategy, Target, TargetKind, TimezoneStrategy, fern::FormatCallback, log::{LevelFilter, error, trace},
+    RotationStrategy, Target, TargetKind, TimezoneStrategy, fern::FormatCallback, log::{LevelFilter, trace},
 };
 use log::Record;
-use std::{fmt::Arguments, io::Write};
+use std::fmt::Arguments;
 use tokio::fs;
 
 #[tauri::command]
 fn fetch_file_list() -> Vec<String> {
     let mut file_list: Vec<String> = Vec::new();
-    let dir = hn_fs::get_hn_save_dir();
+    let dir = omnijot_file_dir::get_omnijot_file_save_dir();
     trace!("正在扫描路径：{:?}", dir.to_str());
     for entry in std::fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_file() {
-            let is_hn_file = path
+            let is_omnijot_file = path
                 .extension()
                 .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("hn"));
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ojf"));
 
-            if !is_hn_file {
-                trace!("跳过非 .hn 文件：{:?}", path.to_str());
+            if !is_omnijot_file {
+                trace!("跳过非 .ojf 文件：{:?}", path.to_str());
                 continue;
             }
 
@@ -42,30 +43,21 @@ fn fetch_file_list() -> Vec<String> {
 
 #[tauri::command]
 async fn is_file_name_valid(file_name: String) -> bool {
-    let path = hn_fs::get_hn_file_dir(file_name);
+    let path = omnijot_file_dir::get_omnijot_file_dir(file_name);
     let result = !fs::try_exists(path).await.unwrap_or(false);
     trace!("检查文件名是否占用结果：{}", !result);
     result
 }
 
-#[tauri::command]
-fn get_file_info(file_name: &str) -> Result<hn_struct::HyperNote, &str> {
-    trace!("尝试获取文件{}信息", file_name);
-    let tmp_hn = get_hypernote(file_name.to_string());
-    let Ok(hypernote) = tmp_hn else {
-        let e = tmp_hn.unwrap_err().to_string();
-        error!("{}", e.as_str());
-        return Err("便签怎么皱成一团了！");
-    };
-    Ok(hypernote)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 清扫历史退出残留的孤儿缓存目录；启动早期本进程尚未创建缓存，删除安全
+    omnijot_file_cache::cleanup_orphan_caches();
+
     let log_level = if tauri::is_dev() {
-        LevelFilter::Trace // 开发时输出所有日志
+        LevelFilter::Trace
     } else {
-        LevelFilter::Info // 发布后只输出 info 及以上
+        LevelFilter::Info
     };
     let custom_format = |out: FormatCallback<'_>, args: &Arguments<'_>, record: &Record<'_>|{
         out.finish(format_args!(
@@ -95,9 +87,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             fetch_file_list,
-            get_file_info,
             is_file_name_valid,
-            hn_op::create_hypernote
+            omnijot_file_op::get_omnijot_file_meta,
+            omnijot_file_op::get_omnijot_file_body,
+            omnijot_file_op::set_omnijot_file_body,
+            omnijot_file_op::create_omnijot_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

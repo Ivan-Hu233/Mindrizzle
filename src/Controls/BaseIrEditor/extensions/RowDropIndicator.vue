@@ -28,7 +28,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // 因 editor.unmount() 会统一清理插件，故无需手动 unuse
+  // editor.unmount() 会统一清理插件，无需手动 unuse
   ext = null
 })
 

@@ -1,5 +1,5 @@
 // 自定义指针拖拽：Tauri Linux 的 WebKitGTK 对 HTML5 DnD 支持不完整
-// （dragover/drop 事件不派发），故完全不依赖 HTML5 DnD，改用
+// （dragover/drop 事件不派发），完全不依赖 HTML5 DnD，改用
 // pointerdown + window 级 pointermove/pointerup 完成拖拽、指示器与插入。
 
 import { onUnmounted, ref } from 'vue'
@@ -24,19 +24,19 @@ export function useBlockDrag(options: {
   const { editor, hoveredBlock, suppressUI } = options
   const view = () => getView(editor)
 
-  // 因拖拽中行高亮会与 NodeSelection 选区框重叠，故拖拽期间隐藏
+  // 拖拽中行高亮会与 NodeSelection 选区框重叠，拖拽期间隐藏
   const isDragging = ref(false)
   let active = false
   let source: DragSource | null = null
   let ghostEl: HTMLElement | null = null
   let indicatorEl: HTMLElement | null = null
-  // 因「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect）、
-  // 每次 mousemove 都触发会卡顿，故用 rAF 合并到每帧最多一次
+  // 「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect）、
+  // 每次 mousemove 都触发会卡顿，用 rAF 合并到每帧最多一次
   let rafId = 0
   let lastX = 0
   let lastY = 0
   let needsIndicator = false
-  // 因拖到滚动区上下边缘需自动滚动，故定义边缘带宽度与最大每帧滚动像素
+  // 拖到滚动区上下边缘需自动滚动，定义边缘带宽度与最大每帧滚动像素
   const SCROLL_EDGE = 48
   const SCROLL_MAX_SPEED = 28
 
@@ -80,8 +80,8 @@ export function useBlockDrag(options: {
     return false
   }
 
-  // 因拖到画布边缘需画布自动平移（鼠标靠上/左边缘时内容向下/右移露出上方/左侧），
-  // 故经 omnijot:canvas-pan 事件驱动 Editor.vue 的 pan
+  // 拖到画布边缘需画布自动平移（鼠标靠上/左边缘时内容向下/右移露出上方/左侧），
+  // 经 omnijot:canvas-pan 事件驱动 Editor.vue 的 pan
   const CANVAS_PAN_EDGE = 60 // 距画布视口边缘多少 px 触发
   const CANVAS_PAN_MAX = 8 // 每帧最大平移 px
   function panCanvas(x: number, y: number): boolean {
@@ -99,7 +99,7 @@ export function useBlockDrag(options: {
     return true
   }
 
-  // 因每帧 posAtCoords 重算会卡顿，故自动滚动/平移每帧检查、落点/指示器仅在鼠标移动或内容滚动变化时重算
+  // 每帧 posAtCoords 重算会卡顿，自动滚动/平移每帧检查、落点/指示器仅在鼠标移动或内容滚动变化时重算
   function ensureDragLoop() {
     if (rafId) return
     rafId = requestAnimationFrame(dragLoop)
@@ -123,7 +123,7 @@ export function useBlockDrag(options: {
     if (!v || !block || !node) return
     e.preventDefault()
     e.stopPropagation()
-    // 因拖拽也应选中该块（与点击手柄一致），故 pointerdown 时设置 NodeSelection
+    // 拖拽也应选中该块（与点击手柄一致），pointerdown 时设置 NodeSelection
     try {
       const sel = NodeSelection.create(v.state.doc, block.pos)
       v.dispatch(v.state.tr.setSelection(sel))
@@ -134,13 +134,13 @@ export function useBlockDrag(options: {
     source = { editor: editor as Editor, node, from: block.pos, to: block.pos + node.nodeSize }
     active = true
     isDragging.value = true
-    document.body.classList.add('block-handle-dragging') // 因需跨编辑器全局抑制 popup/高亮，故置 body 拖拽类
+    document.body.classList.add('block-handle-dragging') // 置 body 拖拽类，跨编辑器全局抑制 popup/高亮
     suppressUI()
     createGhost(node, e.clientX, e.clientY)
     lastX = e.clientX
     lastY = e.clientY
     ensureDragLoop()
-    // 因 mouse.down 后部分环境不再派发 mousemove，故同时监听 pointermove 以保证拖拽跟手
+    // mouse.down 后部分环境不再派发 mousemove，同时监听 pointermove 以保证拖拽跟手
     window.addEventListener('pointermove', onDragMove)
     window.addEventListener('mousemove', onDragMove)
     window.addEventListener('mouseup', onDragUp)
@@ -197,7 +197,7 @@ export function useBlockDrag(options: {
     return coords.pos - before < after - coords.pos ? before : after
   }
 
-  // 因删除源块后插入位置会偏移，故经 tr.mapping 修正后再插入
+  // 删除源块后插入位置会偏移，经 tr.mapping 修正后再插入
   function moveInSameEditor(s: DragSource, v: any, x: number, y: number) {
     const insertPos0 = findDropPos(v, x, y)
     const tr = v.state.tr
@@ -215,7 +215,7 @@ export function useBlockDrag(options: {
     const delTr = srcView.state.tr
     delTr.delete(s.from, s.to)
     srcView.dispatch(delTr)
-    // 因各 editor 的 schema 独立不能直接复用节点，故经 nodeFromJSON 转换后插入
+    // 各 editor 的 schema 独立不能直接复用节点，经 nodeFromJSON 转换后插入
     const targetNode = tgtView.state.schema.nodeFromJSON(s.node.toJSON())
     const insTr = tgtView.state.tr
     insTr.insert(insertPos, targetNode)

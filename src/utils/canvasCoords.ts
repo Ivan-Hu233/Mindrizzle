@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 // 画布坐标换算集中于此：content（块存储坐标）↔ 视口屏幕坐标。
-// 因屏幕位置 = content*zoom + origin + pan + 容器视口偏移，
+// 屏幕位置 = content*zoom + origin + pan + 容器视口偏移，
 // 各处统一经此换算，避免手写公式不一致（原点重定位/平移/缩放只改 transform）
 
 export interface CanvasTransform {
@@ -20,7 +20,7 @@ export interface Point {
   y: number
 }
 
-// 因 content 坐标经 zoom 缩放落亚像素会模糊，故对齐到整数视觉像素（返回 content 值）
+// content 坐标经 zoom 缩放落亚像素会模糊，对齐到整数视觉像素（返回 content 值）
 export const roundToVisual = (zoom: number, v: number): number => Math.round(v * zoom) / zoom
 
 // content → 视口屏幕（含容器偏移，供 hitTest/几何判断）

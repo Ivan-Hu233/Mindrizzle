@@ -55,15 +55,15 @@ const emit = defineEmits<{
 let session: ResizeSession | null = null
 
 const rootEl = ref<HTMLElement | null>(null)
-// 因手柄渲染在块边缘会被紧贴的邻块盖住而点不到，故 Teleport 到 .canvas 顶层
+// 手柄渲染在块边缘会被紧贴的邻块盖住而点不到，Teleport 到 .canvas 顶层
 // （Z_LAYER.resizeHandle：高于选中块、曲别针与选中描边环）
 const canvasEl = ref<HTMLElement | null>(null)
 onMounted(() => {
   canvasEl.value = rootEl.value?.closest('.canvas') ?? null
 })
 
-// 因父 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致块边缘模糊，
-// 故渲染层圆整到整数视觉像素（视觉 = round(content*zoom)），逻辑仍用原始 content
+// 父 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致块边缘模糊，
+// 渲染层圆整到整数视觉像素（视觉 = round(content*zoom)），逻辑仍用原始 content
 const roundToPx = (v: number) => Math.round(v * props.zoom) / props.zoom
 const renderRect = computed(() => ({
   x: roundToPx(props.x),
@@ -80,7 +80,7 @@ const boxStyle = computed(() => ({
 }))
 const showHandles = computed(() => props.active && !props.disabled)
 
-// 手柄定位：.canvas 已应用 pan+origin 变换，故用块 content 坐标 + 边缘偏移即可（与 floating-handle 同法）
+// 手柄定位：.canvas 已应用 pan+origin 变换，用块 content 坐标 + 边缘偏移即可（与 floating-handle 同法）
 const HANDLE_POS: Record<Handle, (r: Rect) => { left: string; top: string }> = {
   tl: (r) => ({ left: `${r.x - 5}px`, top: `${r.y - 5}px` }),
   tm: (r) => ({ left: `${r.x + r.w / 2 - 4}px`, top: `${r.y - 5}px` }),
@@ -99,7 +99,7 @@ const CURSOR: Record<Handle, string> = {
 const handleStyle = (h: string) => {
   const pos = HANDLE_POS[h as Handle](renderRect.value)
   return {
-    // 因手柄随 .canvas 的 scale(zoom) 缩放，尺寸与定位圆整到整数视觉像素避免边缘亚像素模糊
+    // 手柄随 .canvas 的 scale(zoom) 缩放，尺寸与定位圆整到整数视觉像素避免边缘亚像素模糊
     width: `${roundToPx(8)}px`,
     height: `${roundToPx(8)}px`,
     zIndex: Z_LAYER.resizeHandle,
@@ -112,7 +112,7 @@ const handleStyle = (h: string) => {
 const clampW = (w: number) => Math.min(Math.max(w, props.minWidth), props.maxWidth ?? Infinity)
 const clampH = (h: number) => Math.min(Math.max(h, props.minHeight), props.maxHeight ?? Infinity)
 
-// 因锚定边（非手柄所在边）不随鼠标移动、保持 content 坐标，故拖 l/t 时 x/y 随尺寸调整
+// 锚定边（非手柄所在边）不随鼠标移动、保持 content 坐标，拖 l/t 时 x/y 随尺寸调整
 const computeRect = (s: ResizeSession, dx: number, dy: number): Rect => {
   const r = s.startRect
   let x = r.x
@@ -134,7 +134,7 @@ const computeRect = (s: ResizeSession, dx: number, dy: number): Rect => {
 
 const onMove = (e: MouseEvent) => {
   if (!session) return
-  // 因 .canvas 被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
+  // .canvas 被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
   const rect = computeRect(session, (e.clientX - session.startClientX) / props.zoom, (e.clientY - session.startClientY) / props.zoom)
   session.lastRect = rect
   emit('resizing', rect.x, rect.y, rect.w, rect.h)
@@ -148,8 +148,8 @@ const onUp = () => {
   session = null
 }
 
-// 因 resize 会话以"按下瞬间的矩形 + 鼠标位移"为基准（不依赖实时 prop），
-// 故 autoPan 补偿（父组件改 prop）不会进入反馈环
+// resize 会话以"按下瞬间的矩形 + 鼠标位移"为基准（不依赖实时 prop），
+// autoPan 补偿（父组件改 prop）不会进入反馈环
 const onHandleDown = (handle: string, e: MouseEvent) => {
   if (props.disabled || e.button !== 0) return
   session = {
@@ -174,10 +174,10 @@ onUnmounted(cleanup)
 
 <template>
   <div ref="rootEl" class="drag-wrapper resize-box" :style="boxStyle">
-    <!-- 因块无边框背景，故用虚线框常驻标注内容区范围 -->
+    <!-- 块无边框背景，用虚线框常驻标注内容区范围 -->
     <div class="content-guide" aria-hidden="true" />
     <slot />
-    <!-- 因手柄需固定视觉尺寸渲染（避开 .canvas 的 scale 缩放模糊）且不被邻块盖住，故 Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
+    <!-- 手柄需固定视觉尺寸渲染（避开 .canvas 的 scale 缩放模糊）且不被邻块盖住，Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
     <Teleport :to="canvasEl" :disabled="!canvasEl">
       <template v-if="showHandles">
         <div v-for="h in handles" :key="h" class="handle" :class="`handle-${h}`"
@@ -196,7 +196,7 @@ onUnmounted(cleanup)
 .content-guide {
   position: absolute;
   inset: 0;
-  /* 因需常驻标注内容区边界且不遮挡内容/交互，故用低对比度虚线并穿透点击；
+  /* 需常驻标注内容区边界且不遮挡内容/交互，用低对比度虚线并穿透点击；
      层级高于块背景（可见）低于拖拽栏/缩放手柄（不挡操作） */
   /* border: 1px dashed rgb(var(--v-theme-on-surface)); */
   opacity: 0.35;
@@ -207,7 +207,7 @@ onUnmounted(cleanup)
 .handle {
   box-sizing: border-box;
   position: absolute;
-  /* 因手柄需在明暗主题下都与块背景有对比，故用 on-surface 半透明填充（暗色下浅、浅色下深）配高对比边框 */
+  /* 手柄需在明暗主题下都与块背景有对比，用 on-surface 半透明填充（暗色下浅、浅色下深）配高对比边框 */
   background: rgb(var(--v-theme-background));
   border: 1px solid rgb(var(--v-theme-on-surface));
   box-shadow: 0 0 2px rgba(var(--v-theme-on-surface), 0.4);

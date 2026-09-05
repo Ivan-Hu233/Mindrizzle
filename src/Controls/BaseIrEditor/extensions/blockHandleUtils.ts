@@ -1,4 +1,4 @@
-// 因编辑器未挂载时访问 view 会抛错，故统一 try/catch 返回 null 静默跳过
+// 编辑器未挂载时访问 view 会抛错，统一 try/catch 返回 null 静默跳过
 
 import type { Editor } from '@prosekit/core'
 
@@ -12,7 +12,7 @@ export function getView(editor?: Editor | null): any {
 
 export function getBlockEl(view: any, pos: number): HTMLElement | null {
   try {
-    // 因 nodeDOM 可能返回文本节点（无 getBoundingClientRect），故仅接受元素节点
+    // nodeDOM 可能返回文本节点（无 getBoundingClientRect），仅接受元素节点
     const el = view.nodeDOM(pos)
     return el instanceof HTMLElement ? el : null
   } catch {
@@ -34,7 +34,7 @@ export function getClipBottom(view: any): number {
   return container ? container.getBoundingClientRect().bottom : window.innerHeight
 }
 
-// 因关闭时 popup 为 display:none 无法量高，故临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）
+// 关闭时 popup 为 display:none 无法量高，临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）
 export function getPopupHeight(view: any): number {
   const popup = view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-popup') as HTMLElement | null
   if (!popup) return 35
@@ -50,7 +50,7 @@ export function getPopupHeight(view: any): number {
   return h > 0 ? h : 35
 }
 
-// 因关闭时 popup 为 display:none 无法量宽，故临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）
+// 关闭时 popup 为 display:none 无法量宽，临时显示为 inline-flex 同步测量后立即还原（同一帧内不闪屏）
 export function getPopupWidth(view: any): number {
   const popup = view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-popup') as HTMLElement | null
   if (!popup) return 64
@@ -74,8 +74,8 @@ export function findPositionerEl(view: any): HTMLElement | null {
   return view?.dom?.closest('.editor-wrapper')?.querySelector('.block-handle-positioner') ?? null
 }
 
-// 因 ProseKit 未公开 BlockHandleStore API，故经 aria-ui context 冒泡事件取 provider 回调返回 store；
-// 且每个编辑器 store 独立，故用闭包按实例缓存
+// ProseKit 未公开 BlockHandleStore API，经 aria-ui context 冒泡事件取 provider 回调返回 store；
+// 每个编辑器 store 独立，用闭包按实例缓存
 export function createStoreResolver() {
   let cached: any = null
   return (el?: Element | null): any => {
@@ -91,7 +91,7 @@ export function createStoreResolver() {
   }
 }
 
-// 因需跳过 ProseKit 的节流与失效缓冲立即关闭 popup，故直接清 store 的 hoverState
+// 跳过 ProseKit 的节流与失效缓冲立即关闭 popup，直接清 store 的 hoverState
 export function clearStoreHover(view: any, getStore: (el?: Element | null) => any): void {
   getStore(findPositionerEl(view))?.hoverState?.set(undefined)
 }

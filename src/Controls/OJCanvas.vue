@@ -1,9 +1,9 @@
 <template>
   <v-sheet class="canvas-container" color="surface" :ref="setCanvasContainerRef" :style="containerStyle" @click="handleCanvasClick"
     @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
-    <!-- 因点阵背景随 pan 平移若用 background-position 会每帧重绘整容器（大视口下卡顿），故独立成层用 transform 合成移动 -->
+    <!-- 点阵背景随 pan 平移若用 background-position 会每帧重绘整容器（大视口下卡顿），独立成层用 transform 合成移动 -->
     <div class="canvas-dots" :style="dotsStyle" aria-hidden="true" />
-    <!-- 因 .canvas 随 pan 平移后不覆盖整个容器，事件挂容器级才能让任意空白处框选/点击/聚焦生效 -->
+    <!-- .canvas 随 pan 平移后不覆盖整个容器，事件挂容器级才能让任意空白处框选/点击/聚焦生效 -->
     <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" ref="canvasRef">
       <ResizeBox v-for="item in state.items" :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
         :data-id="item.id" :z-index="blockZ(item.id)" :active="isActive(item.id)" :x="layoutOf(item).x"
@@ -15,7 +15,7 @@
         @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
         <v-sheet class="block-container" color="surface" elevation="0" rounded :style="cornerStyleOf(item.id)">
-          <!-- 因需只盖住重叠接触段的边框（露出段保留），故按段渲染同色遮罩 -->
+          <!-- 需只盖住重叠接触段的边框（露出段保留），按段渲染同色遮罩 -->
           <template v-for="m in masksOf(item.id)" :key="`${m.side}-${m.start}`">
             <div class="edge-mask" :style="maskStyle(m)" />
           </template>
@@ -33,7 +33,7 @@
       </v-fade-transition>
       <template v-for="item in state.items" :key="`handle-${item.id}`">
         <Transition name="pop-up">
-          <!-- 因多选时各选中块都显示拖拽栏会互相干扰（"折叠"），故仅显示离鼠标最近（hover 命中）的块的拖拽栏；拖拽中只显源块 -->
+          <!-- 多选时各选中块都显示拖拽栏会互相干扰（"折叠"），仅显示离鼠标最近（hover 命中）的块的拖拽栏；拖拽中只显源块 -->
           <div v-if="isEditMode && state.selectedIds.has(item.id) && popupBlockId !== item.id
             && (customDrag.active ? customDrag.sourceItemId === item.id : hoveredBlockId === item.id)"
             class="floating-handle drag-handle"
@@ -48,10 +48,10 @@
         </Transition>
       </template>
 
-      <!-- 因富文本块级设置（高度自适应）需独立于内容区，故在块右侧单开一栏放齿轮按钮 -->
+      <!-- 富文本块级设置（高度自适应）需独立于内容区，在块右侧单开一栏放齿轮按钮 -->
       <template v-for="item in state.items" :key="`side-${item.id}`">
         <Transition name="pop-up">
-          <!-- 因与拖拽栏同为块浮层 UI，故同样只在 hover 命中块或拖拽源块上显示 -->
+          <!-- 与拖拽栏同为块浮层 UI，同样只在 hover 命中块或拖拽源块上显示 -->
           <div v-if="isEditMode && state.selectedIds.has(item.id) && item.component === 'RichTextEditor'
             && (customDrag.active ? customDrag.sourceItemId === item.id : hoveredBlockId === item.id)"
             class="side-settings" :class="{ 'handle-bottom': handlePlacementOf(item) === 'bottom' }"
@@ -77,8 +77,8 @@
         </Transition>
       </template>
 
-      <!-- 因选中描边环需绘制在拖拽栏之上（描边连贯不被 handle 遮断），
-           故用独立高层 overlay 渲染描边，块自身不再用 box-shadow -->
+      <!-- 选中描边环需绘制在拖拽栏之上（描边连贯不被 handle 遮断），
+           用独立高层 overlay 渲染描边，块自身不再用 box-shadow -->
       <template v-for="item in state.items" :key="`outline-${item.id}`">
         <v-fade-transition :duration="120">
           <div v-if="isEditMode && state.selectedIds.has(item.id)" class="selected-outline"
@@ -100,7 +100,7 @@
         <span class="add-preview-label">{{ componentLabelOf(addPreviewKey) }}</span>
       </div>
     </div>
-    <!-- 因预览框在视口外时需在鼠标旁指示方向，故箭头定位在容器层（屏幕坐标、不随画布变换） -->
+    <!-- 预览框在视口外时需在鼠标旁指示方向，箭头定位在容器层（屏幕坐标、不随画布变换） -->
     <div v-if="addPreviewPos && addPreviewKey && !previewVisible" class="add-preview-arrow" :style="previewArrowStyle">
       <v-icon :icon="mdiArrowUp" size="16" />
     </div>
@@ -111,10 +111,10 @@
 import type { NodeJSON } from '@prosekit/core'
 import type { EditorCommands } from './BaseIrEditor/extension'
 
-// 因这些类型需在普通 <script> 中导出供父组件复用，故置于此处
+// 这些类型需在普通 <script> 中导出供父组件复用，置于此处
 export interface RichTextConfig {
   content: NodeJSON | null
-  // 因块高是否随内容自适应由富文本设置栏控制，故持久化于 config
+  // 块高是否随内容自适应由富文本设置栏控制，持久化于 config
   autoHeight?: boolean
 }
 
@@ -128,7 +128,7 @@ export type WidgetConfig = RichTextConfig | CodeBlockConfig
 export interface ComponentController {
   saveConfig?: () => Partial<WidgetConfig>
   loadConfig?: (config: WidgetConfig) => void
-  // 因父组件需经命令链调用富文本命令（如 toggleHeading）且要 IDE 补全，故用 editor.commands 推导的精确类型而非宽泛索引签名
+  // 父组件需经命令链调用富文本命令（如 toggleHeading）且要 IDE 补全，用 editor.commands 推导的精确类型而非宽泛索引签名
   commands?: EditorCommands
 }
 </script>
@@ -150,7 +150,7 @@ import { useDisplay } from 'vuetify'
 const { xs } = useDisplay()
 const isMobile = computed(() => xs.value)
 
-// 因 forceMobile 为调试用的三态开关，故 null 表示不强制、走真实断点
+// forceMobile 为调试用的三态开关，null 表示不强制、走真实断点
 const forceMobile = ref<boolean | null>(null)
 const mobileMode = computed(() => (forceMobile.value === null ? isMobile.value : forceMobile.value))
 
@@ -193,7 +193,7 @@ const componentMap = {
   EditableCodeBlock,
 }
 
-// 因新增可添加组件只需在此注册（key 对应 componentMap 的键）即可自动驱动工具栏与添加逻辑，故集中于此
+// 新增可添加组件只需在此注册（key 对应 componentMap 的键）即可自动驱动工具栏与添加逻辑，集中于此
 interface AddableComponentMeta {
   key: CanvasItem['component']
   label: string
@@ -228,7 +228,7 @@ const componentMetaOf = (key: CanvasItem['component']) =>
 const componentLabelOf = (key: CanvasItem['component']) =>
   componentMetaOf(key)?.label ?? key
 
-// 因组件未声明 resizeConstraints 时需回退画布默认（min 100，宽高不限），故统一经 normalizeConstraints 归一
+// 组件未声明 resizeConstraints 时需回退画布默认（min 100，宽高不限），统一经 normalizeConstraints 归一
 const componentConstraints: Partial<
   Record<CanvasItem['component'], ResizeConstraints>
 > = {
@@ -256,9 +256,9 @@ const state = reactive({
   selectedIds: new Set<string>(),
 })
 
-// 因内容聚焦时需把该块提到最上层（显示在最前），故用 zMap 维护自增计数；
-// 因叠加层 z 固定（见 zIndex.ts 的 Z_LAYER），若 zCounter 无限递增超过其值，
-// 普通块会盖住叠加层，故达阈值时按当前顺序重排为 1..N 防止计数溢出
+// 内容聚焦时需把该块提到最上层（显示在最前），用 zMap 维护自增计数；
+// 叠加层 z 固定（见 zIndex.ts 的 Z_LAYER），若 zCounter 无限递增超过其值，
+// 普通块会盖住叠加层，达阈值时按当前顺序重排为 1..N 防止计数溢出
 const zMap = reactive<Record<string, number>>({})
 let zCounter = 0
 const Z_LIMIT = Z_LAYER.itemZLimit
@@ -274,26 +274,26 @@ const bringToTop = (id: string) => {
   if (zCounter >= Z_LIMIT) normalizeZMap()
 }
 
-// 因缩放手柄渲染在块边缘内侧，紧贴的邻块（同 z 层级、DOM 靠后）会盖住手柄导致点不到，
-// 故选中块 z 提升到高于所有普通块（VDR 的 activeOnTop 同款行为）；
-// 且需高于描边环使块内 popup 对外层级也在描边环之上，故基值取 Z_LAYER.selectedBlock
+// 缩放手柄渲染在块边缘内侧，紧贴的邻块（同 z 层级、DOM 靠后）会盖住手柄导致点不到，
+// 选中块 z 提升到高于所有普通块（VDR 的 activeOnTop 同款行为）；
+// 且需高于描边环使块内 popup 对外层级也在描边环之上，基值取 Z_LAYER.selectedBlock
 const SELECTED_Z_BASE = Z_LAYER.selectedBlock
 const blockZ = (id: string): number =>
   isEditMode.value && state.selectedIds.has(id) ? Math.max(itemZ(id), SELECTED_Z_BASE) : itemZ(id)
 
-// 因 ResizeBox 的 active 属性会驱动缩放手柄显示，故选中块时置为激活
+// ResizeBox 的 active 属性会驱动缩放手柄显示，选中块时置为激活
 const isActive = (id: string): boolean => isEditMode.value && state.selectedIds.has(id)
 
 const componentRefs = ref<Record<string, ComponentController | undefined>>({})
 const canvasRef = ref<HTMLElement | null>(null)
 const canvasContainerRef = ref<HTMLElement | null>(null)
 
-// 因 Vuetify 组件上绑定 ref 拿到的是组件实例而非 DOM 元素，故经 $el 取出根 DOM 以调用 DOM API
+// Vuetify 组件上绑定 ref 拿到的是组件实例而非 DOM 元素，经 $el 取出根 DOM 以调用 DOM API
 const setCanvasContainerRef = (el: unknown) => {
   canvasContainerRef.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
 }
 const canvasWidth = ref(0)
-// 因容器视口偏移在平移/预览每帧被多次读取、getBoundingClientRect 会触发布局 reflow，故缓存并在挂载/resize 时刷新
+// 容器视口偏移在平移/预览每帧被多次读取、getBoundingClientRect 会触发布局 reflow，缓存并在挂载/resize 时刷新
 const viewRect = ref<{ left: number; top: number; right: number; bottom: number } | null>(null)
 const refreshViewRect = () => {
   const cr = canvasContainerRef.value?.getBoundingClientRect()
@@ -301,17 +301,16 @@ const refreshViewRect = () => {
 }
 // #endregion 画布状态与 z 层
 
-// 因块以世界坐标自由放置（VDR 无 parent 不受边界约束）且平移无界，
-// 故点阵背景固定在视口容器上以保证任何位置不露白
+// 点阵背景固定在视口容器上，保证任意平移位置不露白（块以世界坐标自由放置、平移无界）
 // #region 平移与原点重定位
 const pan = reactive({ x: 0, y: 0 })
 const isPanning = ref(false)
 
-// 因块坐标无限增长会导致数据溢出，故坐标过大时重定位画布原点
+// 块坐标无限增长会导致数据溢出，坐标过大时重定位画布原点
 // （块坐标整体平移并入 origin，屏幕位置 = 存储坐标 + origin + pan 不变）
 const origin = reactive({ x: 0, y: 0 })
 
-// 因坐标换算需统一的 transform（zoom/origin/pan），故构造一次性快照供 utils 换算复用
+// 坐标换算需统一的 transform（zoom/origin/pan），构造一次性快照供 utils 换算复用
 const canvasTransform = (): CanvasTransform => ({
   zoom: zoom.value,
   origin: { x: origin.x, y: origin.y },
@@ -322,7 +321,7 @@ const rebaseOrigin = (offset: { x: number; y: number }) => {
   const dx = Math.round(offset.x) || 0
   const dy = Math.round(offset.y) || 0
   if (!dx && !dy) return
-  // 因移动端锁水平（块 x 恒 0）、水平原点不参与，故仅竖直重定位，
+  // 移动端锁水平（块 x 恒 0）、水平原点不参与，仅竖直重定位，
   // 且 desktop/mobile 竖直同步平移，保证切换模式后位置一致
   const effDx = mobileMode.value ? 0 : dx
   state.items.forEach((item) => {
@@ -359,15 +358,15 @@ const panSession = reactive({
 })
 // #endregion 平移与原点重定位
 
-// 因需等比例缩放画布（视觉缩放、交互坐标按 /zoom 换算），故 zoom 状态供 canvas 变换与各交互换算共用
+// 需等比例缩放画布（视觉缩放、交互坐标按 /zoom 换算），zoom 状态供 canvas 变换与各交互换算共用
 // #region 缩放与画布变换
 const zoom = ref(1)
-// 因 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致边缘/内容模糊，渲染层统一圆整到整数视觉像素
+// .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致边缘/内容模糊，渲染层统一圆整到整数视觉像素
 const roundToPx = (v: number) => roundToVisual(zoom.value, v)
 const visualY = (v: number) => contentToVisual(canvasTransform(), 0, v).y
 
-// 因浏览器对 transform scale 的合成层按旧 scale 光栅化纹理、放大后显示旧纹理会模糊
-// （交互/内容变化才触发重新光栅化），故 zoom 变化后先销毁再重建 .canvas 合成层强制按新比例光栅化
+// 浏览器对 transform scale 的合成层按旧 scale 光栅化纹理、放大后显示旧纹理会模糊
+// （交互/内容变化才触发重新光栅化），zoom 变化后先销毁再重建 .canvas 合成层强制按新比例光栅化
 const forceRecomposite = () => {
   const el = canvasRef.value
   if (!el) return
@@ -377,9 +376,9 @@ const forceRecomposite = () => {
     el.style.willChange = 'transform'
   })
 }
-// 因 .canvas 以左上角为缩放锚点，直接改 zoom 会让视口中心内容随缩放跑偏，
-// 故以容器中心为锚点反解补偿 pan，使锚点处 content 坐标缩放前后屏幕位置不变；
-// 因移动端锁水平且缩放被禁用（仅模式切换归零 zoom），故仅桌面端补偿
+// .canvas 以左上角为缩放锚点，直接改 zoom 会让视口中心内容随缩放跑偏，
+// 以容器中心为锚点反解补偿 pan，使锚点处 content 坐标缩放前后屏幕位置不变；
+// 移动端锁水平且缩放被禁用（仅模式切换归零 zoom），仅桌面端补偿
 let zoomAnchorPrev = 1
 watch(zoom, (z2) => {
   const z1 = zoomAnchorPrev
@@ -394,20 +393,20 @@ watch(zoom, (z2) => {
   pan.y = Math.round(pan.y + (h / 2 - (pan.y + origin.y)) * (1 - z2 / z1))
 })
 
-// 因画布平移/缩放只改 .canvas 变换、不触发编辑器内 scroll/hover 事件，
+// 画布平移/缩放只改 .canvas 变换、不触发编辑器内 scroll/hover 事件，
 // 而 block-handle 行高亮/弹层补偿是 fixed 视口定位需随画布重算，
-// 故 pan/zoom 变化时派发全局事件通知各编辑器及时重算；
-// 因默认 pre flush 在渲染前触发、此时 .canvas 变换未落到 DOM，故用 post flush 等渲染完成后再通知
+// pan/zoom 变化时派发全局事件通知各编辑器及时重算；
+// 默认 pre flush 在渲染前触发、此时 .canvas 变换未落到 DOM，用 post flush 等渲染完成后再通知
 watch(
   () => [pan.x, pan.y, zoom.value],
   () => {
-    // 因 autoHeight 重测只需响应 zoom（宽变→高变），pan 纯平移无需重测，故携带 zoom 供消费者区分
+    // autoHeight 重测只需响应 zoom（宽变→高变），pan 纯平移无需重测，携带 zoom 供消费者区分
     window.dispatchEvent(new CustomEvent('omnijot:canvas-transform', { detail: { zoom: zoom.value } }))
   },
   { flush: 'post' },
 )
 
-// 因 transform 落亚像素会被浏览器渲染发虚，故 pan + origin 取整；
+// transform 落亚像素会被浏览器渲染发虚，pan + origin 取整；
 // 纯 translate3d + scale：translate3d 强制合成层、scale 等比例缩放（不用 CSS zoom）
 const canvasStyle = computed<CSSProperties>(() => ({
   transform: `translate3d(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px, 0) scale(${zoom.value})`,
@@ -415,10 +414,10 @@ const canvasStyle = computed<CSSProperties>(() => ({
 }))
 // #endregion 缩放与画布变换
 
-// 因点阵背景需在任意平移位置都不露白，故固定在视口容器上且 transform 随 pan 平移（GPU 合成，避免 background-position 每帧重绘卡顿）；
-// 因点阵需附着在画布内容网格上（缩放时随内容等比放大），故周期 = tile*zoom；
-// 因 content(0,0) 的屏幕位置恒为 pan+origin（.canvas 的 translate 不受 scale 影响），
-// 故原点对齐用 (pan+origin+extend) 对周期取余，extend=周期保证层覆盖最大偏移不露白
+// 点阵背景需在任意平移位置都不露白，固定在视口容器上且 transform 随 pan 平移（GPU 合成，避免 background-position 每帧重绘卡顿）；
+// 点阵需附着在画布内容网格上（缩放时随内容等比放大），周期 = tile*zoom；
+// content(0,0) 的屏幕位置恒为 pan+origin（.canvas 的 translate 不受 scale 影响），
+// 原点对齐用 (pan+origin+extend) 对周期取余，extend=周期保证层覆盖最大偏移不露白
 // #region 点阵背景与容器样式
 const DOTS_TILE = 24
 const dotsStyle = computed<CSSProperties>(() => {
@@ -436,21 +435,21 @@ const dotsStyle = computed<CSSProperties>(() => {
 })
 
 const containerStyle = computed<CSSProperties>(() => ({
-  // 因 flex item 默认 min-height:auto 会被内容撑到 500px（> 剩余空间），导致溢出 v-main 出现竖向滚动条；
-  // scoped CSS 的 min-height:0 在 v-sheet（Vuetify 组件根）上未生效，故 inline 强制允许收缩填满剩余
+  // flex item 默认 min-height:auto 会被内容撑到 500px（> 剩余空间），导致溢出 v-main 出现竖向滚动条；
+  // scoped CSS 的 min-height:0 在 v-sheet（Vuetify 组件根）上未生效，inline 强制允许收缩填满剩余
   minHeight: '0',
 }))
 // #endregion 点阵背景与容器样式
 
-// 因块被拖到视口边缘时画布需自动平移（方向与 block-handle 拖段落一致），故按距边缘距离驱动每帧平移
-// 因触发边缘过宽（60px）易在拖拽/缩放时误触，故收窄到 32px：需更靠近视口边缘才开始自动滚动
+// 块被拖到视口边缘时画布需自动平移（方向与 block-handle 拖段落一致），按距边缘距离驱动每帧平移
+// 触发边缘过宽（60px）易在拖拽/缩放时误触，收窄到 32px：需更靠近视口边缘才开始自动滚动
 // #region 自动平移
 const AUTOPAN_EDGE = 32 // 距视口边缘多少 px 触发
-// 因每帧 8px 偏快、易被感知为"突然滚动"，故降为 6px 更平缓
+// 每帧 8px 偏快、易被感知为"突然滚动"，降为 6px 更平缓
 const AUTOPAN_MAX = 6 // 每帧最大平移 px
 const autoPan = reactive({ active: false })
 const lastMouse = { x: 0, y: 0 }
-// 因预览箭头需按鼠标与预览中心的方向角定位，故用响应式鼠标屏幕坐标驱动（lastMouse 仅供 autoPan 用）
+// 预览箭头需按鼠标与预览中心的方向角定位，用响应式鼠标屏幕坐标驱动（lastMouse 仅供 autoPan 用）
 const mouseScreen = ref({ x: -9999, y: -9999 })
 
 const updateMousePos = (e: MouseEvent) => {
@@ -460,8 +459,8 @@ const updateMousePos = (e: MouseEvent) => {
   updateNearClip(e.clientX, e.clientY)
 }
 
-// 因 resize 时只允许往"能调大块"的方向滚动画布（往调小方向滚会致块达钳制后偏离鼠标），
-// 故按被拖边过滤：拖 r/b 只允许右/下边缘（vx/vy 负）、拖 l/t 只允许左/上边缘（vx/vy 正）；
+// resize 时只允许往"能调大块"的方向滚动画布（往调小方向滚会致块达钳制后偏离鼠标），
+// 按被拖边过滤：拖 r/b 只允许右/下边缘（vx/vy 负）、拖 l/t 只允许左/上边缘（vx/vy 正）；
 // 该轴已钳制（达 min/max）时整轴禁止滚动
 const restrictResizeAutoPan = (vx: number, vy: number): { vx: number; vy: number } => {
   const rs = resizeSession
@@ -475,7 +474,7 @@ const restrictResizeAutoPan = (vx: number, vy: number): { vx: number; vy: number
   // 钳制判定（组件已按 min/max 钳制 lastBase，带 0.5 容差防浮点抖动）
   const wClamped = rs.lastBase.w <= minW + 0.5 || (maxW != null && rs.lastBase.w >= maxW - 0.5)
   const hClamped = rs.lastBase.h <= minH + 0.5 || (maxH != null && rs.lastBase.h >= maxH - 0.5)
-  // 因对角线手柄（br/tl 等）同时含两方向，水平按 r/l、垂直按 b/t 分别处理
+  // 对角线手柄（br/tl 等）同时含两方向，水平按 r/l、垂直按 b/t 分别处理
   if (vx) {
     if (handle.includes('r') && (vx > 0 || wClamped)) vx = 0
     else if (handle.includes('l') && (vx < 0 || wClamped)) vx = 0
@@ -487,9 +486,9 @@ const restrictResizeAutoPan = (vx: number, vy: number): { vx: number; vy: number
   return { vx, vy }
 }
 
-// 因 autoPan 由拖拽/缩放共用，故提取"鼠标距视口边缘的速度"，供 tick 滚动与 resize 联结传播判定复用
+// autoPan 由拖拽/缩放共用，提取"鼠标距视口边缘的速度"，供 tick 滚动与 resize 联结传播判定复用
 const autoPanVelocity = (): { vx: number; vy: number } => {
-  // 因 autoPan 每帧调用、getBoundingClientRect 强制 reflow，故用缓存的容器矩形
+  // autoPan 每帧调用、getBoundingClientRect 强制 reflow，用缓存的容器矩形
   const r = viewRect.value
   if (!r) return { vx: 0, vy: 0 }
   let vx = 0
@@ -501,30 +500,30 @@ const autoPanVelocity = (): { vx: number; vy: number } => {
   return { vx, vy }
 }
 
-// 因 autoPan 时 pan 步进（取整）与块补偿（取整）在 zoom≠1 时无法精确抵消（round(rx/z)*z≠round(rx)），
-// 逐帧同号累积会让块视觉长期漂移，故用浮点残差累加器把未取整的补偿累计、跨整时再补偿，保证长期零漂移
+// autoPan 时 pan 步进（取整）与块补偿（取整）在 zoom≠1 时无法精确抵消（round(rx/z)*z≠round(rx)），
+// 逐帧同号累积会让块视觉长期漂移，用浮点残差累加器把未取整的补偿累计、跨整时再补偿，保证长期零漂移
 const panCompAcc = reactive({ x: 0, y: 0 })
 
 const autoPanTick = () => {
   if (!autoPan.active) return
   const { vx, vy } = autoPanVelocity()
-  // 因 autoPan 由拖拽/缩放共用，resize 时按被拖方向限制滚动方向（见 restrictResizeAutoPan）
+  // autoPan 由拖拽/缩放共用，resize 时按被拖方向限制滚动方向（见 restrictResizeAutoPan）
   const { vx: rx, vy: ry } = restrictResizeAutoPan(vx, vy)
   if (rx !== 0 || ry !== 0) {
-    // 因 pan 是外部像素平移（不受 scale 影响），画布滚动按视口像素直接累加
+    // pan 是外部像素平移（不受 scale 影响），画布滚动按视口像素直接累加
     const sx = mobileMode.value ? 0 : Math.round(rx)
     const sy = Math.round(ry)
     if (!mobileMode.value) pan.x += sx
     pan.y += sy
-    // 因自动平移时鼠标停住块也不应偏离（块屏幕位置 = 块坐标*z + pan），故按残差补偿被拖拽块坐标
-    // 因移动端锁水平，故横向自动平移与横向补偿一并跳过，仅竖向滚动
+    // 自动平移时鼠标停住块也不应偏离（块屏幕位置 = 块坐标*z + pan），按残差补偿被拖拽块坐标
+    // 移动端锁水平，横向自动平移与横向补偿一并跳过，仅竖向滚动
     panCompAcc.x += mobileMode.value ? 0 : -sx / zoom.value
     panCompAcc.y += -sy / zoom.value
     const compX = Math.round(panCompAcc.x)
     const compY = Math.round(panCompAcc.y)
     panCompAcc.x -= compX
     panCompAcc.y -= compY
-    // 因补偿仅对被拖块生效（拖拽中 customDragItems 才有意义），故框选等场景不补偿任何块；
+    // 补偿仅对被拖块生效（拖拽中 customDragItems 才有意义），框选等场景不补偿任何块；
     // 否则上次拖拽残留的块会在框选自动滚动时被误当"被拖块"，出现块被移动/钉屏
     if (customDrag.active) {
       customDragItems.forEach((target) => {
@@ -533,10 +532,10 @@ const autoPanTick = () => {
         layout.y += compY
       })
     }
-    // 因 resize 时画布自动滚动，被拖块坐标由组件受控（prop 即 content 坐标），
-    // 故按"基准矩形 + 相对起始 pan 位移"重算其 content 坐标使缩放手柄跟随鼠标
+    // resize 时画布自动滚动，被拖块坐标由组件受控（prop 即 content 坐标），
+    // 按"基准矩形 + 相对起始 pan 位移"重算其 content 坐标使缩放手柄跟随鼠标
     compensateResizeAutoPan()
-    // 因框选时鼠标停住也需随画布滚动扩展选择框（无 mousemove 驱动），故用最近鼠标位置每帧刷新框选
+    // 框选时鼠标停住也需随画布滚动扩展选择框（无 mousemove 驱动），用最近鼠标位置每帧刷新框选
     if (selectionState.active) updateSelectionAt(lastMouse.x, lastMouse.y)
   }
   requestAnimationFrame(autoPanTick)
@@ -557,7 +556,7 @@ const stopAutoPan = () => {
 
 // #region 手动平移（右键拖拽）
 const startPan = (e: MouseEvent) => {
-  // 因需任意位置右键拖拽都平移，故仅响应右键且不依赖 Vue 的 .right 修饰符（兼容性更稳）
+  // 需任意位置右键拖拽都平移，仅响应右键且不依赖 Vue 的 .right 修饰符（兼容性更稳）
   if (e.button !== 2) return
   e.preventDefault()
   panSession.active = true
@@ -577,8 +576,8 @@ const trackLeftButtonUp = () => {
   leftButtonDown = false
 }
 
-// 因容器捕获监听（handleCanvasMouseDownCapture）可能随容器重挂载而失效、且编辑器会冒泡拦截右键事件，
-// 故在 window 捕获阶段统一处理右键：画布内右键且无活跃左键会话时启动平移，否则拦截
+// 容器捕获监听（handleCanvasMouseDownCapture）可能随容器重挂载而失效、且编辑器会冒泡拦截右键事件，
+// 在 window 捕获阶段统一处理右键：画布内右键且无活跃左键会话时启动平移，否则拦截
 const onGlobalMouseDownCapture = (e: MouseEvent) => {
   if (e.button !== 2) return
   if (!(e.target as HTMLElement).closest?.('.canvas-container')) return
@@ -591,23 +590,23 @@ const onGlobalMouseDownCapture = (e: MouseEvent) => {
   e.stopPropagation()
 }
 
-// 因编辑器（ProseMirror）内部会通过 stopPropagation 拦截右键事件，故在捕获阶段拦截以确保任意位置右键拖拽都能平移
+// 编辑器（ProseMirror）内部会通过 stopPropagation 拦截右键事件，在捕获阶段拦截以确保任意位置右键拖拽都能平移
 const handleCanvasMouseDownCapture = (e: MouseEvent) => {
   if (e.button !== 2) return
-  // 因左键按住（拖拽块/缩放/框选/编辑器内操作等）时按右键会干扰当前操作，故此时忽略右键（禁用画布移动）
+  // 左键按住（拖拽块/缩放/框选/编辑器内操作等）时按右键会干扰当前操作，此时忽略右键（禁用画布移动）
   if (customDrag.active || resizeSession || selectionState.active || leftButtonDown) return
   startPan(e)
   e.stopPropagation()
 }
 
-// 因 mousemove 触发频率高于帧率，且块多时每次 pan 更新会触发 watch → 逐编辑器重算高亮/位置，
-// 逐事件处理会堆积无效更新导致右键拖拽卡顿，故用 rAF 合并到每帧最多一次
+// mousemove 触发频率高于帧率，且块多时每次 pan 更新会触发 watch → 逐编辑器重算高亮/位置，
+// 逐事件处理会堆积无效更新导致右键拖拽卡顿，用 rAF 合并到每帧最多一次
 let panRafId = 0
 let panTargetX = 0
 let panTargetY = 0
 const updatePan = (e: MouseEvent) => {
   if (!panSession.active) return
-  // 因 .canvas 变换 translate(round(pan+origin)) 的平移量是外部像素（不受 scale 影响），故 pan 按视口像素直接累加、不除 zoom
+  // .canvas 变换 translate(round(pan+origin)) 的平移量是外部像素（不受 scale 影响），pan 按视口像素直接累加、不除 zoom
   panTargetX = panSession.startPanX + (e.clientX - panSession.startClientX)
   panTargetY = panSession.startPanY + (e.clientY - panSession.startClientY)
   if (panRafId) return
@@ -616,8 +615,8 @@ const updatePan = (e: MouseEvent) => {
 const applyPan = () => {
   panRafId = 0
   if (!panSession.active) return
-  // 因触摸/缩放屏下 clientX 可能为小数、亚像素平移会致界面模糊，故取整
-  // 因移动端锁水平，故仅竖直方向平移、水平锁定
+  // 触摸/缩放屏下 clientX 可能为小数、亚像素平移会致界面模糊，取整
+  // 移动端锁水平，仅竖直方向平移、水平锁定
   pan.x = mobileMode.value ? 0 : Math.round(panTargetX)
   pan.y = Math.round(panTargetY)
 }
@@ -633,17 +632,17 @@ const stopPan = () => {
   maybeRebaseOrigin()
 }
 
-// 因右键拖拽平移时需避免弹出原生菜单，故窗口级全局禁用右键菜单
+// 右键拖拽平移时需避免弹出原生菜单，窗口级全局禁用右键菜单
 const preventContextMenu = (e: Event) => e.preventDefault()
 
-// 因编辑器内 block-handle 拖拽段落时需画布自动平移（useBlockDrag 派发该事件），故监听该事件并取整避免落亚像素
+// 编辑器内 block-handle 拖拽段落时需画布自动平移（useBlockDrag 派发该事件），监听该事件并取整避免落亚像素
 const onCanvasPanEvent = (e: Event) => {
   const detail = (e as CustomEvent<{ dx?: number; dy?: number }>).detail
   if (!detail) return
   const dx = Number(detail.dx) || 0
   const dy = Number(detail.dy) || 0
   if (dx === 0 && dy === 0) return
-  // 因 pan 是外部像素平移（不受 scale 影响），故按视口像素直接累加
+  // pan 是外部像素平移（不受 scale 影响），按视口像素直接累加
   if (!mobileMode.value) pan.x += Math.round(dx)
   pan.y += Math.round(dy)
 }
@@ -681,7 +680,7 @@ const getComponentProps = (item: CanvasItem) => {
       doc: cfg.content,
       compact: mobileMode.value,
       autoHeight: cfg.autoHeight === true,
-      // 因 autoHeight 状态存于父组件 config，故经事件回写，块内不维护副本
+      // autoHeight 状态存于父组件 config，经事件回写，块内不维护副本
       'onUpdate:autoHeight': (v: boolean) => { cfg.autoHeight = v },
     }
   }
@@ -717,7 +716,7 @@ const setComponentRef = (id: string, el: any) => {
 const layoutOf = (item: CanvasItem): Rect => (mobileMode.value ? item.layout.mobile : item.layout.desktop)
 // #endregion 组件数据读写
 
-// 因需“重叠接触段融合、露出段保留边框”，故不整边隐藏，而是为每块生成
+// 需“重叠接触段融合、露出段保留边框”，不整边隐藏，而是为每块生成
 // 接触段的遮罩（块内相对坐标），用 surface 同色盖住该段 border；
 // b 在 a 左侧紧贴 → 融合段沿 a 左边/ b 右边；b 在 a 上侧紧贴 → 沿 a 上边/ b 下边
 // #region 贴合遮罩与圆角
@@ -727,8 +726,8 @@ interface EdgeMask {
   len: number
 }
 const EDGE_TOL = 1
-// 因遮罩/圆角在拖拽缩放中每帧随 layout 重算（O(N²)）成本高，
-// 故由 computed 改为显式缓存（recomputeMasks 刷新）：交互会话期间不刷新即冻结，收尾再按最终布局刷新
+// 遮罩/圆角在拖拽缩放中每帧随 layout 重算（O(N²)）成本高，
+// 由 computed 改为显式缓存（recomputeMasks 刷新）：交互会话期间不刷新即冻结，收尾再按最终布局刷新
 const computeEdgeMasks = (): Record<string, EdgeMask[]> => {
   const map: Record<string, EdgeMask[]> = {}
   const items = state.items
@@ -762,7 +761,7 @@ const computeEdgeMasks = (): Record<string, EdgeMask[]> => {
 }
 const edgeMasksMap = shallowRef<Record<string, EdgeMask[]>>({})
 const masksOf = (id: string): EdgeMask[] => edgeMasksMap.value[id] ?? []
-// 因遮罩绝对定位相对 padding box（left:0 在 border 内侧 1px 处），故向外偏 1px 覆盖 border，
+// 遮罩绝对定位相对 padding box（left:0 在 border 内侧 1px 处），向外偏 1px 覆盖 border，
 // 宽度取 2px 一并盖掉邻接处的 content-guide 虚线；内容区 padding 4px 不受影响
 const maskStyle = (m: EdgeMask): CSSProperties => {
   const base: CSSProperties = {
@@ -770,12 +769,12 @@ const maskStyle = (m: EdgeMask): CSSProperties => {
     pointerEvents: 'none',
     zIndex: 16,
   }
-  // 因接触段需以虚线提示“可分离”（替代原实线 border），故遮罩在 surface 底色上间隔画淡灰虚线段，
+  // 接触段需以虚线提示“可分离”（替代原实线 border），遮罩在 surface 底色上间隔画淡灰虚线段，
   // 同时盖住下方实线 border；水平条（t/b）沿 x 画虚线，垂直条（l/r）沿 y 画虚线
   const dashH = `repeating-linear-gradient(90deg, rgb(var(--v-theme-surface)) 0 4px, rgba(var(--v-theme-on-surface), 0.35) 4px 6px, rgb(var(--v-theme-surface)) 6px 8px)`
   const dashV = `repeating-linear-gradient(180deg, rgb(var(--v-theme-surface)) 0 4px, rgba(var(--v-theme-on-surface), 0.35) 4px 6px, rgb(var(--v-theme-surface)) 6px 8px)`
-  // 因遮罩相对 padding box 定位（left:0 即块边界内侧 1px），右端会溢出盖住相邻垂直边框（右缝断开），
-  // 故沿接触方向两端各留 1px：左端由定位天然留出、右端缩 len-2，使贴合处四角边框连贯
+  // 遮罩相对 padding box 定位（left:0 即块边界内侧 1px），右端会溢出盖住相邻垂直边框（右缝断开），
+  // 沿接触方向两端各留 1px：左端由定位天然留出、右端缩 len-2，使贴合处四角边框连贯
   const span = Math.max(m.len - 2, 0)
   if (m.side === 'l') return { ...base, left: '-1px', top: `${m.start}px`, width: '1px', height: `${span}px`, background: dashV }
   if (m.side === 'r') return { ...base, right: '-1px', top: `${m.start}px`, width: '1px', height: `${span}px`, background: dashV }
@@ -783,7 +782,7 @@ const maskStyle = (m: EdgeMask): CSSProperties => {
   return { ...base, bottom: '-1px', left: `${m.start}px`, height: '1px', width: `${span}px`, background: dashH }
 }
 
-// 因贴合处角落若保留圆角会在接触边两端露出弧形缺口，故按“接触段是否延伸到块的角”判断
+// 贴合处角落若保留圆角会在接触边两端露出弧形缺口，按“接触段是否延伸到块的角”判断
 // 哪些角需归零圆角（直角相接使贴合连贯）；非接触角保持 v-sheet 默认 4px
 const ROUNDED = 4
 const computeCornerHits = (): Record<string, { tl: boolean; tr: boolean; bl: boolean; br: boolean }> => {
@@ -821,16 +820,16 @@ const cornerStyleOf = (id: string): CSSProperties => {
   return { borderRadius: radius }
 }
 
-// 因遮罩/圆角由 layout 推导且 O(N²)，故统一在此刷新（增删块/布局落定/交互收尾时调用）
+// 遮罩/圆角由 layout 推导且 O(N²)，统一在此刷新（增删块/布局落定/交互收尾时调用）
 const recomputeMasks = () => {
   edgeMasksMap.value = computeEdgeMasks()
   cornerHitsMap.value = computeCornerHits()
 }
 // #endregion 贴合遮罩与圆角
 
-// 因手柄高 28px、块贴近视口顶部时上方放不下（会被画布容器裁剪），
-// 故按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方；
-// 因手柄视觉高随 zoom 缩放，故阈值取视觉高度，避免高缩放时误判顶部放不下
+// 手柄高 28px、块贴近视口顶部时上方放不下（会被画布容器裁剪），
+// 按块在视口内的位置（存储坐标 + 原点 + 平移）决定手柄放上/下方；
+// 手柄视觉高随 zoom 缩放，阈值取视觉高度，避免高缩放时误判顶部放不下
 // #region 手柄与描边样式
 const HANDLE_HEIGHT = 28
 const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
@@ -838,12 +837,12 @@ const handlePlacementOf = (item: CanvasItem): 'top' | 'bottom' =>
 
 const handleBarStyle = (item: CanvasItem): CSSProperties => {
   const layout = layoutOf(item)
-  // 因拖拽中 handle 需保持按下时的放置（否则 handlePlacementOf 在块拖到视口顶部时
-  // 从"块上方"切到"块下方"，导致 handle 与块（ResizeBox）瞬间分离），故拖拽期间锁定 placementLocked
+  // 拖拽中 handle 需保持按下时的放置（否则 handlePlacementOf 在块拖到视口顶部时
+  // 从"块上方"切到"块下方"，导致 handle 与块（ResizeBox）瞬间分离），拖拽期间锁定 placementLocked
   const dragging = customDrag.active && !!customDragGroup[item.id]
   const bottom = dragging ? customDrag.placementLocked : handlePlacementOf(item) === 'bottom'
-  // 因 .canvas 整体 scale(zoom)，若对 (y±HANDLE_HEIGHT) 整体取整，其取整边界与块边缘
-  // round(y*zoom) 不一致会在放大时露出 1px 缝隙，故分别取整使底边/顶边贴齐块的视觉边缘
+  // .canvas 整体 scale(zoom)，若对 (y±HANDLE_HEIGHT) 整体取整，其取整边界与块边缘
+  // round(y*zoom) 不一致会在放大时露出 1px 缝隙，分别取整使底边/顶边贴齐块的视觉边缘
   const handleTop = bottom
     ? roundToPx(layout.y + layout.h)
     : roundToPx(layout.y) - roundToPx(HANDLE_HEIGHT)
@@ -852,24 +851,24 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
     top: `${handleTop}px`,
     left: `${roundToPx(layout.x + 10)}px`,
     height: `${roundToPx(HANDLE_HEIGHT)}px`,
-    // 因手柄脱离块内层叠上下文后需高于所有块（VDR :z）且不被其他选中块盖住，
-    // 故置 Z_LAYER.dragHandle（1001）：高于选中块与描边环、低于缩放手柄
+    // 手柄脱离块内层叠上下文后需高于所有块（VDR :z）且不被其他选中块盖住，
+    // 置 Z_LAYER.dragHandle（1001）：高于选中块与描边环、低于缩放手柄
     zIndex: Z_LAYER.dragHandle,
     padding: '0 10px',
     display: 'flex',
     alignItems: 'center',
     cursor: 'grab',
     whiteSpace: 'nowrap',
-    // 因内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
-    // 故改用 CSS 变量 --handle-y（贴边微调）+ --handle-slide（滑出方向）由 CSS 组合进动画；
+    // 内联 transform 优先级高于 Vue transition 的 class 会压掉滑出动画（只剩 opacity 生效），
+    // 改用 CSS 变量 --handle-y（贴边微调）+ --handle-slide（滑出方向）由 CSS 组合进动画；
     // --handle-slide 复用 HANDLE_HEIGHT，避免与高度硬编码重复
     '--handle-y': '0px',
     '--handle-slide': `${bottom ? -HANDLE_HEIGHT : HANDLE_HEIGHT}px`,
   }
 }
 
-// 因设置栏需与拖拽栏垂直对齐（top/bottom 同放置逻辑）且显示在块右上角，
-// 故垂直用 handlePlacementOf 同款计算、水平右对齐块右缘并留右边距（与拖拽栏左对齐相呼应）
+// 设置栏需与拖拽栏垂直对齐（top/bottom 同放置逻辑）且显示在块右上角，
+// 垂直用 handlePlacementOf 同款计算、水平右对齐块右缘并留右边距（与拖拽栏左对齐相呼应）
 const SIDE_SETTINGS_WIDTH = 28
 const SIDE_SETTINGS_MARGIN = 8
 const sideSettingsStyle = (item: CanvasItem): CSSProperties => {
@@ -884,14 +883,14 @@ const sideSettingsStyle = (item: CanvasItem): CSSProperties => {
   }
 }
 
-// 因选中描边环向外扩 2px（与原 box-shadow 0 0 0 2px 一致），故 overlay 相对块边缘外扩该宽度
+// 选中描边环向外扩 2px（与原 box-shadow 0 0 0 2px 一致），overlay 相对块边缘外扩该宽度
 const OUTLINE_PX = 2
 const selectedOutlineStyle = (item: CanvasItem): CSSProperties => {
   const l = layoutOf(item)
-  // 因多选时"浮层归属块"的拖拽栏需盖住别的块高亮、又不遮断自己块高亮，
-  // 故归属块描边环用 outline（1002）在其上、其余选中块描边环降到 dragHandle 之下（1000）
+  // 多选时"浮层归属块"的拖拽栏需盖住别的块高亮、又不遮断自己块高亮，
+  // 归属块描边环用 outline（1002）在其上、其余选中块描边环降到 dragHandle 之下（1000）
   const zIndex = outlineOwnerId.value === item.id ? Z_LAYER.outline : Z_LAYER.dragHandle - 1
-  // 因 .canvas 整体 scale(zoom)，按块边缘视觉分别取整外扩，保证描边环贴齐块边缘
+  // .canvas 整体 scale(zoom)，按块边缘视觉分别取整外扩，保证描边环贴齐块边缘
   return {
     left: `${roundToPx(l.x) - roundToPx(OUTLINE_PX)}px`,
     top: `${roundToPx(l.y) - roundToPx(OUTLINE_PX)}px`,
@@ -910,8 +909,8 @@ const getSelectedItemIds = (item: CanvasItem) => {
   return selected
 }
 
-// 因需块跟随鼠标且画布平移时块自动补偿（无需 hack VDR 内部），
-// 故块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)
+// 需块跟随鼠标且画布平移时块自动补偿（无需 hack VDR 内部），
+// 块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)
 const customDrag = reactive({
   active: false,
   startClientX: 0,
@@ -924,7 +923,7 @@ const customDrag = reactive({
   sourceItemId: null as string | null,
 })
 let customDragGroup: Record<string, { x: number; y: number }> = {}
-// 因拖拽中每帧按 id 遍历 state.items 查找会随块数增长卡顿，故会话开始时缓存被拖块引用到 Map
+// 拖拽中每帧按 id 遍历 state.items 查找会随块数增长卡顿，会话开始时缓存被拖块引用到 Map
 let customDragItems = new Map<string, CanvasItem>()
 // 粘贴链接：记录已用曲别针"粘贴"的块对（key 为两 id 排序后 join），拖动一个时另一块跟着动
 const linkedPairs = ref<Set<string>>(new Set())
@@ -952,8 +951,8 @@ const toggleLink = (a: string, b: string) => {
   linkedPairs.value = next
 }
 
-// 因仅加 body 类需等下次 hover state-change 才让 popup/高亮收起，拖拽首帧会残留"折叠中"的 popup，
-// 故向所有编辑器派发块外指针事件，触发扩展失效缓冲立即清除 hover（body 类已置，state-change 会置 null）
+// 仅加 body 类需等下次 hover state-change 才让 popup/高亮收起，拖拽首帧会残留"折叠中"的 popup，
+// 向所有编辑器派发块外指针事件，触发扩展失效缓冲立即清除 hover（body 类已置，state-change 会置 null）
 const hideAllBlockHandles = () => {
   const emptyPoint = { bubbles: true, clientX: -9999, clientY: -9999, pointerId: 1 }
   document.querySelectorAll<HTMLElement>('.ProseMirror').forEach((dom) => {
@@ -983,8 +982,8 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
       customDragItems.set(id, target)
     }
   })
-  // 因曲别针"粘贴"的块需随被拖块一起移动，故把链接传递可达的块也加入拖拽组；
-  // 因移动端不启用块联结（曲别针隐藏），故仅桌面端收集
+  // 曲别针"粘贴"的块需随被拖块一起移动，把链接传递可达的块也加入拖拽组；
+  // 移动端不启用块联结（曲别针隐藏），仅桌面端收集
   if (!mobileMode.value) {
     collectLinkedIds(item.id).forEach((id) => {
       if (customDragGroup[id]) return
@@ -1000,19 +999,19 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   window.addEventListener('mousemove', onCustomDragMove)
   window.addEventListener('mouseup', onCustomDragUp)
   e.preventDefault()
-  // 因拖拽中鼠标会扫过编辑器触发 block-handle popup/高亮，故复用 body 类跨编辑器全局抑制
+  // 拖拽中鼠标会扫过编辑器触发 block-handle popup/高亮，复用 body 类跨编辑器全局抑制
   document.body.classList.add('block-handle-dragging')
-  // 因仅加 body 类要等下次 hover state-change 才让 popup/高亮收起，拖拽首帧会残留折叠中的 popup，
-  // 故立即向所有编辑器派发块外指针事件，使其马上隐藏
+  // 仅加 body 类要等下次 hover state-change 才让 popup/高亮收起，拖拽首帧会残留折叠中的 popup，
+  // 立即向所有编辑器派发块外指针事件，使其马上隐藏
   hideAllBlockHandles()
-  // 因拖拽中块可能超出视口使 document 出现竖向滚动条，故临时锁 html/body 滚动、松开恢复
+  // 拖拽中块可能超出视口使 document 出现竖向滚动条，临时锁 html/body 滚动、松开恢复
   document.documentElement.style.overflow = 'hidden'
   document.body.style.overflow = 'hidden'
   startAutoPan() // 拖到视口边缘时画布自动平移
 }
 
-// 因 mousemove 触发频率高于帧率，多选时每帧更新多个块布局并做吸附计算，
-// 逐事件处理会堆积无效更新导致拖拽卡顿，故用 rAF 合并到每帧最多一次
+// mousemove 触发频率高于帧率，多选时每帧更新多个块布局并做吸附计算，
+// 逐事件处理会堆积无效更新导致拖拽卡顿，用 rAF 合并到每帧最多一次
 let customDragRafId = 0
 let customDragLastX = 0
 let customDragLastY = 0
@@ -1028,24 +1027,24 @@ const onCustomDragMove = (e: MouseEvent) => {
 const applyCustomDrag = () => {
   customDragRafId = 0
   if (!customDrag.active) return
-  // 因画布被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
+  // 画布被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
   const dx = (customDragLastX - customDrag.startClientX) / zoom.value
   const dy = (customDragLastY - customDrag.startClientY) / zoom.value
-  // 因 pan 是外部像素平移，换算成 content 位移需再除 zoom
+  // pan 是外部像素平移，换算成 content 位移需再除 zoom
   const panDx = (pan.x - customDrag.panStartX) / zoom.value
   const panDy = (pan.y - customDrag.panStartY) / zoom.value
   customDragItems.forEach((target, id) => {
     const origin = customDragGroup[id]
     const layout = layoutOf(target)
-    // 因块屏幕位置（= 块坐标 + pan）需落在整数像素上，故取整
+    // 块屏幕位置（= 块坐标 + pan）需落在整数像素上，取整
     layout.x = mobileMode.value ? origin.x : Math.round(origin.x + dx - panDx)
     layout.y = Math.round(origin.y + dy - panDy)
     if (!mobileMode.value) snapLayoutToOthers(target, layout)
   })
 }
 
-// 因自定义拖拽绕过 VDR 的 handleDrag（snap 吸附不再触发），
-// 故拖动时手动对每个被拖块与其他块做边缘/中线对齐吸附（容差内取最近的边）
+// 自定义拖拽绕过 VDR 的 handleDrag（snap 吸附不再触发），
+// 拖动时手动对每个被拖块与其他块做边缘/中线对齐吸附（容差内取最近的边）
 const SNAP_TOLERANCE = 10
 const PAPERCLIP_PROXIMITY = 32
 const snapLayoutToOthers = (target: CanvasItem, layout: Rect) => {
@@ -1103,32 +1102,32 @@ const connectionPoint = (a: Rect, b: Rect): { x: number; y: number } => {
   return { x: (acx + bcx) / 2, y: (acy + bcy) / 2 }
 }
 
-// 因缩放手柄与曲别针的层级在 zIndex.ts 已固定（1002/1003）且缩放手柄 Teleport 到 .canvas 顶层，
-// 故曲别针无需运行时降 z，保持 CSS 层级即可在选中块之上可点
+// 缩放手柄与曲别针的层级在 zIndex.ts 已固定（1002/1003）且缩放手柄 Teleport 到 .canvas 顶层，
+// 曲别针无需运行时降 z，保持 CSS 层级即可在选中块之上可点
 
-// 因富文本开启"高度自适应"时块高由内容驱动、用户不可垂直缩放，故以此判定过滤垂直手柄
+// 富文本开启"高度自适应"时块高由内容驱动、用户不可垂直缩放，以此判定过滤垂直手柄
 const isAutoHeight = (item: CanvasItem): boolean =>
   item.component === 'RichTextEditor' && (item.config as RichTextConfig).autoHeight === true
 
-// 因开关状态存于父组件 config，经事件回写即可驱动 RichTextEditor 的 autoHeight prop
+// 开关状态存于父组件 config，经事件回写即可驱动 RichTextEditor 的 autoHeight prop
 const setAutoHeight = (item: CanvasItem, v: boolean) => {
   if (item.component !== 'RichTextEditor') return
   ;(item.config as RichTextConfig).autoHeight = v
 }
 
-// 因 ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
-// 而手柄已 Teleport 脱离 .drag-wrapper（原 CSS 隐藏规则失效），故按 popup 显隐过滤 tm 手柄
+// ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
+// 而手柄已 Teleport 脱离 .drag-wrapper（原 CSS 隐藏规则失效），按 popup 显隐过滤 tm 手柄
 const resizeHandlesOf = (item: CanvasItem): string[] => {
-  // 因 autoHeight 时高度由内容决定，故隐藏全部含垂直方向的手柄，仅保留水平
+  // autoHeight 时高度由内容决定，隐藏全部含垂直方向的手柄，仅保留水平
   if (isAutoHeight(item)) return ['ml', 'mr']
   if (mobileMode.value) return ['tm', 'bm']
   if (popupBlockId.value === item.id) return ['tl', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
   return ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
 }
 
-// 因"靠近才显示"由鼠标位置独立判定（见 updateNearClip），故曲别针候选只算几何不依赖鼠标，
+// "靠近才显示"由鼠标位置独立判定（见 updateNearClip），曲别针候选只算几何不依赖鼠标，
 // 避免每帧 mousemove 重建列表（相邻或已粘贴的块对及其连接点）；
-// 因富文本 popup 上侧开启会盖住连接点处的曲别针，故此时清空
+// 富文本 popup 上侧开启会盖住连接点处的曲别针，此时清空
 const paperclipCandidates = computed(() => {
   const list: { key: string; a: string; b: string; x: number; y: number; linked: boolean }[] = []
   if (mobileMode.value || popupTopOpen.value) return list
@@ -1147,7 +1146,7 @@ const paperclipCandidates = computed(() => {
   return list
 })
 
-// 因"鼠标靠近连接点才显示曲别针"，故每帧对缓存候选判距并记录最近命中 key（候选数少，开销可忽略）；
+// "鼠标靠近连接点才显示曲别针"，每帧对缓存候选判距并记录最近命中 key（候选数少，开销可忽略）；
 // 显示/隐藏经模板 v-show 切换，不重建 DOM
 const nearClipKey = ref<string | null>(null)
 const updateNearClip = (clientX: number, clientY: number) => {
@@ -1156,7 +1155,7 @@ const updateNearClip = (clientX: number, clientY: number) => {
   let best: string | null = null
   let bestDist = Infinity
   paperclipCandidates.value.forEach((c) => {
-    // 因曲别针渲染在 .canvas 内（随 pan+origin 变换），故屏幕位置 = 布局坐标*zoom + origin + pan + 容器偏移
+    // 曲别针渲染在 .canvas 内（随 pan+origin 变换），屏幕位置 = 布局坐标*zoom + origin + pan + 容器偏移
     const sx = c.x * zoom.value + origin.x + pan.x + cr.left
     const sy = c.y * zoom.value + origin.y + pan.y + cr.top
     const d = Math.hypot(sx - clientX, sy - clientY)
@@ -1168,8 +1167,8 @@ const updateNearClip = (clientX: number, clientY: number) => {
   if (nearClipKey.value !== best) nearClipKey.value = best
 }
 
-// 因 VDR 自带冲突检测仅在它自己的 dragging/resizing 结束触发，而块拖拽走自定义路径（draggable=false），
-// 故松开时自行检测被拖块与其他块重叠，重叠则回退到拖拽起点
+// VDR 自带冲突检测仅在它自己的 dragging/resizing 结束触发，而块拖拽走自定义路径（draggable=false），
+// 松开时自行检测被拖块与其他块重叠，重叠则回退到拖拽起点
 const resolveDragConflict = () => {
   const draggedIds = new Set(Object.keys(customDragGroup))
   state.items.forEach((target) => {
@@ -1191,10 +1190,10 @@ const resolveDragConflict = () => {
 const onCustomDragUp = () => {
   customDrag.active = false
   customDrag.sourceItemId = null
-  // 因冲突检测需读取拖拽组（被拖块及各自起点），故须在清空 customDragGroup 前执行，
+  // 冲突检测需读取拖拽组（被拖块及各自起点），须在清空 customDragGroup 前执行，
   // 否则清空后 draggedIds 为空集、检测恒不命中
   resolveDragConflict()
-  // 因拖拽组仅本会话有效，故结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
+  // 拖拽组仅本会话有效，结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
   customDragGroup = {}
   customDragItems = new Map()
   if (customDragRafId) {
@@ -1206,12 +1205,12 @@ const onCustomDragUp = () => {
   window.removeEventListener('mousemove', onCustomDragMove)
   window.removeEventListener('mouseup', onCustomDragUp)
   stopAutoPan()
-  // 因拖拽结束需恢复编辑器 popup/高亮，故移除 body 拖拽类
+  // 拖拽结束需恢复编辑器 popup/高亮，移除 body 拖拽类
   document.body.classList.remove('block-handle-dragging')
   document.documentElement.style.overflow = ''
   document.body.style.overflow = ''
   maybeRebaseOrigin()
-  recomputeMasks() // 因拖拽期间遮罩/圆角已冻结，故落定后按最终布局刷新
+  recomputeMasks() // 拖拽期间遮罩/圆角已冻结，落定后按最终布局刷新
 }
 // #endregion 自定义拖拽与联结
 
@@ -1228,7 +1227,7 @@ interface ResizeSession {
 }
 let resizeSession: ResizeSession | null = null
 
-// 因 resize 时画布自动滚动会让被拖块偏离鼠标，故按"基准矩形 + 相对起始 pan 的位移"补偿：
+// resize 时画布自动滚动会让被拖块偏离鼠标，按"基准矩形 + 相对起始 pan 的位移"补偿：
 // 被拖边（手柄所在边）钉屏跟手、锚定边不补偿（content 不动、随画布滚）；
 // 钳制维（已到 min/max）不补偿、该方向整组随画布滚动。水平/垂直同此规则（对称）
 const applyPanCorrection = (
@@ -1245,7 +1244,7 @@ const applyPanCorrection = (
   const wClamped = base.w <= minW + 0.5 || (maxW != null && base.w >= maxW - 0.5)
   const hClamped = base.h <= minH + 0.5 || (maxH != null && base.h >= maxH - 0.5)
   if (dpY && !hClamped) {
-    // 因拖 t 改 y+height（上缘钉屏、下缘锚定随画布滚）、拖 b 改 height（下缘钉屏、上缘锚定）；
+    // 拖 t 改 y+height（上缘钉屏、下缘锚定随画布滚）、拖 b 改 height（下缘钉屏、上缘锚定）；
     // 补偿后按 min/max 钳制（锚定边保持 y+h 不变），钳制到极限后该方向不再钉屏（整组随画布滚）
     if (handle.includes('t')) {
       const rawH = out.h + dpY
@@ -1269,7 +1268,7 @@ const applyPanCorrection = (
   return out
 }
 
-// 因 resize 需与拖拽一致支持边缘吸附，故按被拖边（手柄方向）对齐其他块的边/中线；
+// resize 需与拖拽一致支持边缘吸附，按被拖边（手柄方向）对齐其他块的边/中线；
 // 仅调整被拖边（锚定边不动），吸附容差同拖拽 SNAP_TOLERANCE，并保持 min/max 钳制
 const snapResizeEdges = (handle: string, rect: Rect, c: Required<ResizeConstraints>): Rect => {
   const out = { ...rect }
@@ -1317,12 +1316,12 @@ const snapResizeEdges = (handle: string, rect: Rect, c: Required<ResizeConstrain
   return out
 }
 
-// 因被拖块坐标由组件受控（prop 即 content 世界坐标），故把补偿结果直接写回 layout；
-// 且因 autoPan 滚动时联结块 B 若贴 A 底会被钉屏压缩，故滚动期间冻结联结传播（B 整体随画布滚）
+// 被拖块坐标由组件受控（prop 即 content 世界坐标），把补偿结果直接写回 layout；
+// autoPan 滚动时联结块 B 若贴 A 底会被钉屏压缩，滚动期间冻结联结传播（B 整体随画布滚）
 const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
   const rs = resizeSession
   if (!rs) return
-  // 因 pan 是外部像素平移，换算成 content 补偿量需除 zoom
+  // pan 是外部像素平移，换算成 content 补偿量需除 zoom
   const final = applyPanCorrection(
     rs.lastBase,
     rs.handle,
@@ -1339,7 +1338,7 @@ const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
   if (propagate) syncLinkedEdges(item, snapped.x, snapped.y, snapped.w, snapped.h)
 }
 
-// 因 autoPan 每帧 pan 变化且鼠标可能停住（无 mousemove），故在 rAF 循环内补偿被拖块（见 autoPanTick）；
+// autoPan 每帧 pan 变化且鼠标可能停住（无 mousemove），在 rAF 循环内补偿被拖块（见 autoPanTick）；
 // 滚动期间冻结联结传播（B 随画布滚），避免被 A 底钉屏压缩
 const compensateResizeAutoPan = () => {
   const rs = resizeSession
@@ -1364,7 +1363,7 @@ const neighborsOf = (id: string): string[] => {
   return out
 }
 
-// 因仅在被拖块 A 的 resize 会话中调用，故直接从会话取链接组起始矩形转交共用传播
+// 仅在被拖块 A 的 resize 会话中调用，直接从会话取链接组起始矩形转交共用传播
 const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
   const rs = resizeSession
   if (!rs || rs.itemId !== item.id) return
@@ -1376,7 +1375,7 @@ const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: n
 // 位置按"起始 + 父块总位移"重算（不逐帧累加，防长距离错位）。
 const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<string, Rect>) => {
   const positions: Record<string, Rect> = {}
-  // 因 autoPan 平移改变了联结块 layout，positions 用当前布局初始化以保留自由边平移；
+  // autoPan 平移改变了联结块 layout，positions 用当前布局初始化以保留自由边平移；
   // 方位判定与位移仍基于 starts（会话起始，避免随动干扰）
   Object.keys(starts).forEach((id) => {
     const target = state.items.find((it) => it.id === id)
@@ -1448,7 +1447,7 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
       if (enqueue) queue.push(nid)
     })
   }
-  // 因被拖块 A 的 VDR 坐标在 autoPan 时已由 compensateResizeAutoPan 补偿（保持屏幕位置），
+  // 被拖块 A 的 VDR 坐标在 autoPan 时已由 compensateResizeAutoPan 补偿（保持屏幕位置），
   // 传播结果直接写回内容坐标即可——联结块基于补偿后的 A 传播，随之保持屏幕位置并与 A 贴合
   Object.keys(positions).forEach((id) => {
     if (id === item.id) return
@@ -1463,10 +1462,10 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
   })
 }
 
-// 因需记录 resize 会话起始（手柄、链接组各块起始矩形、起始 pan）供后续补偿与传播，故监听 resizestart
+// 需记录 resize 会话起始（手柄、链接组各块起始矩形、起始 pan）供后续补偿与传播，监听 resizestart
 const onResizeStart = (item: CanvasItem, handle: string) => {
   const starts: Record<string, Rect> = {}
-  // 因移动端不启用块联结（曲别针隐藏、缩放只调高度不联动），故仅桌面端收集链接块起始矩形
+  // 移动端不启用块联结（曲别针隐藏、缩放只调高度不联动），仅桌面端收集链接块起始矩形
   if (!mobileMode.value) {
     collectLinkedIds(item.id).forEach((id) => {
       const target = state.items.find((it) => it.id === id)
@@ -1483,13 +1482,13 @@ const onResizeStart = (item: CanvasItem, handle: string) => {
   }
 }
 
-// 因需 resize 过程中共享边实时跟随（而非仅松手时），故监听 resizing；
-// 并因 resize 到视口边缘时需自动滚动画布，故 resize 期间启动 autoPan（拖拽同款，startAutoPan 幂等）
+// 需 resize 过程中共享边实时跟随（而非仅松手时），监听 resizing；
+// resize 到视口边缘时需自动滚动画布，resize 期间启动 autoPan（拖拽同款，startAutoPan 幂等）
 const onResizing = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
   const rs = resizeSession
   if (!rs || rs.itemId !== item.id) return
   rs.lastBase = { x, y, w, h }
-  // 因 autoPan 滚动期间需冻结联结传播（B 随画布滚、避免钉屏压缩）；
+  // autoPan 滚动期间需冻结联结传播（B 随画布滚、避免钉屏压缩）；
   // 判定用"实时是否在滚动"（鼠标在边缘且该方向允许滚动），而非会话累计 pan 变化——
   // 否则 autoPan 滚过一次后 B 永久冻结，鼠标离开边缘也不恢复贴 A 底（来回拖钳制边即"卡住"）
   const { vx, vy } = autoPanVelocity()
@@ -1513,11 +1512,11 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
     layout.h = Math.round(h)
   }
   resizeSession = null
-  recomputeMasks() // 因 resize 期间遮罩/圆角已冻结，故落定后按最终布局刷新
+  recomputeMasks() // resize 期间遮罩/圆角已冻结，落定后按最终布局刷新
 }
 // #endregion 尺寸调整与联结传播
 
-// 因移动端块纵向堆叠，某块 autoHeight 高度变化后其下方块位置须跟随平移（delta 可正可负），否则互相重叠
+// 移动端块纵向堆叠，某块 autoHeight 高度变化后其下方块位置须跟随平移（delta 可正可负），否则互相重叠
 // #region 高度自适应
 const shiftBlocksBelow = (item: CanvasItem, delta: number) => {
   if (delta === 0) return
@@ -1527,9 +1526,9 @@ const shiftBlocksBelow = (item: CanvasItem, delta: number) => {
     .forEach((it) => { it.layout.mobile.y += delta })
 }
 
-// 因 autoHeight 块增长到与别的块重叠时需像钳制一样把重叠块下推（单向推动：
+// autoHeight 块增长到与别的块重叠时需像钳制一样把重叠块下推（单向推动：
 // 高度减小不移动别的块，避免无条件联结传播把邻块拉来推去），
-// 故把横向重叠（x 相交）的块按上缘排序后，仅在块顶压到推动线时下推贴线并连锁；
+// 把横向重叠（x 相交）的块按上缘排序后，仅在块顶压到推动线时下推贴线并连锁；
 // 未压到的块保持原位（否则累积底边会把不重叠的块也误推走）
 const pushOverlapped = (item: CanvasItem) => {
   const layout = layoutOf(item)
@@ -1547,7 +1546,7 @@ const pushOverlapped = (item: CanvasItem) => {
   })
 }
 
-// 因 autoHeight 块高度由内容驱动（富文本经 omnijot:auto-height 上报），故写入当前布局并保底 minHeight
+// autoHeight 块高度由内容驱动（富文本经 omnijot:auto-height 上报），写入当前布局并保底 minHeight
 const onAutoHeight = (e: Event) => {
   const detail = (e as CustomEvent<{ id?: string; height?: number; cursorY?: number }>).detail
   if (!detail?.id || typeof detail.height !== 'number') return
@@ -1558,24 +1557,24 @@ const onAutoHeight = (e: Event) => {
   const layout = layoutOf(item)
   if (layout.h !== h) {
     if (mobileMode.value) {
-      // 因移动端纵向堆叠，高度变化后须将下方堆叠块整体平移以保持不重叠（先算 delta 再覆盖高度）
+      // 移动端纵向堆叠，高度变化后须将下方堆叠块整体平移以保持不重叠（先算 delta 再覆盖高度）
       shiftBlocksBelow(item, h - layout.h)
       layout.h = h
     } else {
       const prevH = layout.h
       layout.h = h
-      // 因 autoHeight 块高度由内容驱动、非用户拖拽，故不沿联结传播推动邻块（否则输入时邻块被持续推走）；
+      // autoHeight 块高度由内容驱动、非用户拖拽，不沿联结传播推动邻块（否则输入时邻块被持续推走）；
       // 仅当增长到与别的块重叠时像钳制一样把重叠块下推让位（单向：高度减小不移动别的块）
       if (h > prevH) pushOverlapped(item)
     }
-    recomputeMasks() // 因 autoHeight 高度变化会改变贴合关系，故刷新遮罩
+    recomputeMasks() // autoHeight 高度变化会改变贴合关系，刷新遮罩
   }
-  // 因输入行随内容增长会超出视口，故光标行超出视口底部时平移画布使其可见；
-  // 因用户手动拖画布（右键平移）时不应被光标跟随反向拉回，故拖拽中跳过
+  // 输入行随内容增长会超出视口，光标行超出视口底部时平移画布使其可见；
+  // 用户手动拖画布（右键平移）时不应被光标跟随反向拉回，拖拽中跳过
   if (typeof detail.cursorY === 'number' && !isPanning.value) followCursor(item, detail.cursorY)
 }
 
-// 因 autoHeight 输入时需让光标行保持在视口内，故按光标行视觉位置与视口底界差平移 pan.y
+// autoHeight 输入时需让光标行保持在视口内，按光标行视觉位置与视口底界差平移 pan.y
 const CURSOR_VISIBLE_MARGIN = 24
 const followCursor = (item: CanvasItem, cursorY: number) => {
   const cont = canvasContainerRef.value
@@ -1604,7 +1603,7 @@ const handleSelect = (id: string, e?: MouseEvent) => {
     }
     state.selectedIds = newSet
   } else if (isSelected && selectedCount > 1) {
-    // 因拖拽手柄时不应把多选收缩为单选，故保留当前集合
+    // 拖拽手柄时不应把多选收缩为单选，保留当前集合
     return
   } else {
     state.selectedIds = new Set([id])
@@ -1641,29 +1640,29 @@ const startSelection = (e: MouseEvent) => {
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  // 因事件已挂容器级而 .canvas 自带 pan 平移与 scale(zoom)，故用 utils 统一换算视口→content
+  // 事件已挂容器级而 .canvas 自带 pan 平移与 scale(zoom)，用 utils 统一换算视口→content
   const pt = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
   selectionState.startX = pt.x
   selectionState.startY = pt.y
   selectionState.currentX = selectionState.startX
   selectionState.currentY = selectionState.startY
   updateSelectionBox()
-  // 因"点击空白"也会激活框选会话，若在此立即启动 autoPan，
+  // "点击空白"也会激活框选会话，若在此立即启动 autoPan，
   // 鼠标停在画布边缘（未拖动）就会被 autoPanTick 判为边缘而滚屏，
-  // 故推迟到 updateSelectionAt 真正拖出框选框后再启动
+  // 推迟到 updateSelectionAt 真正拖出框选框后再启动
 }
 
-// 因框选自动滚动时鼠标可能停住（无 mousemove 驱动），故把"由坐标刷新框选"独立供 autoPan 每帧调用
+// 框选自动滚动时鼠标可能停住（无 mousemove 驱动），把"由坐标刷新框选"独立供 autoPan 每帧调用
 const updateSelectionAt = (clientX: number, clientY: number) => {
   if (!selectionState.active) return
-  // 因框选更新频率高、getBoundingClientRect 强制 reflow，故用缓存的容器矩形
+  // 框选更新频率高、getBoundingClientRect 强制 reflow，用缓存的容器矩形
   const rect = viewRect.value ?? canvasContainerRef.value?.getBoundingClientRect()
   if (!rect) return
   const pt = screenToContent(canvasTransform(), rect, clientX, clientY)
   selectionState.currentX = pt.x
   selectionState.currentY = pt.y
   updateSelectionBox()
-  // 因 autoPan 已推迟至此处启动（见 startSelection），故仅在真正形成框选框后启动边缘自动滚动
+  // autoPan 已推迟至此处启动（见 startSelection），仅在真正形成框选框后启动边缘自动滚动
   if (selectionBox.value) startAutoPan()
 }
 
@@ -1679,10 +1678,10 @@ const onCanvasMousemove = (e: MouseEvent) => {
   updateAddPreview(e)
 }
 
-// 因"添加块状态"需在鼠标处显示将添加块的主题色预览框（无选中块且编辑态时跟随鼠标），
-// 故由 Editor 通过 addPreviewKey 指定当前添加类型、此处只负责记录鼠标的 content 坐标；
-// 因落位解析每帧需遍历块检测重叠（O(N)）、块多时开销大，故节流到 ~30fps 足够预览跟随；
-// 因左键拖拽（框选/拖块）进行中需隐藏预览，故这些会话激活时清空
+// "添加块状态"需在鼠标处显示将添加块的主题色预览框（无选中块且编辑态时跟随鼠标），
+// 由 Editor 通过 addPreviewKey 指定当前添加类型、此处只负责记录鼠标的 content 坐标；
+// 落位解析每帧需遍历块检测重叠（O(N)）、块多时开销大，节流到 ~30fps 足够预览跟随；
+// 左键拖拽（框选/拖块）进行中需隐藏预览，这些会话激活时清空
 const addPreviewKey = ref<CanvasItem['component'] | null>(null)
 const addPreviewPos = ref<{ x: number; y: number } | null>(null)
 const PREVIEW_UPDATE_MS = 33
@@ -1701,15 +1700,15 @@ const updateAddPreview = (e: MouseEvent) => {
   addPreviewPos.value = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
 }
 
-// 因 Editor 需把当前添加类型同步给预览层，故经方法设置（避免直接暴露 ref 的类型解包问题）
+// Editor 需把当前添加类型同步给预览层，经方法设置（避免直接暴露 ref 的类型解包问题）
 const setAddPreview = (key: CanvasItem['component'] | null) => {
   previewLastTs = 0
   addPreviewKey.value = key
   if (!key) addPreviewPos.value = null
 }
 
-// 因预览框需显示"实际放置位置"（鼠标处不重叠用鼠标处、重叠则自动排列），
-// 与真正添加时 resolveAddSpot 一致，故经同一解析函数计算（仅取 spot，manual 仅添加时用）
+// 预览框需显示"实际放置位置"（鼠标处不重叠用鼠标处、重叠则自动排列），
+// 与真正添加时 resolveAddSpot 一致，经同一解析函数计算（仅取 spot，manual 仅添加时用）
 const addPreviewSpot = computed(() => {
   const key = addPreviewKey.value
   const pos = addPreviewPos.value
@@ -1717,7 +1716,7 @@ const addPreviewSpot = computed(() => {
   return resolveAddSpot(key, pos).spot
 })
 
-// 因移动端块宽度按画布拉伸（x 恒 0），故预览宽度取画布宽而非默认尺寸
+// 移动端块宽度按画布拉伸（x 恒 0），预览宽度取画布宽而非默认尺寸
 const previewWidthOf = (key: CanvasItem['component']): number => {
   const meta = componentMetaOf(key)
   if (mobileMode.value) return canvasWidth.value || meta?.defaultSize.w || 0
@@ -1750,8 +1749,8 @@ const previewVisible = computed(() => {
   if (!g || !cr) return false
   return g.left < cr.right && g.right > cr.left && g.top < cr.bottom && g.bottom > cr.top
 })
-// 因预览框在视口外时需在鼠标旁用小箭头指示其方向，故按预览中心相对鼠标的方向角定位箭头；
-// 因箭头定位在容器层（相对坐标），故用鼠标视口坐标减去容器偏移；方向角用视口坐标差（两者同坐标系）
+// 预览框在视口外时需在鼠标旁用小箭头指示其方向，按预览中心相对鼠标的方向角定位箭头；
+// 箭头定位在容器层（相对坐标），用鼠标视口坐标减去容器偏移；方向角用视口坐标差（两者同坐标系）
 const previewArrowStyle = computed<CSSProperties>(() => {
   const g = previewGeometry.value
   const cr = viewRect.value
@@ -1766,7 +1765,7 @@ const previewArrowStyle = computed<CSSProperties>(() => {
     transform: `translate(-50%, -50%) rotate(${ang + Math.PI / 2}rad)`,
   }
 })
-// 因预览框 z 需高于普通块（且仅在无选中块时显示、与选中态浮层不冲突），故复用 Z_LAYER.outline
+// 预览框 z 需高于普通块（且仅在无选中块时显示、与选中态浮层不冲突），复用 Z_LAYER.outline
 const addPreviewStyle = computed<CSSProperties>(() => {
   const key = addPreviewKey.value
   const spot = addPreviewSpot.value
@@ -1780,8 +1779,8 @@ const addPreviewStyle = computed<CSSProperties>(() => {
   }
 })
 
-// 因画布容器 overflow:hidden 但内容会溢出，聚焦编辑器触发的默认 scrollIntoView
-// 会把容器滚出偏移、导致整个画面位移，故归零容器滚动并由 pan 独占控制位置
+// 画布容器 overflow:hidden 但内容会溢出，聚焦编辑器触发的默认 scrollIntoView
+// 会把容器滚出偏移、导致整个画面位移，归零容器滚动并由 pan 独占控制位置
 const resetCanvasScroll = () => {
   const c = canvasContainerRef.value
   if (c && (c.scrollLeft !== 0 || c.scrollTop !== 0)) {
@@ -1790,7 +1789,7 @@ const resetCanvasScroll = () => {
   }
 }
 
-// 因 hover 选中块后内容物应同步可编辑（光标可直接进入），故聚焦块内编辑器（富文本 ProseMirror 或代码 textarea）；
+// hover 选中块后内容物应同步可编辑（光标可直接进入），聚焦块内编辑器（富文本 ProseMirror 或代码 textarea）；
 // 聚焦用 preventScroll 阻止浏览器默认滚动（见 resetCanvasScroll 注释）
 const focusBlockContent = (id: string) => {
   nextTick(() => {
@@ -1807,14 +1806,14 @@ const focusBlockContent = (id: string) => {
 }
 // #endregion 选中与聚焦
 
-// 因 ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
-// 故按 popup 显隐记录所在块 id，以便只隐藏该块 tm（其余缩放手柄不受影响）
+// ProseKit 行高亮 popup 弹出时会插在块顶部正中间缩放手柄（.handle-tm）上方，
+// 按 popup 显隐记录所在块 id，以便只隐藏该块 tm（其余缩放手柄不受影响）
 // #region 弹层与命中测试
 const popupBlockId = ref<string | null>(null)
 const onBlockPopupChange = (e: Event) => {
   const detail = (e as CustomEvent).detail as { open?: boolean; blockId?: string | null }
-  // 因块间切换时旧块的关闭事件会误清新块的 popupBlockId，
-  // 故仅当关闭事件与当前 popupBlockId 匹配时才清除，其余情况保持
+  // 块间切换时旧块的关闭事件会误清新块的 popupBlockId，
+  // 仅当关闭事件与当前 popupBlockId 匹配时才清除，其余情况保持
   if (detail.open && detail.blockId) {
     popupBlockId.value = detail.blockId
   } else if (!detail.open && detail.blockId && popupBlockId.value === detail.blockId) {
@@ -1822,13 +1821,13 @@ const onBlockPopupChange = (e: Event) => {
   }
 }
 
-// 因 popup 是否弹出与"是否覆盖缩放手柄"是两回事（popupBlockId 仅在覆盖 tm 时设置用于隐藏 tm），
-// 而 hover 聚焦需按"popup 是否弹出"跳过，故单独维护 popupActiveBlockId
+// popup 是否弹出与"是否覆盖缩放手柄"是两回事（popupBlockId 仅在覆盖 tm 时设置用于隐藏 tm），
+// 而 hover 聚焦需按"popup 是否弹出"跳过，单独维护 popupActiveBlockId
 const popupActiveBlockId = ref<string | null>(null)
 const onBlockHandleActiveChange = (e: Event) => {
   const detail = (e as CustomEvent).detail as { active?: boolean; blockId?: string | null }
-  // 因块间切换时旧块的关闭事件会误清新块的 popupActiveBlockId，
-  // 故仅当关闭事件与当前 popupActiveBlockId 匹配时才清除，其余情况保持
+  // 块间切换时旧块的关闭事件会误清新块的 popupActiveBlockId，
+  // 仅当关闭事件与当前 popupActiveBlockId 匹配时才清除，其余情况保持
   if (detail.active && detail.blockId) {
     popupActiveBlockId.value = detail.blockId
   } else if (!detail.active && detail.blockId && popupActiveBlockId.value === detail.blockId) {
@@ -1836,17 +1835,17 @@ const onBlockHandleActiveChange = (e: Event) => {
   }
 }
 
-// 因富文本 popup 上侧开启时会盖住连接点处的曲别针，故该状态为 true 时隐藏全部曲别针
+// 富文本 popup 上侧开启时会盖住连接点处的曲别针，该状态为 true 时隐藏全部曲别针
 const popupTopOpen = ref(false)
 const onBlockPopupTopChange = (e: Event) => {
   const detail = (e as CustomEvent).detail as { open?: boolean }
   popupTopOpen.value = !!detail.open
 }
 
-// 因需"鼠标落在哪个块的 VDR 框区域内就聚焦哪个块"（只按框区域判断，不看内容元素），
-// 故经 target.closest 直接命中所在块（被覆盖块不可见、target 不会是其后代，天然取最上层）；
-// 因手柄让出 2px 给选中块的 box-shadow 描边，鼠标从内容区平滑移到拖拽栏会先经过这条缝隙，
-// 故缝隙带（手柄朝向块一侧 HANDLE_GAP 内）也命中手柄所属块，避免中途焦点转移到背后组件
+// 需"鼠标落在哪个块的 VDR 框区域内就聚焦哪个块"（只按框区域判断，不看内容元素），
+// 经 target.closest 直接命中所在块（被覆盖块不可见、target 不会是其后代，天然取最上层）；
+// 手柄让出 2px 给选中块的 box-shadow 描边，鼠标从内容区平滑移到拖拽栏会先经过这条缝隙，
+// 缝隙带（手柄朝向块一侧 HANDLE_GAP 内）也命中手柄所属块，避免中途焦点转移到背后组件
 const HANDLE_GAP = 2
 
 const hitHandleGap = (clientX: number, clientY: number): string | null => {
@@ -1865,8 +1864,8 @@ const hitHandleGap = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
-// 因拖拽栏 z 提升到 1001（高于选中块）后，仍可能低于部分 itemZ 递增后的普通块覆盖，
-// 故按坐标命中拖拽栏优先返回所属块，避免 hover 聚焦切到背后块
+// 拖拽栏 z 提升到 1001（高于选中块）后，仍可能低于部分 itemZ 递增后的普通块覆盖，
+// 按坐标命中拖拽栏优先返回所属块，避免 hover 聚焦切到背后块
 const hitHandleBar = (clientX: number, clientY: number): string | null => {
   let hit: string | null = null
   state.items.forEach((item) => {
@@ -1879,8 +1878,8 @@ const hitHandleBar = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
-// 因设置栏是块外浮层、可能盖在背后块矩形上（e.target 或被高 z 普通块盖住），
-// 故按坐标命中设置栏时返回所属块，避免 hover 聚焦切到背后块或误判为空白
+// 设置栏是块外浮层、可能盖在背后块矩形上（e.target 或被高 z 普通块盖住），
+// 按坐标命中设置栏时返回所属块，避免 hover 聚焦切到背后块或误判为空白
 const hitSettingsBar = (clientX: number, clientY: number): string | null => {
   for (const item of state.items) {
     if (!state.selectedIds.has(item.id)) continue
@@ -1892,9 +1891,9 @@ const hitSettingsBar = (clientX: number, clientY: number): string | null => {
   return null
 }
 
-// 因 popup 已 Teleport 到 .canvas（块外浮层），鼠标移向 popup 经过其与块间的小空隙时
-// 会被判为"块外"而取消选中，故按坐标（含容差）命中 popup 并返回所属块；
-// 因 popup 紧贴块边缘、容差过大会误吞邻块空白，故取 4px 覆盖 1px 空隙即可
+// popup 已 Teleport 到 .canvas（块外浮层），鼠标移向 popup 经过其与块间的小空隙时
+// 会被判为"块外"而取消选中，按坐标（含容差）命中 popup 并返回所属块；
+// popup 紧贴块边缘、容差过大会误吞邻块空白，取 4px 覆盖 1px 空隙即可
 const POPUP_HIT_MARGIN = 4
 const hitPopupBlock = (clientX: number, clientY: number): string | null => {
   let hit: string | null = null
@@ -1910,14 +1909,14 @@ const hitPopupBlock = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
-// 因手柄提升到顶层、可能被别的块矩形框覆盖，故鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
+// 手柄提升到顶层、可能被别的块矩形框覆盖，鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
 const hitTestBlockAt = (e: MouseEvent): string | null => {
   const target = e.target as HTMLElement
-  // 因设置栏是块外浮层（可能盖在背后块矩形上），鼠标悬停其上视作所属块本体：
+  // 设置栏是块外浮层（可能盖在背后块矩形上），鼠标悬停其上视作所属块本体：
   // 既避免聚焦背后块，也避免 hover 空白时误取消选中（设置栏仅选中块显示）
   const settingsId = target.closest<HTMLElement>('.side-settings')?.dataset.id ?? hitSettingsBar(e.clientX, e.clientY)
   if (settingsId) return settingsId
-  // 因 popup 是块外浮层（z 最高），鼠标在其上或其周边空隙时视作所属块本体，避免误取消选中
+  // popup 是块外浮层（z 最高），鼠标在其上或其周边空隙时视作所属块本体，避免误取消选中
   const popupHit = hitPopupBlock(e.clientX, e.clientY)
   if (popupHit) return popupHit
   const handleEl = target.closest<HTMLElement>('.drag-handle')
@@ -1927,15 +1926,15 @@ const hitTestBlockAt = (e: MouseEvent): string | null => {
   if (barHit) return barHit
   const gapHit = hitHandleGap(clientX, clientY)
   if (gapHit) return gapHit
-  // 因鼠标在块上时 target 必为其后代（被覆盖的块不可见、target 不会是其后代），
-  // 故经 closest 直接命中，跳过每 mousemove 遍历所有块做矩形测试（块多时消除大量 reflow）
+  // 鼠标在块上时 target 必为其后代（被覆盖的块不可见、target 不会是其后代），
+  // 经 closest 直接命中，跳过每 mousemove 遍历所有块做矩形测试（块多时消除大量 reflow）
   return target.closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null
 }
 
-// 因"鼠标在空白处移动也要让浮层在选中块间切换显示（跟随离鼠标最近者）"，
-// 故按鼠标到各选中块矩形的最小距离取最近者（点在矩形内距离为 0，此处仅空白命中时调用）
+// "鼠标在空白处移动也要让浮层在选中块间切换显示（跟随离鼠标最近者）"，
+// 按鼠标到各选中块矩形的最小距离取最近者（点在矩形内距离为 0，此处仅空白命中时调用）
 const nearestSelectedBlockId = (clientX: number, clientY: number): string | null => {
-  // 因无选中块时无"最近选中块"可言，故短路避免每 mousemove 遍历全部块（预览开启时高频触发）
+  // 无选中块时无"最近选中块"可言，短路避免每 mousemove 遍历全部块（预览开启时高频触发）
   if (state.selectedIds.size === 0) return null
   const cr = viewRect.value
   if (!cr) return null
@@ -1943,7 +1942,7 @@ const nearestSelectedBlockId = (clientX: number, clientY: number): string | null
   let bestDist = Infinity
   state.items.forEach((item) => {
     if (!state.selectedIds.has(item.id)) return
-    // 因块屏幕矩形可由 layout + 变换公式直接推得，故用数学计算替代 DOM getBoundingClientRect（消除 reflow）
+    // 块屏幕矩形可由 layout + 变换公式直接推得，用数学计算替代 DOM getBoundingClientRect（消除 reflow）
     const l = layoutOf(item)
     const tl = contentToScreen(canvasTransform(), cr, l.x, l.y)
     const br = contentToScreen(canvasTransform(), cr, l.x + l.w, l.y + l.h)
@@ -1958,41 +1957,41 @@ const nearestSelectedBlockId = (clientX: number, clientY: number): string | null
   return bestId
 }
 
-// 因需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
-// 故画布 mousemove 时按坐标命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
+// 需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
+// 画布 mousemove 时按坐标命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
 let lastHoverId: string | null = null
-// 因"多选时只显示离鼠标最近的块的浮层 UI（拖拽栏/设置栏）"，故无论单/多选都记录"命中或最近"的块 id 驱动显隐
+// "多选时只显示离鼠标最近的块的浮层 UI（拖拽栏/设置栏）"，无论单/多选都记录"命中或最近"的块 id 驱动显隐
 const hoveredBlockId = ref<string | null>(null)
-// 因多选时"浮层归属块（最近的块）"的拖拽栏需在别的块高亮之上、自己块高亮之下，
-// 故以该块 id 区分描边环层级（归属块 outline 之上、其余降到 dragHandle 之下）
+// 多选时"浮层归属块（最近的块）"的拖拽栏需在别的块高亮之上、自己块高亮之下，
+// 以该块 id 区分描边环层级（归属块 outline 之上、其余降到 dragHandle 之下）
 const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemId : hoveredBlockId.value)
-// 因选中/取消选中只应随"鼠标是否真的在块上"变化（浮层的最近块回退不影响选中），故单独跟踪真正的命中块
+// 选中/取消选中只应随"鼠标是否真的在块上"变化（浮层的最近块回退不影响选中），单独跟踪真正的命中块
 let lastHitId: string | null = null
-// 因"添加块后不自动选中"（保持无选中以连续添加），故记录最近添加的块 id，鼠标在其上时忽略 hover 选中
+// "添加块后不自动选中"（保持无选中以连续添加），记录最近添加的块 id，鼠标在其上时忽略 hover 选中
 let recentAddId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
-  // 因 resize 拖动手柄时鼠标会扫过其他块，若按悬停切选中会令被拖块失活、手柄消失，故 resize 期间不抢选中
+  // resize 拖动手柄时鼠标会扫过其他块，若按悬停切选中会令被拖块失活、手柄消失，resize 期间不抢选中
   if (resizeSession) return
-  // 因 popup 弹出时鼠标移到 popup 上方的组件会触发 hover 聚焦、把焦点切到背后块导致 popup 消失，
-  // 故 popup 激活期间不抢选中（popup 关闭后恢复）
+  // popup 弹出时鼠标移到 popup 上方的组件会触发 hover 聚焦、把焦点切到背后块导致 popup 消失，
+  // popup 激活期间不抢选中（popup 关闭后恢复）
   if (popupActiveBlockId.value) return
   if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
   const hitId = hitTestBlockAt(e)
-  // 因鼠标在空白处也需浮层跟随"离鼠标最近的选中块"切换，故空白时按距离取最近选中块
+  // 鼠标在空白处也需浮层跟随"离鼠标最近的选中块"切换，空白时按距离取最近选中块
   const id = hitId ?? nearestSelectedBlockId(e.clientX, e.clientY)
   if (id !== lastHoverId) {
     lastHoverId = id
     hoveredBlockId.value = id
   }
-  // 因多选时不抢选中（白板式反选仅单选生效），故命中后直接返回
+  // 多选时不抢选中（白板式反选仅单选生效），命中后直接返回
   if (state.selectedIds.size > 1) return
-  // 因鼠标所在块未变化时不重复处理选中/取消（含空白处移动），故以真正命中的块去重
+  // 鼠标所在块未变化时不重复处理选中/取消（含空白处移动），以真正命中的块去重
   if (hitId === lastHitId) return
   lastHitId = hitId
   if (!hitId) {
-    // 因需"鼠标移出所有块即取消选中"（白板式反选），故空白处清空选中；
+    // 需"鼠标移出所有块即取消选中"（白板式反选），空白处清空选中；
     // 拖拽栏/设置栏等块附属 UI 已由 hitTestBlockAt 命中所属块 id，不会误走此分支
     state.selectedIds = new Set()
     return
@@ -2048,7 +2047,7 @@ const handleCanvasFocusin = (e: FocusEvent) => {
 }
 // #endregion 框选收尾与点击
 
-// 因各组件内部数据需统一同步回 item.config，故经组件自定义的 saveConfig 接口收集
+// 各组件内部数据需统一同步回 item.config，经组件自定义的 saveConfig 接口收集
 // #region 数据同步与布局刷新
 const syncComponentData = () => {
   state.items.forEach((item) => {
@@ -2085,7 +2084,7 @@ const applyMobileLayout = () => {
   state.items.forEach(item => {
     stretchMobileWidth(item)
     const { desktop, mobile } = item.layout
-    // 因旧数据可能缺失移动端位置/高度，故从桌面布局补齐
+    // 旧数据可能缺失移动端位置/高度，从桌面布局补齐
     if (mobile.y == null) mobile.y = desktop.y
     if (mobile.h == null) mobile.h = desktop.h
   })
@@ -2096,30 +2095,30 @@ const refreshLayout = () => {
   if (mobileMode.value) applyMobileLayout()
 }
 
-// 因需在组件重挂载前先同步富文本内容，故用 flush: 'pre'
+// 需在组件重挂载前先同步富文本内容，用 flush: 'pre'
 watch(mobileMode, () => {
   syncComponentData()
   if (mobileMode.value) {
-    // 因移动端锁水平，故将水平原点偏移并入桌面布局并归零，切换回桌面时位置不变、无感
+    // 移动端锁水平，将水平原点偏移并入桌面布局并归零，切换回桌面时位置不变、无感
     if (origin.x) {
       state.items.forEach((it) => { it.layout.desktop.x += origin.x })
       origin.x = 0
     }
-    // 因移动端禁用缩放（布局按视口宽度拉伸），故切换时归零缩放；
-    // 归零属模式重置而非用户缩放，故同步锚点基准跳过视口补偿
+    // 移动端禁用缩放（布局按视口宽度拉伸），切换时归零缩放；
+    // 归零属模式重置而非用户缩放，同步锚点基准跳过视口补偿
     zoomAnchorPrev = 1
     zoom.value = 1
   }
-  // 因移动端浏览滚动残留的 pan.y 会把另一布局画布顶出视口（块跑到视口外），故切换时归零平移（与 load 一致）
+  // 移动端浏览滚动残留的 pan.y 会把另一布局画布顶出视口（块跑到视口外），切换时归零平移（与 load 一致）
   pan.x = 0
   pan.y = 0
   // 首次进入该端：尚未排好的块自动布局（移动端纵向堆叠 / 桌面端瀑布流平铺）
   autoArrange(mobileMode.value ? 'mobile' : 'desktop')
-  recomputeMasks() // 因布局端切换会改变贴合关系，故刷新遮罩
+  recomputeMasks() // 布局端切换会改变贴合关系，刷新遮罩
   nextTick(refreshLayout)
 }, { flush: 'pre' })
 
-// 因删除块（任意入口）后其曲别针链接失效，故随 items 变化自动清理引用已不存在块的链接
+// 删除块（任意入口）后其曲别针链接失效，随 items 变化自动清理引用已不存在块的链接
 watch(
   () => state.items.map((it) => it.id),
   (ids) => {
@@ -2133,7 +2132,7 @@ watch(
 const onResize = () => {
   refreshViewRect()
   refreshLayout()
-  recomputeMasks() // 因移动端宽度拉伸会改变贴合，故刷新遮罩
+  recomputeMasks() // 移动端宽度拉伸会改变贴合，刷新遮罩
 }
 // #endregion 数据同步与布局刷新
 
@@ -2193,7 +2192,7 @@ const autoArrange = (mode: 'desktop' | 'mobile') => {
 }
 
 // 新块落位：桌面端从视口顶部与各已放块底部（贴底）挑候选顶边，视口内从左到右找不重叠空位；
-// 因固定行距网格扫描会与既有块错位产生大空隙（窄视口每行一块时更明显），故改贴底候选保证紧凑；
+// 固定行距网格扫描会与既有块错位产生大空隙（窄视口每行一块时更明显），改贴底候选保证紧凑；
 // 移动端纵向堆叠，追加到列表末尾
 const freeSpotFor = (w: number, h: number): { x: number; y: number } => {
   if (mobileMode.value) {
@@ -2209,8 +2208,8 @@ const freeSpotFor = (w: number, h: number): { x: number; y: number } => {
   const vx = Math.round(-(origin.x + pan.x) / zoom.value)
   const vy = Math.round(-(origin.y + pan.y) / zoom.value)
   const viewW = Math.max(canvasWidth.value / zoom.value, ARRANGE_LEFT * 2)
-  // 因视口基准 vx 随 panToBlock 居中漂移，若以其为 x 起点，连续添加的块会在 content 坐标逐次左偏（水平错位），
-  // 故 x 起点对齐既有块最左 x（无块时用视口左），保证同列块左边缘对齐
+  // 视口基准 vx 随 panToBlock 居中漂移，若以其为 x 起点，连续添加的块会在 content 坐标逐次左偏（水平错位），
+  // x 起点对齐既有块最左 x（无块时用视口左），保证同列块左边缘对齐
   const leftBase = placed.length ? Math.min(...placed.map((p) => p.x)) : vx + ARRANGE_LEFT
   // 候选顶边：有块时只取各块底部贴底（避免 zoom<1 时"视口顶"远离已有块导致竖向间距骤增），无块时用视口顶
   const candidateYs = placed.length
@@ -2229,7 +2228,7 @@ const freeSpotFor = (w: number, h: number): { x: number; y: number } => {
 }
 
 // 把视角平移到指定块：让块中心落在视口中心。
-// 因屏幕位置 = 存储坐标*zoom + origin + pan（canvas 只 translate），故反解 pan；移动端锁水平只调 y
+// 屏幕位置 = 存储坐标*zoom + origin + pan（canvas 只 translate），反解 pan；移动端锁水平只调 y
 const panToBlock = (id: string) => {
   const item = state.items.find((it) => it.id === id)
   if (!item) return
@@ -2243,7 +2242,7 @@ const panToBlock = (id: string) => {
   pan.y = Math.round(vh / 2 - origin.y - cy)
 }
 
-// 因需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，故判断块矩形与视口可见区是否相交
+// 需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，判断块矩形与视口可见区是否相交
 const isRectVisibleInViewport = (rect: Rect): boolean => {
   const cont = canvasContainerRef.value
   if (!cont) return true
@@ -2253,7 +2252,7 @@ const isRectVisibleInViewport = (rect: Rect): boolean => {
   return tl.x < cr.right && br.x > cr.left && tl.y < cr.bottom && br.y > cr.top
 }
 
-// 因预览/添加的落位解析需遍历块检测重叠、块多时每帧 O(N)，故用块群包围盒粗筛：
+// 预览/添加的落位解析需遍历块检测重叠、块多时每帧 O(N)，用块群包围盒粗筛：
 // 待放置矩形完全落在包围盒外时必不重叠，可直接跳过精检
 const itemsBounds = computed(() => {
   if (state.items.length === 0) return null
@@ -2268,7 +2267,7 @@ const itemsBounds = computed(() => {
   return { minX, minY, maxX, maxY }
 })
 
-// 因"落位"（鼠标处不重叠用鼠标处、重叠则自动排列）需添加与预览共用，故抽出统一解析
+// "落位"（鼠标处不重叠用鼠标处、重叠则自动排列）需添加与预览共用，抽出统一解析
 const resolveAddSpot = (key: CanvasItem['component'], at?: { x: number; y: number }): { spot: { x: number; y: number } } => {
   const meta = componentMetaOf(key)
   if (!meta) return { spot: { x: 0, y: 0 } }
@@ -2296,7 +2295,7 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   const meta = componentMetaOf(key)
   if (!meta) return
   const id = generateId()
-  // 因需"在鼠标位置添加"，故经 resolveAddSpot 解析：鼠标处不重叠用鼠标处、重叠则自动排列（与预览一致）
+  // 需"在鼠标位置添加"，经 resolveAddSpot 解析：鼠标处不重叠用鼠标处、重叠则自动排列（与预览一致）
   const { spot } = resolveAddSpot(key, at)
   const { x, y } = spot
   const newItem: CanvasItem = {
@@ -2305,7 +2304,7 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
     config: meta.defaultConfig(),
     layout: {
       desktop: { x, y, ...meta.defaultSize },
-      // 因移动端宽度运行时拉伸（x 恒 0），故此处仅占位，首次进移动端时自动纵向堆叠
+      // 移动端宽度运行时拉伸（x 恒 0），此处仅占位，首次进移动端时自动纵向堆叠
       mobile: { x: 0, y, ...meta.defaultSize },
     },
     // 当前端已落位；另一端留待首次进入时自动布局
@@ -2315,18 +2314,18 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   if (mobileMode.value && canvasWidth.value > 0) {
     stretchMobileWidth(newItem)
   }
-  // 因需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，故按新块是否在视口可见区判断
+  // 需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，按新块是否在视口可见区判断
   if (!isRectVisibleInViewport(layoutOf(newItem))) panToBlock(newItem.id)
-  // 因"添加块后不自动选中"（保持无选中以便连续添加），故锁定新块：鼠标在其上时忽略 hover 选中
+  // "添加块后不自动选中"（保持无选中以便连续添加），锁定新块：鼠标在其上时忽略 hover 选中
   recentAddId = newItem.id
-  recomputeMasks() // 因新块加入会改变贴合关系，故刷新遮罩
+  recomputeMasks() // 新块加入会改变贴合关系，刷新遮罩
 }
 // #endregion 自动布局与添加
 
 // #region 保存与加载
 const save = () => {
   syncComponentData()
-  // 因块坐标需保持小值避免数据溢出，故以块群包围盒中心为新原点保存相对坐标，
+  // 块坐标需保持小值避免数据溢出，以块群包围盒中心为新原点保存相对坐标，
   // 并用 origin 记录原点，加载时还原（视觉不变）
   const absOf = (r: Rect) => ({ x: r.x + origin.x + pan.x, y: r.y + origin.y + pan.y })
   let cx = 0, cy = 0
@@ -2343,13 +2342,13 @@ const save = () => {
     cy = Math.round((minY + maxY) / 2)
   }
   const toSaveRect = (r: Rect) => ({
-    // 因加载后块坐标需为整数（打开即清晰），故保存时取整
+    // 加载后块坐标需为整数（打开即清晰），保存时取整
     x: Math.round(r.x + origin.x + pan.x - cx),
     y: Math.round(r.y + origin.y + pan.y - cy),
     w: Math.round(r.w),
     h: Math.round(r.h),
   })
-  // 因移动端宽度运行时按画布拉伸，故不持久化，只存位置与高度
+  // 移动端宽度运行时按画布拉伸，不持久化，只存位置与高度
   const serializable = state.items.map((it) => ({
     id: it.id,
     component: it.component,
@@ -2363,8 +2362,8 @@ const save = () => {
   return JSON.stringify({ origin: { x: cx, y: cy }, items: serializable, links: Array.from(linkedPairs.value) })
 }
 
-// 因需兼容「双端布局」重构（commit 7c65209）前的扁平格式并对缺失字段兜底，
-// 故归一化加载条目，避免旧数据崩溃
+// 需兼容「双端布局」重构（commit 7c65209）前的扁平格式并对缺失字段兜底，
+// 归一化加载条目，避免旧数据崩溃
 const normalizeLoadedItem = (it: any): CanvasItem => {
   const component: CanvasItem['component'] = componentMap[it.component as CanvasItem['component']]
     ? (it.component as CanvasItem['component'])
@@ -2374,7 +2373,7 @@ const normalizeLoadedItem = (it: any): CanvasItem => {
     ? { x: it.x, y: it.y, w: it.w ?? 400, h: it.h ?? 300 }
     : { x: 0, y: 0, w: 400, h: 300, ...(it.layout?.desktop ?? {}) }
   const mobile: Rect = { ...desktop, ...(it.layout?.mobile ?? {}) }
-  // 因坐标异常（null/undefined）会使块被弄丢，故一律归 0
+  // 坐标异常（null/undefined）会使块被弄丢，一律归 0
   desktop.x = typeof desktop.x === 'number' ? desktop.x : 0
   desktop.y = typeof desktop.y === 'number' ? desktop.y : 0
   mobile.x = typeof mobile.x === 'number' ? mobile.x : 0
@@ -2409,31 +2408,31 @@ const load = async (raw: string) => {
   } catch {
     return // 数据损坏：静默跳过，不阻塞画布
   }
-  // 因需兼容旧格式（数组 / { pan, items } / { origin, items }），故分别处理
+  // 需兼容旧格式（数组 / { pan, items } / { origin, items }），分别处理
   if (Array.isArray(parsed)) {
     state.items = parsed.map(normalizeLoadedItem)
     origin.x = 0
     origin.y = 0
   } else if (parsed && Array.isArray(parsed.items)) {
     state.items = parsed.items.map(normalizeLoadedItem)
-    // 因新版以 origin 还原视觉位置，故加载之；旧数据无 origin 则归零
+    // 新版以 origin 还原视觉位置，加载之；旧数据无 origin 则归零
     origin.x = typeof parsed.origin?.x === 'number' ? parsed.origin.x : 0
     origin.y = typeof parsed.origin?.y === 'number' ? parsed.origin.y : 0
   } else {
     return
   }
-  // 因保存坐标相对 origin 归一化，故加载后归零平移、从原点查看内容
+  // 保存坐标相对 origin 归一化，加载后归零平移、从原点查看内容
   pan.x = 0
   pan.y = 0
-  // 因曲别针粘贴链接需随文档持久化，故从保存数据恢复（watcher 会过滤引用已不存在块的链接）
+  // 曲别针粘贴链接需随文档持久化，从保存数据恢复（watcher 会过滤引用已不存在块的链接）
   linkedPairs.value = new Set(
     Array.isArray(parsed.links) ? parsed.links.filter((k: unknown) => typeof k === 'string') : []
   )
   await nextTick()
   await nextTick()
   if (mobileMode.value) {
-    // 因移动端块贴左（x 恒 0）而屏幕位置 = 存储坐标 + origin + pan，
-    // 故加载时 origin.x 非 0 会把块水平顶出屏外；并入 desktop.x 并归零（与模式切换 watch 一致）
+    // 移动端块贴左（x 恒 0）而屏幕位置 = 存储坐标 + origin + pan，
+    // 加载时 origin.x 非 0 会把块水平顶出屏外；并入 desktop.x 并归零（与模式切换 watch 一致）
     if (origin.x) {
       state.items.forEach((it) => { it.layout.desktop.x += origin.x })
       origin.x = 0
@@ -2446,7 +2445,7 @@ const load = async (raw: string) => {
   state.items.forEach((item) => {
     componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
-  recomputeMasks() // 因加载后按初始布局渲染，故刷新遮罩
+  recomputeMasks() // 加载后按初始布局渲染，刷新遮罩
 }
 // #endregion 保存与加载
 
@@ -2463,11 +2462,11 @@ const deleteSelected = () => {
   state.items = state.items.filter((it) => !ids.includes(it.id))
   state.selectedIds = new Set()
   ids.forEach(id => { delete componentRefs.value[id] })
-  recomputeMasks() // 因删除块会改变贴合关系，故刷新遮罩
+  recomputeMasks() // 删除块会改变贴合关系，刷新遮罩
 }
 
-// 因拖拽/框选/平移收尾依赖 window mouseup，鼠标拖出窗口或失焦时 mouseup 丢失、
-// 会话残留会致右键平移被守卫永久禁用，故失焦/指针取消时统一重置残留会话（各收尾函数自带条件守卫）
+// 拖拽/框选/平移收尾依赖 window mouseup，鼠标拖出窗口或失焦时 mouseup 丢失、
+// 会话残留会致右键平移被守卫永久禁用，失焦/指针取消时统一重置残留会话（各收尾函数自带条件守卫）
 const abortSessions = () => {
   if (customDrag.active) onCustomDragUp()
   if (selectionState.active) finishSelection()
@@ -2478,13 +2477,13 @@ const abortSessions = () => {
 onMounted(() => {
   refreshViewRect()
   nextTick(refreshLayout)
-  // 因整个视口（含负坐标区域、世界层外区域）右键拖拽都需平移，故捕获监听挂在视口容器上
+  // 整个视口（含负坐标区域、世界层外区域）右键拖拽都需平移，捕获监听挂在视口容器上
   canvasContainerRef.value?.addEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.addEventListener('mousedown', onGlobalMouseDownCapture, true)
   window.addEventListener('mousedown', trackLeftButtonDown, true)
   window.addEventListener('mouseup', trackLeftButtonUp, true)
   window.addEventListener('resize', onResize)
-  // 因编辑器（ProseMirror）内部会冒泡拦截 mousemove，故平移/框选/鼠标位置监听须用捕获阶段才能在内部拦截前执行
+  // 编辑器（ProseMirror）内部会冒泡拦截 mousemove，平移/框选/鼠标位置监听须用捕获阶段才能在内部拦截前执行
   window.addEventListener('mousemove', updateSelection, true)
   window.addEventListener('mouseup', finishSelection)
   window.addEventListener('mousemove', updatePan, true)
@@ -2496,7 +2495,7 @@ onMounted(() => {
   window.addEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
   window.addEventListener('omnijot:block-handle-active', onBlockHandleActiveChange)
   window.addEventListener('omnijot:auto-height', onAutoHeight)
-  // 因 mouseup 丢失时需及时兜底重置会话，故挂失焦/指针取消兜底
+  // mouseup 丢失时需及时兜底重置会话，挂失焦/指针取消兜底
   window.addEventListener('blur', abortSessions)
   window.addEventListener('pointercancel', abortSessions)
 })
@@ -2560,14 +2559,14 @@ defineExpose({
 <style scoped>
 .canvas-container {
   flex: 1;
-  /* 因 flex item 默认 min-height:auto 会被内容撑到大于剩余空间，导致溢出 v-main 出现竖向滚动条，
-     故允许收缩填满剩余（画布内容由 overflow:hidden 裁剪，无需撑高容器） */
+  /* flex item 默认 min-height:auto 会被内容撑到大于剩余空间，导致溢出 v-main 出现竖向滚动条，
+     允许收缩填满剩余（画布内容由 overflow:hidden 裁剪，无需撑高容器） */
   min-height: 0;
   position: relative;
   overflow: hidden;
 }
 
-/* 因点阵背景需随 pan 合成移动且不露白，层仅比容器大一圈（transform 最多移一个 tile）；pointer-events 穿透不挡交互 */
+/* 点阵背景需随 pan 合成移动且不露白，层仅比容器大一圈（transform 最多移一个 tile）；pointer-events 穿透不挡交互 */
 .canvas-dots {
   position: absolute;
   /* 层尺寸与 background-size 由 dotsStyle 随 zoom 动态提供（周期 = tile*zoom，extend 防露白） */
@@ -2576,8 +2575,8 @@ defineExpose({
   pointer-events: none;
 }
 
-/* 因块用世界坐标定位可溢出层外，故超出视口的部分由容器 overflow hidden 裁剪；
-   因平移无界，故点阵背景固定在视口容器上以保证背景始终存在 */
+/* 块用世界坐标定位可溢出层外，超出视口的部分由容器 overflow hidden 裁剪；
+   平移无界，点阵背景固定在视口容器上以保证背景始终存在 */
 .canvas {
   position: absolute;
   left: 0;
@@ -2596,7 +2595,7 @@ defineExpose({
 
 .selection-box {
   position: absolute;
-  /* 因 --v-theme-primary 为 RGB 分量，直接作 border 颜色无效（虚线不显示），故用 rgb() 包裹 */
+  /* --v-theme-primary 为 RGB 分量，直接作 border 颜色无效（虚线不显示），用 rgb() 包裹 */
   border: 1px dashed rgb(var(--v-theme-primary));
   background: rgba(var(--v-theme-primary), 0.12);
   pointer-events: none;
@@ -2607,14 +2606,14 @@ defineExpose({
   z-index: 20;
 }
 
-/* 因选中描边环改为独立 overlay 渲染（需绘制在拖拽栏/缩放手柄之上、保持连贯），
-   故块自身不再挂 box-shadow；overlay 用 2px 主题色实线描边
+/* 选中描边环改为独立 overlay 渲染（需绘制在拖拽栏/缩放手柄之上、保持连贯），
+   块自身不再挂 box-shadow；overlay 用 2px 主题色实线描边
    （--v-theme-primary 为 RGB 分量，需经 rgb() 包裹才能用于 border） */
 .selected-outline {
   position: absolute;
   border: 2px solid rgb(var(--v-theme-primary));
   pointer-events: none;
-  /* 因选中高亮边需绘制在拖拽栏之上（不被手柄遮断），故置 Z_LAYER.outline（1002） */
+  /* 选中高亮边需绘制在拖拽栏之上（不被手柄遮断），置 Z_LAYER.outline（1002） */
   z-index: 1002;
   box-sizing: border-box;
 }
@@ -2640,7 +2639,7 @@ defineExpose({
   white-space: nowrap;
   pointer-events: none;
 }
-/* 因预览框在视口外时需在鼠标旁指示方向，箭头定位在容器层（屏幕坐标、不随画布变换） */
+/* 预览框在视口外时需在鼠标旁指示方向，箭头定位在容器层（屏幕坐标、不随画布变换） */
 .add-preview-arrow {
   position: absolute;
   width: 22px;
@@ -2665,7 +2664,7 @@ defineExpose({
   justify-content: center;
   border-radius: 50%;
   cursor: pointer;
-  /* 因曲别针需显示在选中描边环与大小手柄之上，故置 Z_LAYER.paperclip（1004，连接点曲别针优先） */
+  /* 曲别针需显示在选中描边环与大小手柄之上，置 Z_LAYER.paperclip（1004，连接点曲别针优先） */
   z-index: 1004;
   user-select: none;
   background: rgb(var(--v-theme-surface));
@@ -2686,8 +2685,8 @@ defineExpose({
   color: rgb(var(--v-theme-on-primary));
 }
 
-/* 因行高亮 popup 弹出时块顶部正中间缩放手柄（.handle-tm）会插在 popup 上方，
-   故仅在 popup 弹出时隐藏该块 tm（VDR 用内联 display 控制手柄显隐，故需 !important 覆盖） */
+/* 行高亮 popup 弹出时块顶部正中间缩放手柄（.handle-tm）会插在 popup 上方，
+   仅在 popup 弹出时隐藏该块 tm（VDR 用内联 display 控制手柄显隐，需 !important 覆盖） */
 .drag-wrapper.popup-open :deep(.handle-tm) {
   display: none !important;
 }
@@ -2700,12 +2699,12 @@ defineExpose({
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  /* 因块未选中时需常驻淡灰描边区分边界；用 border 而非 outline——
+  /* 块未选中时需常驻淡灰描边区分边界；用 border 而非 outline——
      两块紧贴时 outline 画在盒外会各自越界叠到对方区域（接触处变深），border 在盒内不越界 */
   border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
 }
 
-/* 因选中时主题色描边环（selected-outline）负责外框，故隐藏常驻淡灰 border 避免双层框；
+/* 选中时主题色描边环（selected-outline）负责外框，隐藏常驻淡灰 border 避免双层框；
    用 transparent 保持边框占位，避免 border-box 下内容区跳动 */
 .drag-wrapper.selected .block-container {
   border-color: transparent;
@@ -2713,18 +2712,18 @@ defineExpose({
 
 /* 融合遮罩样式全部内联于 maskStyle（含定位/背景/z-index），此处无需额外 CSS */
 
-/* 因手柄提升到 .canvas 顶层（脱离块内层叠上下文），
-   故覆盖 .drag-handle/.right-handle 的块内定位（bottom:100% 等）以纯 top/left 定位 */
+/* 手柄提升到 .canvas 顶层（脱离块内层叠上下文），
+   覆盖 .drag-handle/.right-handle 的块内定位（bottom:100% 等）以纯 top/left 定位 */
 .floating-handle {
   position: absolute;
   bottom: auto;
-  /* 因需高于选中块（块重叠时拖拽栏不被盖住），故置 Z_LAYER.dragHandle（1001） */
+  /* 需高于选中块（块重叠时拖拽栏不被盖住），置 Z_LAYER.dragHandle（1001） */
   z-index: 1001;
 }
 
-/* 因 handle 出现时播放 pop-up 滑出动画，若动画未完成即开始拖拽，
+/* handle 出现时播放 pop-up 滑出动画，若动画未完成即开始拖拽，
    其 transform 会把 handle 顶离块上方固定位（handleBarStyle 的 -30px），导致与鼠标分离；
-   故拖拽期间（startCustomDrag 已加 body 类）禁用动画并立即归位，使 handle 跟住鼠标 */
+   拖拽期间（startCustomDrag 已加 body 类）禁用动画并立即归位，使 handle 跟住鼠标 */
 body.block-handle-dragging .floating-handle {
   transition: none !important;
   transform: none !important;
@@ -2736,7 +2735,7 @@ body.block-handle-dragging .floating-handle {
   display: flex;
   align-items: center;
   cursor: grab;
-  /* 因需不透明实底且贴合 Vuetify 主题，故用 surface 纯色替代原先 on-surface 低透明度 */
+  /* 需不透明实底且贴合 Vuetify 主题，用 surface 纯色替代原先 on-surface 低透明度 */
   background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-bottom: 0;
@@ -2758,7 +2757,7 @@ body.block-handle-dragging .floating-handle {
 }
 
 .drag-handle:hover {
-  /* 因 surface-variant 发黑、混色难看，故 hover 仅以主题色描边提示，背景保持不透明 surface */
+  /* surface-variant 发黑、混色难看，hover 仅以主题色描边提示，背景保持不透明 surface */
   background: rgb(var(--v-theme-surface));
   border-color: rgb(var(--v-theme-primary));
 }
@@ -2769,7 +2768,7 @@ body.block-handle-dragging .floating-handle {
   display: flex;
   align-items: center;
   cursor: grab;
-  /* 因需不透明实底且贴合 Vuetify 主题，故用 surface 纯色替代原先 on-surface 低透明度 */
+  /* 需不透明实底且贴合 Vuetify 主题，用 surface 纯色替代原先 on-surface 低透明度 */
   background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-bottom: 0;
@@ -2789,7 +2788,7 @@ body.block-handle-dragging .floating-handle {
   border-radius: 0 0 4px 4px;
 }
 .side-settings:hover {
-  /* 因 surface-variant 发黑、混色难看，故 hover 仅以主题色描边提示，背景保持不透明 surface */
+  /* surface-variant 发黑、混色难看，hover 仅以主题色描边提示，背景保持不透明 surface */
   background: rgb(var(--v-theme-surface));
   border-color: rgb(var(--v-theme-primary));
 }
@@ -2799,8 +2798,8 @@ body.block-handle-dragging .floating-handle {
   min-width: 18px;
 }
 
-/* 因菜单 teleport 到 body，v-list-item__content 默认 overflow:hidden 会裁掉 switch
-   滑块（thumb）左侧扩散的阴影，故对该菜单放开裁剪让阴影完整显示 */
+/* 菜单 teleport 到 body，v-list-item__content 默认 overflow:hidden 会裁掉 switch
+   滑块（thumb）左侧扩散的阴影，对该菜单放开裁剪让阴影完整显示 */
 :global(.auto-height-menu .v-list-item__content) {
   overflow: visible;
 }
@@ -2824,8 +2823,8 @@ body.block-handle-dragging .floating-handle {
   padding: 4px;
   box-sizing: border-box;
   background-color: transparent;
-  /* 因需盖住"从块内滑出"阶段的手柄（z-index:10）又不挡缩放手柄（.handle 的 z-index:20），
-     故置于 z-index:15 */
+  /* 需盖住"从块内滑出"阶段的手柄（z-index:10）又不挡缩放手柄（.handle 的 z-index:20），
+     置于 z-index:15 */
   position: relative;
   z-index: 15;
 }
@@ -2842,7 +2841,7 @@ body.block-handle-dragging .floating-handle {
   transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* 因 top/bottom 放置时滑出方向相反，故由 handleBarStyle 提供 --handle-slide 变量驱动动画 */
+/* top/bottom 放置时滑出方向相反，由 handleBarStyle 提供 --handle-slide 变量驱动动画 */
 .pop-up-enter-from {
   opacity: 0;
   transform: translateY(calc(var(--handle-y, 0px) + var(--handle-slide, 28px)));

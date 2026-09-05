@@ -13,8 +13,8 @@ export function useHoverUi(options: {
   const { editor, hoveredBlock, activeHover, placement } = options
   const view = () => getView(editor)
 
-  // 因给 PM 块元素加 class 会触发 mutation observer 重渲染、替换 popup 参考 DOM 导致定位失效，
-  // 故高亮用 teleport 到 body 的 fixed 覆盖层实现
+  // 给 PM 块元素加 class 会触发 mutation observer 重渲染、替换 popup 参考 DOM 导致定位失效，
+  // 高亮改用 teleport 到 body 的 fixed 覆盖层实现
   const highlightRect = ref<{ left: number; top: number; width: number; height: number } | null>(null)
   const highlightStyle = computed(() => {
     if (!highlightRect.value) return {}
@@ -23,14 +23,14 @@ export function useHoverUi(options: {
   })
 
   const popupShiftPx = ref(0)
-  // 因垂直滚动条使文本右缘左移、右侧 popup 锚定右缘会偏移而不对称，故按滚动条宽度补偿使左右对称
+  // 垂直滚动条使文本右缘左移、右侧 popup 锚定右缘会偏移而不对称，按滚动条宽度补偿使左右对称
   const popupHShiftPx = ref(0)
 
   const popupKeep = ref(false)
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
 
-  // 因需"富文本框失焦时强制隐藏 block-handle"，且"行高亮与 block-handle 同步显隐"，
-  // 故统一由 handleVisible 判定显隐（编辑器聚焦 + 未被强制隐藏 + 存在 hover）；
+  // 需"富文本框失焦时强制隐藏 block-handle"，且"行高亮与 block-handle 同步显隐"，
+  // 统一由 handleVisible 判定显隐（编辑器聚焦 + 未被强制隐藏 + 存在 hover）；
   // 桌面端 left/right 不放行高亮属于例外，见 updateHoverUi
   const editorFocused = ref(false)
   const forcedHidden = ref(false)
@@ -39,19 +39,19 @@ export function useHoverUi(options: {
   )
 
   function updateHoverUi() {
-    // 因拖拽中 popup/高亮已由 body 类全局隐藏，故不更新
+    // 拖拽中 popup/高亮已由 body 类全局隐藏，不更新
     const dragging = document.body.classList.contains('block-handle-dragging')
     const hover = dragging ? null : (handleVisible.value ? activeHover.value : null)
     const scrollEl = getScrollEl(view())
 
-    // 因桌面端 left/right 放置时 popup 已贴行旁无需行高亮，故仅 compact 或退化 top/bottom 时显示
+    // 桌面端 left/right 放置时 popup 已贴行旁无需行高亮，仅 compact 或退化 top/bottom 时显示
     // （2px 强调小条方向由模板按 placement 翻转）
     highlightRect.value = null
     if (hover && (isCompactView(view()) || placement.value === 'top' || placement.value === 'bottom')) {
       const r = getBlockEl(view(), hover.pos)?.getBoundingClientRect()
       if (r && !(r.width === 0 && r.height === 0)) {
-        // 因高亮 fixed 到 body 且 z 极高，块被拖到画布外时高亮会盖住工具栏，
-        // 故同时 clamp 到画布容器可见区（工具栏之下）与编辑器滚动容器
+        // 高亮 fixed 到 body 且 z 极高，块被拖到画布外时高亮会盖住工具栏，
+        // 同时 clamp 到画布容器可见区（工具栏之下）与编辑器滚动容器
         const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
         let hlLeft = r.left, hlRight = r.right, hlTop = r.top, hlBottom = r.bottom
         for (const c of clampEls) {
@@ -67,8 +67,8 @@ export function useHoverUi(options: {
       }
     }
 
-    // 因行被画布容器/滚动区裁掉时 popup 会定位到可见区外被裁剪而显示不出，
-    // 故按两者交集把 popup 贴回可见区（top 时下移、bottom 时上移），与行高亮 clamp 一致
+    // 行被画布容器/滚动区裁掉时 popup 会定位到可见区外被裁剪而显示不出，
+    // 按两者交集把 popup 贴回可见区（top 时下移、bottom 时上移），与行高亮 clamp 一致
     popupShiftPx.value = 0
     const hb = hoveredBlock.value
     if (hb) {
@@ -86,13 +86,13 @@ export function useHoverUi(options: {
       }
     }
 
-    // 因仅 placement-right 锚定边受滚动条影响，故只对右侧做水平补偿
+    // 仅 placement-right 锚定边受滚动条影响，只对右侧做水平补偿
     popupHShiftPx.value = placement.value === 'right' && scrollEl
       ? scrollEl.offsetWidth - scrollEl.clientWidth
       : 0
   }
 
-  // 因 ProseKit hover 有约 380ms 节流/失效缓冲才清 hoverState，故监听内容 DOM 的
+  // ProseKit hover 有约 380ms 节流/失效缓冲才清 hoverState，监听内容 DOM 的
   // pointerleave 短缓冲后主动清，避免 popup/高亮延迟消失
   let leaveTimer: ReturnType<typeof setTimeout> | null = null
   let hideTimer: ReturnType<typeof setTimeout> | null = null
@@ -102,17 +102,17 @@ export function useHoverUi(options: {
 
   function onEditorPointerLeave() {
     if (leaveTimer) return
-    // 因行高亮需与 block-handle 同步消失（都在 activeHover 清空时由 handleVisible 触发），
-    // 故此处不再单独清 highlightRect，仅提前走扩展失效缓冲，避免高亮先消失而 popup 残留
+    // 行高亮需与 block-handle 同步消失（都在 activeHover 清空时由 handleVisible 触发），
+    // 此处不再单独清 highlightRect，仅提前走扩展失效缓冲，避免高亮先消失而 popup 残留
     leaveTimer = setTimeout(() => {
       leaveTimer = null
       clearHoverViaExtension()
     }, 100)
   }
 
-  // 因 popup 已 Teleport 到 .canvas（不在 wrapper DOM 内），鼠标从 wrapper 移向 popup 时会先触发
+  // popup 已 Teleport 到 .canvas（不在 wrapper DOM 内），鼠标从 wrapper 移向 popup 时会先触发
   // wrapper 的 pointerleave；若立即 suppressUI 会把 popup 置为 pointer-events:none 导致鼠标到不了
-  // popup，故延迟缓冲让鼠标有机会进入 popup（onPopupEnter 置 popupKeep 并取消本定时），否则再隐藏
+  // popup，延迟缓冲让鼠标有机会进入 popup（onPopupEnter 置 popupKeep 并取消本定时），否则再隐藏
   function onWrapperPointerLeave() {
     cancelLeave()
     if (hideTimer) return
@@ -128,8 +128,8 @@ export function useHoverUi(options: {
     }
   }
 
-  // 因 ProseKit hover 是纯指针驱动、编辑器失焦不会自动清 popup，
-  // 故监听 wrapper 的 focusin/focusout：焦点真正离开编辑器区域时强制同步隐藏 popup 与行高亮
+  // ProseKit hover 是纯指针驱动、编辑器失焦不会自动清 popup，
+  // 监听 wrapper 的 focusin/focusout：焦点真正离开编辑器区域时强制同步隐藏 popup 与行高亮
   function onWrapperFocusIn() {
     editorFocused.value = true
     forcedHidden.value = false
@@ -143,8 +143,8 @@ export function useHoverUi(options: {
     suppressUI()
   }
 
-  // 因移出编辑器后同块 hover 不会重发 state-change（扩展 isHoverStateEqual 直接跳过），
-  // 故鼠标重新进入 wrapper 时解除 forcedHidden，让 popup/高亮可随 hover 恢复
+  // 移出编辑器后同块 hover 不会重发 state-change（扩展 isHoverStateEqual 直接跳过），
+  // 鼠标重新进入 wrapper 时解除 forcedHidden，让 popup/高亮可随 hover 恢复
   function onWrapperPointerEnter() {
     forcedHidden.value = false
     updateHoverUi()
@@ -156,11 +156,11 @@ export function useHoverUi(options: {
     }
   }
 
-  // 因画布平移/缩放会改变块视口位置而高亮是 fixed 视口定位，需随画布重算，
-  // 故监听 OJCanvas 派发的画布变换事件（首次 hover 时才挂载）；
-  // OJCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），故此处直接重算即可
+  // 画布平移/缩放会改变块视口位置而高亮是 fixed 视口定位，需随画布重算，
+  // 监听 OJCanvas 派发的画布变换事件（首次 hover 时才挂载）；
+  // OJCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），此处直接重算即可
   function onCanvasTransform() {
-    // 因无 hover 的编辑器高亮/popup 均未显示，平移中每帧派发下跳过可显著减负（块多时收益明显）
+    // 无 hover 的编辑器高亮/popup 均未显示，平移中每帧派发下跳过可显著减负（块多时收益明显）
     if (!hoveredBlock.value && !activeHover.value) return
     updateHoverUi()
   }
@@ -188,7 +188,7 @@ export function useHoverUi(options: {
     scrollEl.addEventListener('scroll', updateHoverUi, { passive: true })
   }
 
-  // 因 handleVisible 依赖聚焦态/强制隐藏态，故这些变化时也需重算行高亮与 popup 显隐
+  // handleVisible 依赖聚焦态/强制隐藏态，这些变化时也需重算行高亮与 popup 显隐
   watch([activeHover, editorFocused, forcedHidden], () => {
     if (!activeHover.value) {
       updateHoverUi()
@@ -201,7 +201,7 @@ export function useHoverUi(options: {
     updateHoverUi()
   })
 
-  // 因直接 set hoverState 会被 ProseKit 失效计时器清掉，故向块 DOM 派发假 pointermove
+  // 直接 set hoverState 会被 ProseKit 失效计时器清掉，向块 DOM 派发假 pointermove
   // 让扩展自行刷新（同步清计时器与 prevHoverState）
   function refreshHoverState() {
     const block = hoveredBlock.value
@@ -221,7 +221,7 @@ export function useHoverUi(options: {
   function startKeepAlive() {
     stopKeepAlive()
     refreshHoverState()
-    keepAliveTimer = setInterval(refreshHoverState, 150) // 因扩展有 200ms 节流、单次刷新可能被吞，故以 150ms 周期重试
+    keepAliveTimer = setInterval(refreshHoverState, 150) // 扩展有 200ms 节流、单次刷新可能被吞，以 150ms 周期重试
   }
   function stopKeepAlive() {
     if (keepAliveTimer) {
@@ -231,7 +231,7 @@ export function useHoverUi(options: {
   }
 
   function onPopupEnter() {
-    cancelLeave() // 因需保留高亮与 popup，故取消“移出编辑器”的待清除定时
+    cancelLeave() // 需保留高亮与 popup，取消“移出编辑器”的待清除定时
     cancelHide() // 鼠标已进入 popup，取消 wrapper 缓冲后的延迟隐藏
     popupKeep.value = true
     startKeepAlive()
@@ -242,8 +242,8 @@ export function useHoverUi(options: {
     clearHoverViaExtension()
   }
 
-  // 因直接 clearStoreHover 会绕过扩展内部 prevHoverState、鼠标回同一行时被 isHoverStateEqual
-  // 跳过导致 popup 无法再现，故向 DOM 派发块外 pointermove+pointerout，走扩展自带失效缓冲正常清除
+  // 直接 clearStoreHover 会绕过扩展内部 prevHoverState、鼠标回同一行时被 isHoverStateEqual
+  // 跳过导致 popup 无法再现，向 DOM 派发块外 pointermove+pointerout，走扩展自带失效缓冲正常清除
   function clearHoverViaExtension() {
     const dom = view()?.dom
     if (!dom) return

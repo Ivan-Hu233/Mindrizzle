@@ -1,9 +1,9 @@
 <template>
   <v-sheet class="editor-wrapper">
     <v-container class="toolbar" style="height: 133px;">
-      <!-- <v-btn @click="save">保存</v-btn>
-      <v-btn @click="load">加载</v-btn> -->
-      <!-- 因无选中块时进入"添加块"状态，故用单选组展示当前添加类型（滚轮切换、左键直接添加），
+      <v-btn @click="save">保存</v-btn>
+      <!-- <v-btn @click="load">加载</v-btn> -->
+      <!-- 无选中块时进入"添加块"状态，用单选组展示当前添加类型（滚轮切换、左键直接添加），
            交互与富文本格式操作一致但不再弹确认 overlay -->
       <v-btn-toggle
         v-if="!hasSelection && OJCRef?.isEditMode"
@@ -47,7 +47,7 @@
     
     <OJCanvas class="editor-wrapper" ref="OJCRef"/>
 
-    <!-- 因格式操作需用户确认而非直接应用，故弹 overlay 询问：
+    <!-- 格式操作需用户确认而非直接应用，弹 overlay 询问：
          任意位置左键应用、右键取消并清选区（用全屏捕获层接管事件，避开 v-overlay 根透传限制） -->
     <v-overlay v-model="pendingApply" persistent scroll-strategy="none">
       <div class="apply-layer" @click.left="confirmApply" @mousedown.right="cancelApply" @contextmenu.prevent="cancelApply">
@@ -71,6 +71,9 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces } from '@mdi/js'
 import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
 import { screenToContent } from '../utils/canvasCoords'
+import { invoke } from '@tauri-apps/api/core'
+import { useRoute } from 'vue-router'
+import { info } from '@tauri-apps/plugin-log'
 
 const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
 
@@ -84,20 +87,20 @@ const componentOf = computed(() => {
   return OJCRef.value?.state.items.find((it) => it.id === id)?.component
 })
 
-// 因无选中块时进入"添加块"状态，滚轮在两种类型间循环、左键直接添加，故集中为单一常量源
+// 无选中块时进入"添加块"状态：滚轮在两种类型间循环、左键直接添加，集中为单一常量源
 const ADD_OPTIONS = [
   { key: 'RichTextEditor', label: '富文本', icon: mdiNoteText, addId: 'add-rich' },
   { key: 'EditableCodeBlock', label: '代码块', icon: mdiCodeBraces, addId: 'add-code' },
 ] as const
 const hasSelection = computed(() => (OJCRef.value?.state.selectedIds.size ?? 0) > 0)
-// 因添加块类型需单选高亮且默认首项，故记录当前索引
+// 添加块类型需单选高亮且默认首项，记录当前索引
 const addIdx = ref(0)
 const onSelectAdd = (index: number | null) => {
   if (index == null) return
   addIdx.value = index
 }
 
-// 因添加块预览需随"当前类型/是否有选中/编辑态"同步，故经 OJCanvas.setAddPreview 驱动
+// 添加块预览需随"当前类型/是否有选中/编辑态"同步，经 OJCanvas.setAddPreview 驱动
 watch(
   [addIdx, hasSelection, () => OJCRef.value?.isEditMode],
   () => {
@@ -108,7 +111,7 @@ watch(
   { immediate: true },
 )
 
-// 因按钮项各自携带图标与操作且轮换按索引推进，故集中为单一常量源
+// 按钮项各自携带图标与操作且轮换按索引推进，集中为单一常量源
 const OPTIONS = [
   { icon: mdiMouse, label: '指针', action: () => {} },
   { icon: mdiFormatHeader1, label: '标题', action: () => batchToggleHeading(1) },
@@ -117,17 +120,17 @@ const OPTIONS = [
   { icon: mdiFormatUnderline, label: '下划线', action: () => batchToggleUnderline() }
 ] as const
 
-// 因按钮组需单选高亮且默认选中首项，故记录当前索引；切换选中块时重置为首项
+// 按钮组需单选高亮且默认选中首项，记录当前索引；切换选中块时重置为首项
 const opIdx = ref(0)
 watch(componentOf, () => { opIdx.value = 0 })
 
-// 因操作已由各按钮项的 action 字段声明，故此处仅按索引分发对应操作
+// 操作已由各按钮项的 action 字段声明，此处仅按索引分发对应操作
 const onSelectOption = (index: number | null) => {
   if (index == null) return
   opIdx.value = index
 }
 
-// 因鼠标在富文本块滚动条上时滚轮应滚动内容而非循环切项，故命中滚动条矩形则放行默认滚动
+// 鼠标在富文本块滚动条上时滚轮应滚动内容而非循环切项，命中滚动条矩形则放行默认滚动
 const isOnScrollbar = (e: WheelEvent): boolean => {
   const x = e.clientX
   const y = e.clientY
@@ -142,9 +145,9 @@ const isOnScrollbar = (e: WheelEvent): boolean => {
   return false
 }
 
-// 因需整个界面任意位置滚轮循环切换按钮项，故按 deltaY 方向在索引间循环；
-// 因无选中块时处于"添加块"状态，滚轮在添加类型间循环；有富文本选中时循环格式操作；
-// 因编辑器/文本框内滚轮需滚动内容，故豁免，避免循环切项挡住阅读
+// 需整个界面任意位置滚轮循环切换按钮项，按 deltaY 方向在索引间循环；
+// 无选中块时处于"添加块"状态，滚轮在添加类型间循环；有富文本选中时循环格式操作；
+// 编辑器/文本框内滚轮需滚动内容，予以豁免，避免循环切项挡住阅读
 const cycleOption = (e: WheelEvent) => {
   if (isOnScrollbar(e)) return
   if (!hasSelection.value) {
@@ -160,7 +163,7 @@ const cycleOption = (e: WheelEvent) => {
   onSelectOption(next)
 }
 
-// 因仅富文本块内选中文本时应自动应用当前按钮项操作，故要求选区非空且落在当前选中块内
+// 仅富文本块内选中文本时应自动应用当前按钮项操作，要求选区非空且落在当前选中块内
 const selectionInBlock = (): boolean => {
   const sel = window.getSelection()
   const id = Array.from(OJCRef.value!.state.selectedIds)[0]
@@ -169,17 +172,17 @@ const selectionInBlock = (): boolean => {
     !!sel.anchorNode && !!sel.focusNode && block.contains(sel.anchorNode) && block.contains(sel.focusNode)
 }
 
-// 因仅 mouseup 时选区才算定稿（拖动选字中途 selectionchange 高频误触发、暂停即会提前应用），
-// 故不监听 selectionchange，改在 mouseup 时校验选区；操作不直接执行，
+// 仅 mouseup 时选区才算定稿（拖动选字中途 selectionchange 高频误触发、暂停即会提前应用），
+// 因此不监听 selectionchange，改在 mouseup 时校验选区；操作不直接执行，
 // 而是弹 overlay 询问用户：左键应用、右键取消并清选区
 let applyLockUntil = 0
 const pendingApply = ref(false)
 const pendingActionIndex = ref(0)
 const pendingLabel = computed(() => OPTIONS[pendingActionIndex.value]?.label ?? '更改')
-// 因 v-card 需显示在选区附近，故记录选区矩形的中心 x 与上缘 y（上方空间不足时改放下方）
+// v-card 需显示在选区附近，记录选区矩形的中心 x 与上缘 y（上方空间不足时改放下方）
 const overlayPos = ref({ left: 0, top: 0, below: false })
 
-// 因"左键在画布处添加块"需落在鼠标位置，故把视口鼠标坐标经 utils 统一换算为画布 content 坐标
+// "左键在画布处添加块"需落在鼠标位置，把视口鼠标坐标经 utils 统一换算为画布 content 坐标
 const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null => {
   const cont = document.querySelector<HTMLElement>('.canvas-container')
   const ojc = OJCRef.value
@@ -192,11 +195,11 @@ const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null =>
   )
 }
 
-// 因需区分"左键简单点击添加"与"左键拖动（框选）结束不添加"，故记录按下位置供 mouseup 比较位移
+// 需区分"左键简单点击添加"与"左键拖动（框选）结束不添加"，记录按下位置供 mouseup 比较位移
 const CLICK_DRAG_THRESHOLD = 4
 let mouseDownX = 0
 let mouseDownY = 0
-// 因 mousedown 时已存在选中 → 本次点击语义是"取消选中"，mouseup 添加块逻辑须据此跳过
+// mousedown 时已存在选中 → 本次点击语义是"取消选中"，mouseup 添加块逻辑须据此跳过
 let isDeselectClick = false
 const trackMouseDown = (e: MouseEvent) => {
   mouseDownX = e.clientX
@@ -208,11 +211,11 @@ const onMouseUp = (e: MouseEvent) => {
   if (pendingApply.value) return // 询问中不重复触发
   // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
   if (!hasSelection.value) {
-    // 因"取消多选的点击"在 mouseup 时选中已被 OJCanvas 清空、会误入添加分支，故拦截
+    // "取消多选的点击"在 mouseup 时选中已被 OJCanvas 清空、会误入添加分支，此处拦截
     if (isDeselectClick) return
     if (!OJCRef.value?.isEditMode || e.button !== 0) return
     if ((e.target as HTMLElement).closest('.toolbar')) return
-    // 因"左键拖动（框选）结束"不应误添加块，故仅位移小于阈值的简单点击才添加
+    // "左键拖动（框选）结束"不应误添加块，仅位移小于阈值的简单点击才添加
     if (Math.hypot(e.clientX - mouseDownX, e.clientY - mouseDownY) > CLICK_DRAG_THRESHOLD) return
     const key = ADD_OPTIONS[addIdx.value]?.key
     if (key) OJCRef.value?.addComponent(key, canvasPointFromMouse(e) ?? undefined)
@@ -222,7 +225,7 @@ const onMouseUp = (e: MouseEvent) => {
   if (opIdx.value === 0) return // 指针模式无可应用操作
   applyLockUntil = Date.now() + 300
   pendingActionIndex.value = opIdx.value
-  // 因卡片需贴近选区显示，故以选区矩形为锚点并夹紧到视口内（防超出屏幕）：
+  // 卡片需贴近选区显示，以选区矩形为锚点并夹紧到视口内（防超出屏幕）：
   // 水平中心限在卡片半宽+间距内；垂直优先放选区上方，上方不足放下方，均不足选空间大一侧
   const rangeRect = window.getSelection()?.getRangeAt(0).getBoundingClientRect()
   if (rangeRect && rangeRect.width > 0) {
@@ -257,15 +260,15 @@ const onMouseUp = (e: MouseEvent) => {
 const confirmApply = () => {
   pendingApply.value = false
   OPTIONS[pendingActionIndex.value]?.action()
-  // 因应用后选区仍保留会经 mouseup 再次询问，故同取消一样清除选区并失焦
+  // 应用后选区仍保留会经 mouseup 再次询问，同取消一样清除选区并失焦
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
 }
 
 const cancelApply = () => {
   pendingApply.value = false
-  // 因 ProseMirror 失焦前会保持并恢复内部选区，仅 removeAllRanges 后右键的 mouseup
-  // 仍会经 onMouseUp 重开询问，故让编辑器失焦使 DOM 选区保持为空
+  // ProseMirror 失焦前会保持并恢复内部选区，仅 removeAllRanges 后右键的 mouseup
+  // 仍会经 onMouseUp 重开询问，让编辑器失焦使 DOM 选区保持为空
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
 }
@@ -276,33 +279,37 @@ const mobileButtonLabel = computed(() => {
 })
 
 const toggleMobileSim = () => {
-  OJCRef.value!.syncComponentData() // 因模式切换会重挂载组件，故先同步组件数据
-  OJCRef.value!.forceMobile = OJCRef.value!.nextForceMobile() // 因布局刷新由 watch(mobileMode) 统一处理，故此处仅切换标志
+  OJCRef.value!.syncComponentData() // 模式切换会重挂载组件，先同步组件数据
+  OJCRef.value!.forceMobile = OJCRef.value!.nextForceMobile() // 布局刷新由 watch(mobileMode) 统一处理，此处仅切换标志
 }
 
 const toggleEditMode = () => {
   OJCRef.value!.isEditMode = !OJCRef.value!.isEditMode
 }
 
-// 因非友好缩放比（整数/半整数之外）会让内容乘缩放比落亚像素、即便取整也抖动模糊，
-// 故滑块吸附到友好缩放比（0.5 步进），保证视觉像素整数化稳定清晰
+// 非友好缩放比（整数/半整数之外）会让内容乘缩放比落亚像素、即便取整也抖动模糊，
+// 滑块吸附到友好缩放比（0.5 步进），保证视觉像素整数化稳定清晰
 const SHARP_SCALES = [0.5, 1, 1.5, 2, 2.5, 3]
 const getSharpScale = (target: number) =>
   SHARP_SCALES.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a))
 
-// 因滑动条直接改内部 ref，故中转一次避免模板里写嵌套 ref 赋值；同时吸附到友好缩放比
+// 滑动条直接改内部 ref，中转一次避免模板里写嵌套 ref 赋值；同时吸附到友好缩放比
 const setZoom = (v: number | null) => {
   const t = typeof v === 'number' && v > 0 ? v : 1
   OJCRef.value!.zoom = getSharpScale(t)
 }
 
-const save = () => {
-  localStorage.setItem('canvasData', OJCRef.value?.save() ?? '')
+const route = useRoute()
+// route.params 的值类型为 string|string[]，单路径段时是字符串，直接下标会取首字符而非首元素
+const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0] : route.params.fileName
+
+const save = async () => {
+  await invoke("set_omnijot_file_body", { fileName, content: OJCRef.value?.save() ?? '' })
 }
 
 const load = async () => {
-  const raw = localStorage.getItem('canvasData')
-  OJCRef.value?.load(raw ?? '')
+  const raw = await invoke<{ content: string }>("get_omnijot_file_body", { fileName })
+  OJCRef.value?.load(raw.content ?? '')
 }
 
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
@@ -344,11 +351,12 @@ const deleteSelected = () => {
 
 onMounted(() => {
   load()
-  // 因需整个界面任意位置滚轮切换按钮项且需阻止默认滚动，故挂 window 级监听并显式非 passive（否则 preventDefault 无效）
+  info("打开文件"+fileName)
+  // 需整个界面任意位置滚轮切换按钮项且需阻止默认滚动，挂 window 级监听并显式非 passive（否则 preventDefault 无效）
   window.addEventListener('wheel', cycleOption, { passive: false })
-  // 因拖动选字可能跨出编辑器范围，mouseup 会落在编辑器外，故挂 window 级 mouseup 确保松开时都能定稿应用
+  // 拖动选字可能跨出编辑器范围，mouseup 会落在编辑器外，挂 window 级 mouseup 确保松开时都能定稿应用
   window.addEventListener('mouseup', onMouseUp)
-  // 因需记录按下位置以区分"简单点击添加"与"拖动框选不添加"，故挂 window 级 mousedown
+  // 需记录按下位置以区分"简单点击添加"与"拖动框选不添加"，挂 window 级 mousedown
   window.addEventListener('mousedown', trackMouseDown)
 })
 
@@ -380,14 +388,14 @@ onUnmounted(() => {
   margin: 0 8px;
 }
 
-/* 因未选中按钮默认背景与工具栏 v-sheet 相同（纯 surface 色），看不出按钮组边界，
-   故给未选中按钮补半透明 on-surface 底色以区分；选中态仍保留默认高亮 */
+/* 未选中按钮默认背景与工具栏 v-sheet 相同（纯 surface 色），看不出按钮组边界，
+   给未选中按钮补半透明 on-surface 底色以区分；选中态仍保留默认高亮 */
 .v-btn-toggle :deep(.v-btn:not(.v-btn--selected)) {
   background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
-/* 因需 overlay 任意位置响应左键/右键，故用全屏捕获层接管；
-   因 v-overlay__content 容器尺寸为 0（inset 失效），故用 vw/vh 显式铺满并置 z 高于 scrim */
+/* overlay 需任意位置响应左键/右键，用全屏捕获层接管；
+   v-overlay__content 容器尺寸为 0（inset 失效），用 vw/vh 显式铺满并置 z 高于 scrim */
 .apply-layer {
   position: fixed;
   left: 0;
@@ -396,7 +404,7 @@ onUnmounted(() => {
   height: 100vh;
   z-index: 1;
 }
-/* 因 v-card 需显示在选区上方且水平居中于选区中心，故绝对定位 + translate 上移整卡；空间不足时由 place-below 改放选区下方 */
+/* v-card 需显示在选区上方且水平居中于选区中心，绝对定位 + translate 上移整卡；空间不足时由 place-below 改放选区下方 */
 .apply-card {
   position: absolute;
   transform: translate(-50%, calc(-100% - 8px));

@@ -191,7 +191,7 @@ const onInput = () => {
   renderHighlight();
 };
 
-// 因需在浏览器重排后同步滚动位置，故用 requestAnimationFrame
+// 需在浏览器重排后同步滚动位置，用 requestAnimationFrame 延后一拍
 const syncScroll = () => {
   const textarea = textareaRef.value;
   const pre = highlightRef.value?.parentElement;
@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
   }
 });
 
-// 因父组件需统一调用保存/加载而不按组件类型特判，故暴露统一的 saveConfig/loadConfig
+// 父组件需统一调用保存/加载而不按组件类型特判，暴露统一的 saveConfig/loadConfig
 defineExpose({
   saveConfig() {
     return { code: internalCode.value, language: currentLanguage.value };
@@ -355,7 +355,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   width: 100%;
-  /* 因块随 zoom 重排版放大，固定尺寸按 --canvas-zoom 缩放保持协调 */
+  /* 块随 zoom 重排版放大，固定尺寸按 --canvas-zoom 缩放保持协调 */
   min-width: calc(300px * var(--canvas-zoom, 1));
   min-height: calc(200px * var(--canvas-zoom, 1));
 }

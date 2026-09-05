@@ -39,9 +39,9 @@ const longRules = [
 
 function isValidFileName(name: string): boolean {
   if (!name || name.length > 50) return false;
-  // 因 Windows 文件名禁含 \ / : * ? " < > | 等字符，故命中即判非法
+  // 正则命中即非法：禁含 \ / : * ? " < > | 等字符
   if (/[\\/:*?"<>|]/.test(name)) return false;
-  // 因 Windows 文件名不允许以空格开头、以空格或点结尾，故命中即判非法
+  // 不允许以空格开头、以空格或点结尾
   if (/^\s|[\s.]$/.test(name)) return false;
   const reserved = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
   if (reserved.includes(name.toUpperCase())) return false;
@@ -78,7 +78,7 @@ const debouncedCheck = (name: string) => {
 watch(fileName, (newVal) => debouncedCheck(newVal))
 
 const fileRules = [
-  () => fileNameAsyncError.value // 因 Vuetify 规则以 true 通过、字符串为错误提示，故返回 true 或错误信息
+  () => fileNameAsyncError.value // Vuetify 规则以 true 通过、字符串为错误提示
 ]
 
 const infoForm = ref()
@@ -89,12 +89,11 @@ async function submit() {
   if (!valid) return;
 
   try {
-    const result = await invoke('create_hypernote', {
-      hypernoteInfo: {
+    const result = await invoke('create_omnijot_file', {
+      omnijotFileInfo: {
         title: title.value,
         description: description.value,
         tag: ["新笔记"],
-        content: "**Hello,world!**",
       },
       fileName: fileName.value,
     });

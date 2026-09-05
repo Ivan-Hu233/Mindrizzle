@@ -38,7 +38,7 @@ const getErrorMessage = (error: unknown): string => {
 onMounted(async () => {
   await router.isReady()
 
-  // 因非 Tauri 环境下无 IPC、plugin-log 内部 invoke 会抛错，故此处提前返回
+  // 非 Tauri 环境下无 IPC、plugin-log 内部 invoke 会抛错，此处提前返回
   if (!isTauri()) return
 
   try {

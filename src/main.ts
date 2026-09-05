@@ -15,7 +15,7 @@ const routes = [
   { path: '/set', component: NoteSet },
   { path: '/board', component: Noteboard },
   { path: '/debug', component: Debug },
-  { path: '/editor/:file_name', component: Editor },
+  { path: '/editor/:fileName', component: Editor },
   { path: '/settings/:tab', component: Setting },
 ]
 

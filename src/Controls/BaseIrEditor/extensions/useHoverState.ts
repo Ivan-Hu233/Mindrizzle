@@ -12,13 +12,13 @@ export function useHoverState(
   dir: 'ltr' | 'rtl',
   getStore: (el?: Element | null) => any,
 ) {
-  // 因拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，故 hover 离开时不清空 hoveredBlock
+  // 拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，hover 离开时不清空 hoveredBlock
   const hoveredBlock = ref<HoveredBlock | null>(null)
   const activeHover = ref<HoveredBlock | null>(null)
 
   function onBlockStateChange(event: Event) {
     const detail = (event as CustomEvent).detail as HoveredBlock | null
-    // 因拖拽需跨编辑器全局抑制 popup/高亮，故通过 body 上的拖拽类判断
+    // 拖拽需跨编辑器全局抑制 popup/高亮，通过 body 上的拖拽类判断
     if (document.body.classList.contains('block-handle-dragging')) {
       activeHover.value = null
       if (detail) clearStoreHover(getView(editor), getStore)
@@ -28,7 +28,7 @@ export function useHoverState(
     if (detail) hoveredBlock.value = detail
   }
 
-  // 因 popup 需与行保持 4px 间距，故放置判断以 popup 实际高度 + 该间距为所需空间
+  // popup 需与行保持 4px 间距，放置判断以 popup 实际高度 + 该间距为所需空间
   const COMPACT_POPUP_GAP = 4
 
   // 放置规则：移动端优先上方、桌面端优先朝向画布内侧（块在左半 → 行右），空间不足时退化为另一侧/上下
@@ -53,15 +53,15 @@ export function useHoverState(
 
     const editorDom = view?.dom as HTMLElement | null
     const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
-    // 因无限画布下世界层远大于视口、按它判断内外会恒为同一侧，故用可见视口 .canvas-container 判断
+    // 无限画布下世界层远大于视口、按它判断内外会恒为同一侧，改用可见视口 .canvas-container 判断
     const container = editorDom?.closest('.canvas-container') as HTMLElement | null
     if (!widget || !container) return fallback
     const w = widget.getBoundingClientRect()
     const c = container.getBoundingClientRect()
     const preferred: 'left' | 'right' = w.left + w.width / 2 < c.left + c.width / 2 ? 'right' : 'left'
 
-    // 因桌面端左右放不下 popup 时需退化为上下放置；左右空间用整块边界（不用文本行 nodeDOM，
-    // 因 nodeDOM(pos) 部分情况取不到元素）；且桌面端 top/bottom 不放大，故退化时大小与左右放置一致
+    // 桌面端左右放不下 popup 时需退化为上下放置；左右空间用整块边界（不用文本行 nodeDOM，
+    // nodeDOM(pos) 部分情况取不到元素）；且桌面端 top/bottom 不放大，退化时大小与左右放置一致
     const needX = getPopupWidth(view) + COMPACT_POPUP_GAP
     const spaceLeft = w.left - c.left
     const spaceRight = c.right - w.right

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { mdiNoteOffOutline } from '@mdi/js';
 import { invoke } from '@tauri-apps/api/core'
 import { trace } from '@tauri-apps/plugin-log';
@@ -11,13 +11,16 @@ const noteSets = ref<
   { name: string; description: string; tag?: string }[]
 >([]);
 
+const fileListRef = ref<string[]>([]);
+
 async function loadNoteSets() {
   try {
     const fileList = await invoke<string[]>('fetch_file_list');
+    fileListRef.value = fileList;
     trace("已经获得文件列表{" + fileList + "}")
     for (const fileName of fileList) {
       const fileInfo = await invoke<{ title: string; description: string; tag: string }>(
-        'get_file_info',
+        'get_omnijot_file_meta',
         { fileName: fileName }
       );
       noteSets.value.push({
@@ -42,7 +45,7 @@ async function loadNoteSets() {
     text = "点击右上角的 + 按钮创建新的便签集" />
     <v-list v-else>
       <v-list-item v-for="(noteSet, index) in noteSets" :key="index"
-        :title="noteSet.name"
+        :title="noteSet.name" @click="$router.push('/editor/' + fileListRef[index])"
         :subtitle="noteSet.description" />
     </v-list>
   </v-sheet>

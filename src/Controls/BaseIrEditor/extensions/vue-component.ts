@@ -298,7 +298,7 @@ export const vueComponentNodeView = defineVueNodeView({
         }
       )
 
-      // 因首次取 clientWidth 可能为 0，故以 10000 作较大后备避免宽度塌缩
+      // 首次取 clientWidth 可能为 0，以 10000 作较大后备避免宽度塌缩
       const containerWidth = ref<number>(view.dom.clientWidth || 10000)
       let resizeObserver: ResizeObserver | null = null
 
@@ -412,7 +412,7 @@ export const vueComponentNodeView = defineVueNodeView({
           })
         )
 
-        // 因 ResizableContainer 以 null 表示无限制，故这里始终传数字以确保限制生效
+        // ResizableContainer 以 null 表示无限制，这里始终传数字以确保限制生效
         return h(
           ResizableContainer,
           {

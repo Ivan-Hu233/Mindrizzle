@@ -35,7 +35,7 @@ import { defineBlockquote } from 'prosekit/extensions/blockquote'
 import { defineSubscript } from 'prosekit/extensions/subscript'
 import { defineSuperscript } from 'prosekit/extensions/superscript'
 
-// 因父组件需统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.({ level })），故注册自定义命令
+// 父组件统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.({ level })），注册自定义命令
 // 注：标题切换复用 defineHeading() 内置的 toggleHeading({ level })，避免同名命令被合并成交叉类型
 const customCommands = defineCommands({
   insertVueComponent(componentName: string, props: Record<string, any> = {}) {
@@ -104,6 +104,6 @@ export function defineExtension() {
   )
 }
 export type EditorExtension = ReturnType<typeof defineExtension>
-// 因父组件需统一经 editor.commands 命令链调用（含自定义与各扩展命令）且要 IDE 补全，
-// 故直接以 createEditor 实例的 commands 推导精确命令类型，而非手写宽泛索引签名
+// 父组件统一经 editor.commands 命令链调用（含自定义与各扩展命令）且要 IDE 补全，
+// 直接以 createEditor 实例的 commands 推导精确命令类型，而非手写宽泛索引签名
 export type EditorCommands = ReturnType<typeof createEditor<EditorExtension>>['commands']
