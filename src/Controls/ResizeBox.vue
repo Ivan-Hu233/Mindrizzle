@@ -63,8 +63,7 @@ onMounted(() => {
   canvasEl.value = rootEl.value?.closest('.canvas') ?? null
 })
 
-// 父 .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致块边缘模糊，
-// 渲染层圆整到整数视觉像素（视觉 = round(content*zoom)），逻辑仍用原始 content
+// 父 .canvas 使用 CSS zoom，渲染层圆整到视觉像素，逻辑仍使用原始 content 坐标
 const roundToPx = (v: number) => Math.round(v * props.zoom) / props.zoom
 const renderRect = computed(() => ({
   x: roundToPx(props.x),
@@ -72,9 +71,10 @@ const renderRect = computed(() => ({
   w: roundToPx(props.w),
   h: roundToPx(props.h),
 }))
-// 块定位用 translate3d 强制合成层（与 canvas 的 scale 组合为纯 scale + translate3d 渲染）
+// 块定位禁用 translate3d：强制提升会把块缓存为位图纹理，父 .canvas 放大时
+// 浏览器对该纹理上采样，块内文字必然发虚（与画布层同理），普通 translate 让浏览器按新矩阵重绘块内 DOM
 const boxStyle = computed(() => ({
-  transform: `translate3d(${renderRect.value.x}px, ${renderRect.value.y}px, 0)`,
+  transform: `translate(${renderRect.value.x}px, ${renderRect.value.y}px)`,
   width: `${renderRect.value.w}px`,
   height: `${renderRect.value.h}px`,
   zIndex: props.zIndex,
@@ -100,7 +100,7 @@ const CURSOR: Record<Handle, string> = {
 const handleStyle = (h: string) => {
   const pos = HANDLE_POS[h as Handle](renderRect.value)
   return {
-    // 手柄随 .canvas 的 scale(zoom) 缩放，尺寸与定位圆整到整数视觉像素避免边缘亚像素模糊
+    // 手柄随 .canvas 的 CSS zoom 缩放，尺寸与定位圆整到整数视觉像素避免边缘亚像素模糊
     width: `${roundToPx(8)}px`,
     height: `${roundToPx(8)}px`,
     zIndex: Z_LAYER.resizeHandle,
@@ -135,7 +135,7 @@ const computeRect = (s: ResizeSession, dx: number, dy: number): Rect => {
 
 const onMove = (e: MouseEvent) => {
   if (!session) return
-  // .canvas 被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
+  // .canvas 使用 CSS zoom，视口鼠标位移需除以 zoom 才等于 content 位移
   const rect = computeRect(session, (e.clientX - session.startClientX) / props.zoom, (e.clientY - session.startClientY) / props.zoom)
   session.lastRect = rect
   emit('resizing', rect.x, rect.y, rect.w, rect.h)
@@ -178,7 +178,7 @@ onUnmounted(cleanup)
     <!-- 块无边框背景，用虚线框常驻标注内容区范围 -->
     <div class="content-guide" aria-hidden="true" />
     <slot />
-    <!-- 手柄需固定视觉尺寸渲染（避开 .canvas 的 scale 缩放模糊）且不被邻块盖住，Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
+    <!-- 手柄需固定视觉尺寸渲染且不被邻块盖住，Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
     <Teleport :to="canvasEl" :disabled="!canvasEl">
       <template v-if="showHandles">
         <div v-for="h in handles" :key="h" class="handle" :class="`handle-${h}`" :data-id="itemId"

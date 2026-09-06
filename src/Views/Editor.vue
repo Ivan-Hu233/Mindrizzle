@@ -35,11 +35,16 @@
       <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="MdrCRef?.state.selectedIds.size === 0">
         删除
       </v-btn>
-      <v-slider
-        class="zoom-slider"
+      <v-select
+        class="zoom-select"
         :model-value="MdrCRef?.zoom ?? 1"
-        :label="`缩放 ${Math.round((MdrCRef?.zoom ?? 1) * 100)}%`"
-        min="0.5" max="3" step="0.5" hide-details
+        :items="ZOOM_OPTIONS"
+        label="缩放"
+        item-title="title"
+        item-value="value"
+        density="compact"
+        variant="outlined"
+        hide-details
         :disabled="MdrCRef?.mobileMode"
         @update:model-value="setZoom"
       />
@@ -287,16 +292,17 @@ const toggleEditMode = () => {
   MdrCRef.value!.isEditMode = !MdrCRef.value!.isEditMode
 }
 
-// 非友好缩放比（整数/半整数之外）会让内容乘缩放比落亚像素、即便取整也抖动模糊，
-// 滑块吸附到友好缩放比（0.5 步进），保证视觉像素整数化稳定清晰
-const SHARP_SCALES = [0.5, 1, 1.5, 2, 2.5, 3]
-const getSharpScale = (target: number) =>
-  SHARP_SCALES.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a))
+const ZOOM_OPTIONS = [
+  { title: '50%', value: 0.5 },
+  { title: '100%', value: 1 },
+  { title: '200%', value: 2 },
+  { title: '300%', value: 3 },
+] as const
 
-// 滑动条直接改内部 ref，中转一次避免模板里写嵌套 ref 赋值；同时吸附到友好缩放比
+// 滑动条直接改内部 ref，中转一次避免模板里写嵌套 ref 赋值
 const setZoom = (v: number | null) => {
-  const t = typeof v === 'number' && v > 0 ? v : 1
-  MdrCRef.value!.zoom = getSharpScale(t)
+  if (typeof v !== 'number' || v <= 0) return
+  MdrCRef.value!.zoom = v
 }
 
 const route = useRoute()
@@ -385,7 +391,8 @@ onUnmounted(() => {
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 
-.zoom-slider {
+.zoom-select {
+  width: 110px;
   margin: 0 8px;
 }
 

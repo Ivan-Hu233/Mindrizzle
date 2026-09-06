@@ -4,7 +4,7 @@
       <v-select
         v-model="currentLanguage"
         :items="languageOptions"
-        label="语言"
+        aria-label="语言"
         variant="solo"
         density="compact"
         hide-details
@@ -353,9 +353,8 @@ defineExpose({
   display: flex;
   flex-direction: column;
   width: 100%;
-  /* 块随 zoom 重排版放大，固定尺寸按 --canvas-zoom 缩放保持协调 */
-  min-width: calc(300px * var(--canvas-zoom, 1));
-  min-height: calc(200px * var(--canvas-zoom, 1));
+  min-width: 300px;
+  min-height: 200px;
 }
 
 
@@ -363,16 +362,49 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(2px * var(--canvas-zoom, 1)) calc(6px * var(--canvas-zoom, 1));
+  box-sizing: border-box;
+  flex: 0 0 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 2px 6px;
   background-color: var(--v-theme-surface, #f6f8fa);
   border: 1px solid var(--v-theme-border, #e1e4e8);
   border-bottom: none;
-  border-radius: calc(6px * var(--canvas-zoom, 1)) calc(6px * var(--canvas-zoom, 1)) 0 0;
+  border-radius: 6px 6px 0 0;
 }
 
 .language-select {
-  max-width: calc(160px * var(--canvas-zoom, 1));
-  font-size: calc(13px * var(--canvas-zoom, 1));
+  max-width: 160px;
+  font-size: 13px;
+  --v-input-control-height: 32px;
+}
+
+.language-select :deep(.v-input__control),
+.language-select :deep(.v-field),
+.language-select :deep(.v-field__input) {
+  height: 32px;
+  min-height: 32px;
+}
+
+.language-select :deep(.v-field) {
+  overflow: hidden;
+}
+
+.language-select :deep(.v-field__input) {
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1.2;
+}
+
+.language-select :deep(.v-field__append-inner) {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.toolbar :deep(.v-btn) {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
 }
 
 
@@ -380,7 +412,7 @@ defineExpose({
   position: relative;
   border: 1px solid var(--v-theme-border, #e1e4e8);
   border-top: none;
-  border-radius: 0 0 calc(6px * var(--canvas-zoom, 1)) calc(6px * var(--canvas-zoom, 1));
+  border-radius: 0 0 6px 6px;
   overflow: hidden;
   background-color: var(--v-theme-surface, #f6f8fa);
   flex: 1;
@@ -390,9 +422,9 @@ defineExpose({
 .highlight-layer,
 .edit-layer {
   margin: 0;
-  padding: calc(12px * var(--canvas-zoom, 1)) calc(16px * var(--canvas-zoom, 1));
+  padding: 12px 16px;
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
-  font-size: calc(14px * var(--canvas-zoom, 1));
+  font-size: 14px;
   line-height: 1.6;
   font-weight: normal;
   letter-spacing: normal;
@@ -408,7 +440,7 @@ defineExpose({
   overflow: auto;
   width: 100%;
   box-sizing: border-box;
-  min-height: calc(120px * var(--canvas-zoom, 1));
+  min-height: 120px;
 
 
   font-variant-ligatures: none;
@@ -427,7 +459,7 @@ defineExpose({
   background-color: transparent !important;
   pointer-events: none;
   margin: 0;
-  padding: calc(12px * var(--canvas-zoom, 1)) calc(16px * var(--canvas-zoom, 1));
+  padding: 12px 16px;
   border-radius: 0;
   overflow: auto;
 
@@ -451,7 +483,7 @@ defineExpose({
   z-index: 2;
   background-color: transparent;
   color: transparent;
-  padding: calc(12px * var(--canvas-zoom, 1)) calc(16px * var(--canvas-zoom, 1));
+  padding: 12px 16px;
   border-radius: 0;
   height: 100%;
   min-height: inherit;

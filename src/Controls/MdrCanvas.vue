@@ -366,21 +366,10 @@ const panSession = reactive({
 // 需等比例缩放画布（视觉缩放、交互坐标按 /zoom 换算），zoom 状态供 canvas 变换与各交互换算共用
 // #region 缩放与画布变换
 const zoom = ref(1)
-// .canvas 被 scale(zoom)，content 坐标乘 zoom 落亚像素会致边缘/内容模糊，渲染层统一圆整到整数视觉像素
+// CSS zoom 仍需将几何值对齐到视觉像素，避免边框和浮层边缘落在半像素
 const roundToPx = (v: number) => roundToVisual(zoom.value, v)
 const visualY = (v: number) => contentToVisual(canvasTransform(), 0, v).y
 
-// 浏览器对 transform scale 的合成层按旧 scale 光栅化纹理、放大后显示旧纹理会模糊
-// （交互/内容变化才触发重新光栅化），zoom 变化后先销毁再重建 .canvas 合成层强制按新比例光栅化
-const forceRecomposite = () => {
-  const el = canvasRef.value
-  if (!el) return
-  el.style.willChange = 'auto'
-  requestAnimationFrame(() => {
-    void el.offsetHeight
-    el.style.willChange = 'transform'
-  })
-}
 // .canvas 以左上角为缩放锚点，直接改 zoom 会让视口中心内容随缩放跑偏，
 // 以容器中心为锚点反解补偿 pan，使锚点处 content 坐标缩放前后屏幕位置不变；
 // 移动端锁水平且缩放被禁用（仅模式切换归零 zoom），仅桌面端补偿
@@ -388,7 +377,6 @@ let zoomAnchorPrev = 1
 watch(zoom, (z2) => {
   const z1 = zoomAnchorPrev
   zoomAnchorPrev = z2
-  forceRecomposite()
   if (z1 === z2) return
   const cont = canvasContainerRef.value
   if (!cont) return
@@ -411,10 +399,11 @@ watch(
   { flush: 'post' },
 )
 
-// transform 落亚像素会被浏览器渲染发虚，pan + origin 取整；
-// 纯 translate3d + scale：translate3d 强制合成层、scale 等比例缩放（不用 CSS zoom）
+// CSS zoom 参与布局与重排，不把块内文字和边框先栅格化后再由 transform 放大；
+// zoom 会同步放大 translate 的结果，平移量需除以 zoom，最终屏幕位置仍为 content*zoom + pan + origin
 const canvasStyle = computed<CSSProperties>(() => ({
-  transform: `translate3d(${Math.round(pan.x + origin.x)}px, ${Math.round(pan.y + origin.y)}px, 0) scale(${zoom.value})`,
+  zoom: zoom.value,
+  transform: `translate(${Math.round((pan.x + origin.x) / zoom.value)}px, ${Math.round((pan.y + origin.y) / zoom.value)}px)`,
   transformOrigin: '0 0',
 }))
 // #endregion 缩放与画布变换
@@ -854,7 +843,7 @@ const handleBarStyle = (item: CanvasItem): CSSProperties => {
   // 从"块上方"切到"块下方"，导致 handle 与块（ResizeBox）瞬间分离），拖拽期间锁定 placementLocked
   const dragging = customDrag.active && !!customDragGroup[item.id]
   const bottom = dragging ? customDrag.placementLocked : handlePlacementOf(item) === 'bottom'
-  // .canvas 整体 scale(zoom)，若对 (y±HANDLE_HEIGHT) 整体取整，其取整边界与块边缘
+  // 按缩放后的视觉坐标分别取整，保证手柄与块边缘
   // round(y*zoom) 不一致会在放大时露出 1px 缝隙，分别取整使底边/顶边贴齐块的视觉边缘
   const handleTop = bottom
     ? roundToPx(layout.y + layout.h)
@@ -903,7 +892,7 @@ const selectedOutlineStyle = (item: CanvasItem): CSSProperties => {
   // 多选时"浮层归属块"的拖拽栏需盖住别的块高亮、又不遮断自己块高亮，
   // 归属块描边环用 outline（1002）在其上、其余选中块描边环降到 dragHandle 之下（1000）
   const zIndex = outlineOwnerId.value === item.id ? Z_LAYER.outline : Z_LAYER.dragHandle - 1
-  // .canvas 整体 scale(zoom)，按块边缘视觉分别取整外扩，保证描边环贴齐块边缘
+  // 按块边缘视觉分别取整外扩，保证描边环贴齐块边缘
   return {
     left: `${roundToPx(l.x) - roundToPx(OUTLINE_PX)}px`,
     top: `${roundToPx(l.y) - roundToPx(OUTLINE_PX)}px`,
@@ -1164,7 +1153,7 @@ const onCustomDragMove = (e: MouseEvent) => {
 const applyCustomDrag = () => {
   customDragRafId = 0
   if (!customDrag.active) return
-  // 画布被 scale(zoom)，视口鼠标位移需除以 zoom 才等于 content 位移
+  // 画布按 CSS zoom 渲染，视口鼠标位移需除以 zoom 才等于 content 位移
   const dx = (customDragLastX - customDrag.startClientX) / zoom.value
   const dy = (customDragLastY - customDrag.startClientY) / zoom.value
   // pan 是外部像素平移，换算成 content 位移需再除 zoom
@@ -1773,7 +1762,7 @@ const startSelection = (e: MouseEvent) => {
   selectionState.active = true
   selectionState.extend = e.ctrlKey
   selectionState.justFinishedSelection = false
-  // 事件已挂容器级而 .canvas 自带 pan 平移与 scale(zoom)，用 utils 统一换算视口→content
+  // 事件已挂容器级而 .canvas 自带 pan 平移与 CSS zoom，用 utils 统一换算视口→content
   const pt = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
   selectionState.startX = pt.x
   selectionState.startY = pt.y
@@ -2748,7 +2737,6 @@ defineExpose({
   height: 100%;
   overflow: visible;
   cursor: grab;
-  will-change: transform;
 }
 
 .connection-layer {
