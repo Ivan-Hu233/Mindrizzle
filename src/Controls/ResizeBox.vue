@@ -10,6 +10,7 @@ interface Rect {
   y: number
   w: number
   h: number
+  itemId?: string
 }
 
 interface ResizeSession {
@@ -180,7 +181,7 @@ onUnmounted(cleanup)
     <!-- 手柄需固定视觉尺寸渲染（避开 .canvas 的 scale 缩放模糊）且不被邻块盖住，Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
     <Teleport :to="canvasEl" :disabled="!canvasEl">
       <template v-if="showHandles">
-        <div v-for="h in handles" :key="h" class="handle" :class="`handle-${h}`"
+        <div v-for="h in handles" :key="h" class="handle" :class="`handle-${h}`" :data-id="itemId"
           :style="handleStyle(h)" @mousedown.prevent.stop="onHandleDown(h, $event)" />
       </template>
     </Teleport>

@@ -5,8 +5,13 @@
     <div class="canvas-dots" :style="dotsStyle" aria-hidden="true" />
     <!-- .canvas 随 pan 平移后不覆盖整个容器，事件挂容器级才能让任意空白处框选/点击/聚焦生效 -->
     <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" ref="canvasRef">
+      <!-- 连接线以 HTML 色条渲染（与块边框同管线）：SVG 在非整数坐标下光栅化易出现断续 -->
+      <div class="connection-layer" aria-hidden="true">
+        <div v-for="line in linkedConnections" :key="line.key" class="connection-segment"
+          :style="connectionSegmentStyle(line)" />
+      </div>
       <ResizeBox v-for="item in state.items" :key="`${item.id}-${mobileMode ? 'm' : 'd'}`"
-        :data-id="item.id" :z-index="blockZ(item.id)" :active="isActive(item.id)" :x="layoutOf(item).x"
+        :data-id="item.id" :item-id="item.id" :z-index="blockZ(item.id)" :active="isActive(item.id)" :x="layoutOf(item).x"
         :y="layoutOf(item).y" :w="layoutOf(item).w" :h="layoutOf(item).h"
         :min-width="(constraintsOf(item).minWidth ?? 0) + 8" :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
         :max-width="constraintsOf(item).maxWidth ?? null" :max-height="constraintsOf(item).maxHeight ?? null"
@@ -453,6 +458,10 @@ const lastMouse = { x: 0, y: 0 }
 const mouseScreen = ref({ x: -9999, y: -9999 })
 
 const updateMousePos = (e: MouseEvent) => {
+  const target = e.target as HTMLElement
+  const isCanvasTarget = target.closest?.('.canvas-container') === canvasContainerRef.value
+  const hasActivePointerSession = selectionState.active || customDrag.active || !!resizeSession || panSession.active
+  if (!isCanvasTarget && !hasActivePointerSession) return
   lastMouse.x = e.clientX
   lastMouse.y = e.clientY
   mouseScreen.value = { x: e.clientX, y: e.clientY }
@@ -500,15 +509,19 @@ const autoPanVelocity = (): { vx: number; vy: number } => {
   return { vx, vy }
 }
 
+// autoPan 由拖拽/缩放共用，resize 时须按被拖方向限制滚动方向；返回已限制后的速度
+const restrictedPanVelocity = () => {
+  const { vx, vy } = autoPanVelocity()
+  return restrictResizeAutoPan(vx, vy)
+}
+
 // autoPan 时 pan 步进（取整）与块补偿（取整）在 zoom≠1 时无法精确抵消（round(rx/z)*z≠round(rx)），
 // 逐帧同号累积会让块视觉长期漂移，用浮点残差累加器把未取整的补偿累计、跨整时再补偿，保证长期零漂移
 const panCompAcc = reactive({ x: 0, y: 0 })
 
 const autoPanTick = () => {
   if (!autoPan.active) return
-  const { vx, vy } = autoPanVelocity()
-  // autoPan 由拖拽/缩放共用，resize 时按被拖方向限制滚动方向（见 restrictResizeAutoPan）
-  const { vx: rx, vy: ry } = restrictResizeAutoPan(vx, vy)
+  const { vx: rx, vy: ry } = restrictedPanVelocity()
   if (rx !== 0 || ry !== 0) {
     // pan 是外部像素平移（不受 scale 影响），画布滚动按视口像素直接累加
     const sx = mobileMode.value ? 0 : Math.round(rx)
@@ -902,12 +915,10 @@ const selectedOutlineStyle = (item: CanvasItem): CSSProperties => {
 // #endregion 手柄与描边样式
 
 // #region 自定义拖拽与联结
-const getSelectedItemIds = (item: CanvasItem) => {
-  const selected = state.selectedIds.has(item.id) && state.selectedIds.size > 1
+const getSelectedItemIds = (item: CanvasItem) =>
+  state.selectedIds.has(item.id) && state.selectedIds.size > 1
     ? Array.from(state.selectedIds)
     : [item.id]
-  return selected
-}
 
 // 需块跟随鼠标且画布平移时块自动补偿（无需 hack VDR 内部），
 // 块世界坐标 = 初始 + 鼠标位移 - (pan - panStart)
@@ -928,6 +939,132 @@ let customDragItems = new Map<string, CanvasItem>()
 // 粘贴链接：记录已用曲别针"粘贴"的块对（key 为两 id 排序后 join），拖动一个时另一块跟着动
 const linkedPairs = ref<Set<string>>(new Set())
 const pairKey = (a: string, b: string) => [a, b].sort().join('|')
+interface ConnectionPoint {
+  x: number
+  y: number
+}
+
+interface LinkedConnection {
+  key: string
+  start: ConnectionPoint
+  end: ConnectionPoint
+}
+
+const roundConnectionPoint = (point: ConnectionPoint): ConnectionPoint => ({
+  x: roundToVisual(zoom.value, point.x),
+  y: roundToVisual(zoom.value, point.y),
+})
+
+const connectionPoints = (a: Rect, b: Rect): { start: ConnectionPoint; end: ConnectionPoint } => {
+  const verticalGap = b.x - (a.x + a.w)
+  const reverseVerticalGap = a.x - (b.x + b.w)
+  const verticalOverlap = (Math.max(a.y, b.y) + Math.min(a.y + a.h, b.y + b.h)) / 2
+  if (Math.abs(verticalGap) <= SNAP_TOLERANCE || Math.abs(reverseVerticalGap) <= SNAP_TOLERANCE) {
+    const aOnLeft = Math.abs(verticalGap) <= SNAP_TOLERANCE
+    const aX = aOnLeft ? a.x + a.w : a.x
+    const bX = aOnLeft ? b.x : b.x + b.w
+    return { start: { x: aX, y: verticalOverlap }, end: { x: bX, y: verticalOverlap } }
+  }
+  const horizontalGap = b.y - (a.y + a.h)
+  const reverseHorizontalGap = a.y - (b.y + b.h)
+  const horizontalOverlap = (Math.max(a.x, b.x) + Math.min(a.x + a.w, b.x + b.w)) / 2
+  if (Math.abs(horizontalGap) <= SNAP_TOLERANCE || Math.abs(reverseHorizontalGap) <= SNAP_TOLERANCE) {
+    const aOnTop = Math.abs(horizontalGap) <= SNAP_TOLERANCE
+    const aY = aOnTop ? a.y + a.h : a.y
+    const bY = aOnTop ? b.y : b.y + b.h
+    return { start: { x: horizontalOverlap, y: aY }, end: { x: horizontalOverlap, y: bY } }
+  }
+  return {
+    start: { x: a.x + a.w / 2, y: a.y + a.h / 2 },
+    end: { x: b.x + b.w / 2, y: b.y + b.h / 2 },
+  }
+}
+
+// 多条线若落在同一视觉边缘（同轴坐标且端点相邻/重叠），分别渲染会在接口处出现断点与错位，
+// 合并为一条连续线，保证同一共享边只出一条线
+interface ConnSegment {
+  horizontal: boolean
+  axis: number
+  from: number
+  to: number
+}
+
+const mergeConnSegments = (segments: ConnSegment[]): LinkedConnection[] => {
+  const groups = new Map<string, ConnSegment[]>()
+  segments.forEach((seg) => {
+    const groupKey = `${seg.horizontal ? 'h' : 'v'}:${seg.axis}`
+    const group = groups.get(groupKey)
+    if (group) group.push(seg)
+    else groups.set(groupKey, [seg])
+  })
+  const merged: LinkedConnection[] = []
+  groups.forEach((group) => {
+    group.sort((a, b) => a.from - b.from)
+    let current = { ...group[0] }
+    for (let i = 1; i < group.length; i++) {
+      const next = group[i]
+      // 端点间隔小于容差视为同一共享边缘（贴合/微缝都算连续），超出则属不同缝隙、独立成线
+      if (next.from - current.to <= SNAP_TOLERANCE) current.to = Math.max(current.to, next.to)
+      else {
+        merged.push(toConnection(current))
+        current = { ...next }
+      }
+    }
+    merged.push(toConnection(current))
+  })
+  return merged
+}
+
+const toConnection = (seg: ConnSegment): LinkedConnection => {
+  const key = `${seg.horizontal ? 'h' : 'v'}:${seg.axis}:${seg.from}-${seg.to}`
+  if (seg.horizontal) {
+    return { key, start: { x: seg.from, y: seg.axis }, end: { x: seg.to, y: seg.axis } }
+  }
+  return { key, start: { x: seg.axis, y: seg.from }, end: { x: seg.axis, y: seg.to } }
+}
+
+const linkedConnections = computed<LinkedConnection[]>(() => {
+  const itemMap = new Map(state.items.map((item) => [item.id, item]))
+  const segments: ConnSegment[] = []
+  linkedPairs.value.forEach((key) => {
+    const [startId, endId] = key.split('|')
+    const startItem = itemMap.get(startId)
+    const endItem = itemMap.get(endId)
+    if (!startItem || !endItem) return
+    const startRect = layoutOf(startItem)
+    const endRect = layoutOf(endItem)
+    if (!isAdjacent(startRect, endRect)) return
+    const points = connectionPoints(startRect, endRect)
+    const start = roundConnectionPoint(points.start)
+    const end = roundConnectionPoint(points.end)
+    if (start.y === end.y) {
+      segments.push({ horizontal: true, axis: start.y, from: Math.min(start.x, end.x), to: Math.max(start.x, end.x) })
+    } else {
+      segments.push({ horizontal: false, axis: start.x, from: Math.min(start.y, end.y), to: Math.max(start.y, end.y) })
+    }
+  })
+  return mergeConnSegments(segments)
+})
+
+// 端点坐标已对齐视觉像素：横线用整高条、竖线用整宽条，色条起点与长度都取整避免半像素栅格化
+const connectionSegmentStyle = (line: LinkedConnection): CSSProperties => {
+  const horizontal = line.start.y === line.end.y
+  if (horizontal) {
+    return {
+      left: `${roundToPx(Math.min(line.start.x, line.end.x))}px`,
+      top: `${roundToPx(line.start.y - 1)}px`,
+      width: `${roundToPx(Math.abs(line.end.x - line.start.x))}px`,
+      height: `${roundToPx(2)}px`,
+    }
+  }
+  return {
+    left: `${roundToPx(line.start.x - 1)}px`,
+    top: `${roundToPx(Math.min(line.start.y, line.end.y))}px`,
+    width: `${roundToPx(2)}px`,
+    height: `${roundToPx(Math.abs(line.end.y - line.start.y))}px`,
+  }
+}
+
 const collectLinkedIds = (rootId: string): Set<string> => {
   const out = new Set<string>()
   const queue = [rootId]
@@ -1080,26 +1217,21 @@ const snapLayoutToOthers = (target: CanvasItem, layout: Rect) => {
   layout.y += nearest(candidatesY)
 }
 
-const isAdjacent = (a: Rect, b: Rect): boolean =>
-  Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE ||
-  Math.abs(b.x + b.w - a.x) <= SNAP_TOLERANCE ||
-  Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE ||
-  Math.abs(b.y + b.h - a.y) <= SNAP_TOLERANCE
+const isAdjacent = (a: Rect, b: Rect): boolean => {
+  const hasVerticalOverlap = a.y < b.y + b.h && b.y < a.y + a.h
+  const hasHorizontalOverlap = a.x < b.x + b.w && b.x < a.x + a.w
+  const touchesVerticalEdge = Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE ||
+    Math.abs(b.x + b.w - a.x) <= SNAP_TOLERANCE
+  const touchesHorizontalEdge = Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE ||
+    Math.abs(b.y + b.h - a.y) <= SNAP_TOLERANCE
+  return (touchesVerticalEdge && hasVerticalOverlap) ||
+    (touchesHorizontalEdge && hasHorizontalOverlap)
+}
 
-// 计算两块连接点：位于**接触段的中点**（左右相邻 → 共享垂直边与两块纵向重叠段的中点；
-// 上下相邻 → 共享水平边与横向重叠段的中点），供曲别针定位
+// 曲别针与连接线同源（connectionPoints 返回两块接触边缘上的两个端点），取其中点定位
 const connectionPoint = (a: Rect, b: Rect): { x: number; y: number } => {
-  const acx = a.x + a.w / 2, acy = a.y + a.h / 2
-  const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2
-  if (Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE || Math.abs(b.x + b.w - a.x) <= SNAP_TOLERANCE) {
-    const edgeX = Math.abs(a.x + a.w - b.x) <= SNAP_TOLERANCE ? a.x + a.w : b.x + b.w
-    return { x: edgeX, y: (Math.max(a.y, b.y) + Math.min(a.y + a.h, b.y + b.h)) / 2 }
-  }
-  if (Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE || Math.abs(b.y + b.h - a.y) <= SNAP_TOLERANCE) {
-    const edgeY = Math.abs(a.y + a.h - b.y) <= SNAP_TOLERANCE ? a.y + a.h : b.y + b.h
-    return { x: (Math.max(a.x, b.x) + Math.min(a.x + a.w, b.x + b.w)) / 2, y: edgeY }
-  }
-  return { x: (acx + bcx) / 2, y: (acy + bcy) / 2 }
+  const { start, end } = connectionPoints(a, b)
+  return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
 }
 
 // 缩放手柄与曲别针的层级在 zIndex.ts 已固定（1002/1003）且缩放手柄 Teleport 到 .canvas 顶层，
@@ -1353,16 +1485,6 @@ const clampVal = (v: number, min: number, max: number | null) => {
   return v
 }
 
-const neighborsOf = (id: string): string[] => {
-  const out: string[] = []
-  linkedPairs.value.forEach((key) => {
-    const [x, y] = key.split('|')
-    if (x === id) out.push(y)
-    else if (y === id) out.push(x)
-  })
-  return out
-}
-
 // 仅在被拖块 A 的 resize 会话中调用，直接从会话取链接组起始矩形转交共用传播
 const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: number) => {
   const rs = resizeSession
@@ -1375,10 +1497,22 @@ const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: n
 // 位置按"起始 + 父块总位移"重算（不逐帧累加，防长距离错位）。
 const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<string, Rect>) => {
   const positions: Record<string, Rect> = {}
+  const itemMap = new Map(state.items.map((target) => [target.id, target]))
+  const neighborMap = new Map<string, string[]>()
+  const addNeighbor = (fromId: string, toId: string) => {
+    const neighbors = neighborMap.get(fromId)
+    if (neighbors) neighbors.push(toId)
+    else neighborMap.set(fromId, [toId])
+  }
+  linkedPairs.value.forEach((key) => {
+    const [firstId, secondId] = key.split('|')
+    addNeighbor(firstId, secondId)
+    addNeighbor(secondId, firstId)
+  })
   // autoPan 平移改变了联结块 layout，positions 用当前布局初始化以保留自由边平移；
   // 方位判定与位移仍基于 starts（会话起始，避免随动干扰）
   Object.keys(starts).forEach((id) => {
-    const target = state.items.find((it) => it.id === id)
+    const target = itemMap.get(id)
     positions[id] = target ? { ...layoutOf(target) } : { ...starts[id] }
   })
   positions[item.id] = { ...rect }
@@ -1394,9 +1528,9 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
     const pRect = positions[pid]
     const pStart = starts[pid]
     if (!pRect || !pStart) continue
-    neighborsOf(pid).forEach((nid) => {
+    ;(neighborMap.get(pid) ?? []).forEach((nid) => {
       const nStart = starts[nid]
-      const target = state.items.find((it) => it.id === nid)
+      const target = itemMap.get(nid)
       if (!nStart || !target) return
       const c = constraintsOf(target)
       const minW = (c.minWidth ?? 0) + 8, maxW = c.maxWidth ?? null
@@ -1451,7 +1585,7 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
   // 传播结果直接写回内容坐标即可——联结块基于补偿后的 A 传播，随之保持屏幕位置并与 A 贴合
   Object.keys(positions).forEach((id) => {
     if (id === item.id) return
-    const target = state.items.find((it) => it.id === id)
+    const target = itemMap.get(id)
     if (!target) return
     const p = positions[id]
     const tl = layoutOf(target)
@@ -1491,8 +1625,7 @@ const onResizing = (item: CanvasItem, x: number, y: number, w: number, h: number
   // autoPan 滚动期间需冻结联结传播（B 随画布滚、避免钉屏压缩）；
   // 判定用"实时是否在滚动"（鼠标在边缘且该方向允许滚动），而非会话累计 pan 变化——
   // 否则 autoPan 滚过一次后 B 永久冻结，鼠标离开边缘也不恢复贴 A 底（来回拖钳制边即"卡住"）
-  const { vx, vy } = autoPanVelocity()
-  const { vx: rx, vy: ry } = restrictResizeAutoPan(vx, vy)
+  const { vx: rx, vy: ry } = restrictedPanVelocity()
   applyResizeLayout(item, rx === 0 && ry === 0)
   startAutoPan()
 }
@@ -1684,25 +1817,40 @@ const onCanvasMousemove = (e: MouseEvent) => {
 // 左键拖拽（框选/拖块）进行中需隐藏预览，这些会话激活时清空
 const addPreviewKey = ref<CanvasItem['component'] | null>(null)
 const addPreviewPos = ref<{ x: number; y: number } | null>(null)
-const PREVIEW_UPDATE_MS = 33
-let previewLastTs = 0
-const updateAddPreview = (e: MouseEvent) => {
+let previewRafId = 0
+let previewClientX = 0
+let previewClientY = 0
+
+const cancelPreviewFrame = () => {
+  if (!previewRafId) return
+  cancelAnimationFrame(previewRafId)
+  previewRafId = 0
+}
+
+const applyAddPreview = () => {
+  previewRafId = 0
   if (!isEditMode.value || state.selectedIds.size > 0 || !addPreviewKey.value || selectionState.active || customDrag.active) {
-    previewLastTs = 0
-    if (addPreviewPos.value) addPreviewPos.value = null
+    addPreviewPos.value = null
     return
   }
   const rect = viewRect.value ?? canvasContainerRef.value?.getBoundingClientRect()
-  if (!rect) return
-  const now = performance.now()
-  if (now - previewLastTs < PREVIEW_UPDATE_MS) return
-  previewLastTs = now
-  addPreviewPos.value = screenToContent(canvasTransform(), rect, e.clientX, e.clientY)
+  if (rect) addPreviewPos.value = screenToContent(canvasTransform(), rect, previewClientX, previewClientY)
+}
+
+const updateAddPreview = (e: MouseEvent) => {
+  if (!isEditMode.value || state.selectedIds.size > 0 || !addPreviewKey.value || selectionState.active || customDrag.active) {
+    cancelPreviewFrame()
+    if (addPreviewPos.value) addPreviewPos.value = null
+    return
+  }
+  previewClientX = e.clientX
+  previewClientY = e.clientY
+  if (!previewRafId) previewRafId = requestAnimationFrame(applyAddPreview)
 }
 
 // Editor 需把当前添加类型同步给预览层，经方法设置（避免直接暴露 ref 的类型解包问题）
 const setAddPreview = (key: CanvasItem['component'] | null) => {
-  previewLastTs = 0
+  cancelPreviewFrame()
   addPreviewKey.value = key
   if (!key) addPreviewPos.value = null
 }
@@ -1891,6 +2039,19 @@ const hitSettingsBar = (clientX: number, clientY: number): string | null => {
   return null
 }
 
+const RESIZE_HANDLE_HIT_MARGIN = 2
+const hitResizeHandle = (clientX: number, clientY: number): string | null => {
+  const handles = document.querySelectorAll<HTMLElement>('.handle[data-id]')
+  for (const handle of handles) {
+    const rect = handle.getBoundingClientRect()
+    if (clientX >= rect.left - RESIZE_HANDLE_HIT_MARGIN && clientX <= rect.right + RESIZE_HANDLE_HIT_MARGIN &&
+        clientY >= rect.top - RESIZE_HANDLE_HIT_MARGIN && clientY <= rect.bottom + RESIZE_HANDLE_HIT_MARGIN) {
+      return handle.dataset.id ?? null
+    }
+  }
+  return null
+}
+
 // popup 已 Teleport 到 .canvas（块外浮层），鼠标移向 popup 经过其与块间的小空隙时
 // 会被判为"块外"而取消选中，按坐标（含容差）命中 popup 并返回所属块；
 // popup 紧贴块边缘、容差过大会误吞邻块空白，取 4px 覆盖 1px 空隙即可
@@ -1916,11 +2077,15 @@ const hitTestBlockAt = (e: MouseEvent): string | null => {
   // 既避免聚焦背后块，也避免 hover 空白时误取消选中（设置栏仅选中块显示）
   const settingsId = target.closest<HTMLElement>('.side-settings')?.dataset.id ?? hitSettingsBar(e.clientX, e.clientY)
   if (settingsId) return settingsId
+  const resizeId = target.closest<HTMLElement>('.handle')?.dataset.id ?? hitResizeHandle(e.clientX, e.clientY)
+  if (resizeId) return resizeId
   // popup 是块外浮层（z 最高），鼠标在其上或其周边空隙时视作所属块本体，避免误取消选中
   const popupHit = hitPopupBlock(e.clientX, e.clientY)
   if (popupHit) return popupHit
   const handleEl = target.closest<HTMLElement>('.drag-handle')
   if (handleEl?.dataset.id) return handleEl.dataset.id
+  const resizeHandle = target.closest<HTMLElement>('.handle')
+  if (resizeHandle?.dataset.id) return resizeHandle.dataset.id
   const { clientX, clientY } = e
   const barHit = hitHandleBar(clientX, clientY)
   if (barHit) return barHit
@@ -1969,6 +2134,7 @@ const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemI
 let lastHitId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
+  if ((e.target as HTMLElement).closest?.('.handle')) return
   if (selectionState.active || customDrag.active) return
   // resize 拖动手柄时鼠标会扫过其他块，若按悬停切选中会令被拖块失活、手柄消失，resize 期间不抢选中
   if (resizeSession) return
@@ -2028,7 +2194,7 @@ const handleCanvasClick = (e: MouseEvent) => {
     selectionState.justFinishedSelection = false
     return
   }
-  if (target.closest('.drag-wrapper')) return
+  if (target.closest('.drag-wrapper, .drag-handle, .handle, .side-settings, .snap-paperclip, .toolbar')) return
   state.selectedIds = new Set()
 }
 
@@ -2497,6 +2663,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  cancelPreviewFrame()
   canvasContainerRef.value?.removeEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.removeEventListener('mousedown', onGlobalMouseDownCapture, true)
   window.removeEventListener('mousedown', trackLeftButtonDown, true)
@@ -2582,6 +2749,20 @@ defineExpose({
   overflow: visible;
   cursor: grab;
   will-change: transform;
+}
+
+.connection-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.connection-segment {
+  position: absolute;
+  background: rgb(var(--v-theme-primary));
+  opacity: 0.7;
 }
 
 .canvas.panning {

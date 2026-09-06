@@ -148,6 +148,7 @@ const isOnScrollbar = (e: WheelEvent): boolean => {
 // 无选中块时处于"添加块"状态，滚轮在添加类型间循环；有富文本选中时循环格式操作；
 // 编辑器/文本框内滚轮需滚动内容，予以豁免，避免循环切项挡住阅读
 const cycleOption = (e: WheelEvent) => {
+  if (!(e.target as HTMLElement).closest?.('.canvas-container')) return
   if (isOnScrollbar(e)) return
   if (!hasSelection.value) {
     e.preventDefault()
@@ -213,7 +214,7 @@ const onMouseUp = (e: MouseEvent) => {
     // "取消多选的点击"在 mouseup 时选中已被 MdrCanvas 清空、会误入添加分支，此处拦截
     if (isDeselectClick) return
     if (!MdrCRef.value?.isEditMode || e.button !== 0) return
-    if ((e.target as HTMLElement).closest('.toolbar')) return
+    if (!(e.target as HTMLElement).closest('.canvas-container')) return
     // "左键拖动（框选）结束"不应误添加块，仅位移小于阈值的简单点击才添加
     if (Math.hypot(e.clientX - mouseDownX, e.clientY - mouseDownY) > CLICK_DRAG_THRESHOLD) return
     const key = ADD_OPTIONS[addIdx.value]?.key
