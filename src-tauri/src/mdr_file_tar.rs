@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 
-//! OmniJot `.ojf` 文件的打包与解包。
+//! Mindrizzle `.mdrf` 文件的打包与解包。
 //!
-//! - [`pack_cache`]：把缓存目录打包为 tar（可 gzip 压缩），生成 `.ojf` 文件。
-//! - [`extract_to_cache`]：把 `.ojf` 文件解包回缓存目录，供后续读取。
-//! - [`is_ojf_compressed`]：依据文件头魔数判断 `.ojf` 是否 gzip 压缩。
+//! - [`pack_cache`]：把缓存目录打包为 tar（可 gzip 压缩），生成 `.mdrf` 文件。
+//! - [`extract_to_cache`]：把 `.mdrf` 文件解包回缓存目录，供后续读取。
+//! - [`is_mdrf_compressed`]：依据文件头魔数判断 `.mdrf` 是否 gzip 压缩。
 //!
 //! ```no_run
 //! use std::fs::File;
 //! use std::io;
-//! use crate::omnijot_file_tar::{pack_cache, extract_to_cache};
+//! use crate::mdr_file_tar::{pack_cache, extract_to_cache};
 //!
 //! let cache_dir = std::env::temp_dir().join("example");
-//! pack_cache(&cache_dir, File::create("out.ojf")?, true)?;
-//! extract_to_cache(File::open("out.ojf")?, &cache_dir, true)?;
+//! pack_cache(&cache_dir, File::create("out.mdrf")?, true)?;
+//! extract_to_cache(File::open("out.mdrf")?, &cache_dir, true)?;
 //! # Ok::<(), io::Error>(())
 //! ```
 
@@ -51,7 +51,7 @@ pub fn pack_cache<W: Write>(root: &Path, writer: W, compress: bool) -> Result<()
 
 /// 将 tar 归档解包到目标目录，支持 gzip 压缩
 /// # Arguments
-/// * `reader`：`.ojf` 归档的读取源
+/// * `reader`：`.mdrf` 归档的读取源
 /// * `target`：解包目标目录，不存在时自动创建
 /// * `compressed`：为 `true` 时先做 gzip 解压
 pub fn extract_to_cache<R: Read>(reader: R, target: &Path, compressed: bool) -> Result<()> {
@@ -66,7 +66,7 @@ pub fn extract_to_cache<R: Read>(reader: R, target: &Path, compressed: bool) -> 
     for entry in archive.entries()? {
         let mut entry = entry?;
         let entry_path = entry.path()?.into_owned();
-        // .ojf 可能来自外部，拒绝含 `..`、绝对路径或盘符的条目防路径穿越
+        // .mdrf 可能来自外部，拒绝含 `..`、绝对路径或盘符的条目防路径穿越
         if entry_path.components().any(|c| {
             matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_))
         }) {
@@ -82,7 +82,7 @@ pub fn extract_to_cache<R: Read>(reader: R, target: &Path, compressed: bool) -> 
 
 /// 仅从归档中提取 `meta.json` 内容，不解包其他条目
 /// # Arguments
-/// * `reader`：`.ojf` 归档的读取源
+/// * `reader`：`.mdrf` 归档的读取源
 /// * `compressed`：为 `true` 时先做 gzip 解压
 pub fn extract_meta<R: Read>(reader: R, compressed: bool) -> Result<Vec<u8>> {
     let boxed_reader: Box<dyn Read> = if compressed {
@@ -106,10 +106,10 @@ pub fn extract_meta<R: Read>(reader: R, compressed: bool) -> Result<Vec<u8>> {
     ))
 }
 
-/// 依据文件头魔数判断 `.ojf` 是否 gzip 压缩
+/// 依据文件头魔数判断 `.mdrf` 是否 gzip 压缩
 ///
-/// `path`：`.ojf` 文件路径，返回 `true` 表示 gzip 压缩
-pub fn is_ojf_compressed(path: &Path) -> Result<bool> {
+/// `path`：`.mdrf` 文件路径，返回 `true` 表示 gzip 压缩
+pub fn is_mdrf_compressed(path: &Path) -> Result<bool> {
     let mut file = File::open(path)?;
     let mut magic = [0u8; 2];
     let read_len = file.read(&mut magic)?;

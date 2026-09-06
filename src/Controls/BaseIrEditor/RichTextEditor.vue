@@ -88,7 +88,7 @@ const syncAutoHeight = () => {
     const coords = editor.view!.coordsAtPos(head)
     if (coords) cursorY = Math.min(Math.max(coords.bottom - wrapperRect.top, 0), height)
   }
-  window.dispatchEvent(new CustomEvent('omnijot:auto-height', { detail: { id, height, cursorY } }))
+  window.dispatchEvent(new CustomEvent('Mindrizzle:auto-height', { detail: { id, height, cursorY } }))
 }
 
 // autoHeight 需文档编辑时实时跟随块高，监听 doc change（内部按开关与否跳过）
@@ -117,12 +117,12 @@ onMounted(() => {
     // 内容渲染需在 mount/setContent 完成后才可测量，rAF 后测一次
     requestAnimationFrame(() => syncAutoHeight())
   }
-  window.addEventListener('omnijot:canvas-transform', onCanvasTransform)
+  window.addEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
 })
 
 onUnmounted(() => {
   editor.unmount()
-  window.removeEventListener('omnijot:canvas-transform', onCanvasTransform)
+  window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
 })
 
 // 切换开关时需立即按当前内容调整块高，开启瞬间测一次

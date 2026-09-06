@@ -6,7 +6,7 @@
       <!-- 无选中块时进入"添加块"状态，用单选组展示当前添加类型（滚轮切换、左键直接添加），
            交互与富文本格式操作一致但不再弹确认 overlay -->
       <v-btn-toggle
-        v-if="!hasSelection && OJCRef?.isEditMode"
+        v-if="!hasSelection && MdrCRef?.isEditMode"
         :model-value="addIdx"
         @update:model-value="onSelectAdd"
         mandatory
@@ -17,7 +17,7 @@
         </v-btn>
       </v-btn-toggle>
       <v-btn-toggle
-        v-if="componentOf == 'RichTextEditor' && OJCRef?.isEditMode"
+        v-if="componentOf == 'RichTextEditor' && MdrCRef?.isEditMode"
         :model-value="opIdx"
         @update:model-value="onSelectOption"
         mandatory
@@ -27,25 +27,25 @@
         </v-btn>
       </v-btn-toggle>
       <v-btn @click="toggleEditMode">
-        {{ OJCRef?.isEditMode ? '切换到只读' : '切换到编辑' }}
+        {{ MdrCRef?.isEditMode ? '切换到只读' : '切换到编辑' }}
       </v-btn>
       <v-btn @click="toggleMobileSim">
         {{ mobileButtonLabel }}
       </v-btn>
-      <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="OJCRef?.state.selectedIds.size === 0">
+      <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="MdrCRef?.state.selectedIds.size === 0">
         删除
       </v-btn>
       <v-slider
         class="zoom-slider"
-        :model-value="OJCRef?.zoom ?? 1"
-        :label="`缩放 ${Math.round((OJCRef?.zoom ?? 1) * 100)}%`"
+        :model-value="MdrCRef?.zoom ?? 1"
+        :label="`缩放 ${Math.round((MdrCRef?.zoom ?? 1) * 100)}%`"
         min="0.5" max="3" step="0.5" hide-details
-        :disabled="OJCRef?.mobileMode"
+        :disabled="MdrCRef?.mobileMode"
         @update:model-value="setZoom"
       />
     </v-container>
     
-    <OJCanvas class="editor-wrapper" ref="OJCRef"/>
+    <MdrCanvas class="editor-wrapper" ref="MdrCRef"/>
 
     <!-- 格式操作需用户确认而非直接应用，弹 overlay 询问：
          任意位置左键应用、右键取消并清选区（用全屏捕获层接管事件，避开 v-overlay 根透传限制） -->
@@ -69,21 +69,21 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces } from '@mdi/js'
-import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
+import MdrCanvas, { type ComponentController } from '../Controls/MdrCanvas.vue'
 import { screenToContent } from '../utils/canvasCoords'
 import { useRoute } from 'vue-router'
 import { invokeCommand } from '../utils/invoke'
 
-const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
+const MdrCRef = ref<InstanceType<typeof MdrCanvas> | null>()
 
 const getComponentRefs = (): Record<string, ComponentController | undefined> =>
-  OJCRef.value!.componentRefs as unknown as Record<string, ComponentController | undefined>
+  MdrCRef.value!.componentRefs as unknown as Record<string, ComponentController | undefined>
 
 const componentOf = computed(() => {
-  const ids = OJCRef.value?.state.selectedIds ?? new Set<string>()
+  const ids = MdrCRef.value?.state.selectedIds ?? new Set<string>()
   if (ids.size !== 1) return false
   const id = Array.from(ids)[0]
-  return OJCRef.value?.state.items.find((it) => it.id === id)?.component
+  return MdrCRef.value?.state.items.find((it) => it.id === id)?.component
 })
 
 // 无选中块时进入"添加块"状态：滚轮在两种类型间循环、左键直接添加，集中为单一常量源
@@ -91,7 +91,7 @@ const ADD_OPTIONS = [
   { key: 'RichTextEditor', label: '富文本', icon: mdiNoteText, addId: 'add-rich' },
   { key: 'EditableCodeBlock', label: '代码块', icon: mdiCodeBraces, addId: 'add-code' },
 ] as const
-const hasSelection = computed(() => (OJCRef.value?.state.selectedIds.size ?? 0) > 0)
+const hasSelection = computed(() => (MdrCRef.value?.state.selectedIds.size ?? 0) > 0)
 // 添加块类型需单选高亮且默认首项，记录当前索引
 const addIdx = ref(0)
 const onSelectAdd = (index: number | null) => {
@@ -99,11 +99,11 @@ const onSelectAdd = (index: number | null) => {
   addIdx.value = index
 }
 
-// 添加块预览需随"当前类型/是否有选中/编辑态"同步，经 OJCanvas.setAddPreview 驱动
+// 添加块预览需随"当前类型/是否有选中/编辑态"同步，经 MdrCanvas.setAddPreview 驱动
 watch(
-  [addIdx, hasSelection, () => OJCRef.value?.isEditMode],
+  [addIdx, hasSelection, () => MdrCRef.value?.isEditMode],
   () => {
-    const ojc = OJCRef.value
+    const ojc = MdrCRef.value
     if (!ojc) return
     ojc.setAddPreview(hasSelection.value || !ojc.isEditMode ? null : ADD_OPTIONS[addIdx.value]?.key ?? null)
   },
@@ -165,7 +165,7 @@ const cycleOption = (e: WheelEvent) => {
 // 仅富文本块内选中文本时应自动应用当前按钮项操作，要求选区非空且落在当前选中块内
 const selectionInBlock = (): boolean => {
   const sel = window.getSelection()
-  const id = Array.from(OJCRef.value!.state.selectedIds)[0]
+  const id = Array.from(MdrCRef.value!.state.selectedIds)[0]
   const block = document.querySelector(`[data-id="${id}"]`)
   return !!sel && !sel.isCollapsed && !!block &&
     !!sel.anchorNode && !!sel.focusNode && block.contains(sel.anchorNode) && block.contains(sel.focusNode)
@@ -184,7 +184,7 @@ const overlayPos = ref({ left: 0, top: 0, below: false })
 // "左键在画布处添加块"需落在鼠标位置，把视口鼠标坐标经 utils 统一换算为画布 content 坐标
 const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null => {
   const cont = document.querySelector<HTMLElement>('.canvas-container')
-  const ojc = OJCRef.value
+  const ojc = MdrCRef.value
   if (!cont || !ojc) return null
   return screenToContent(
     { zoom: ojc.zoom, origin: ojc.origin, pan: ojc.pan },
@@ -210,14 +210,14 @@ const onMouseUp = (e: MouseEvent) => {
   if (pendingApply.value) return // 询问中不重复触发
   // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
   if (!hasSelection.value) {
-    // "取消多选的点击"在 mouseup 时选中已被 OJCanvas 清空、会误入添加分支，此处拦截
+    // "取消多选的点击"在 mouseup 时选中已被 MdrCanvas 清空、会误入添加分支，此处拦截
     if (isDeselectClick) return
-    if (!OJCRef.value?.isEditMode || e.button !== 0) return
+    if (!MdrCRef.value?.isEditMode || e.button !== 0) return
     if ((e.target as HTMLElement).closest('.toolbar')) return
     // "左键拖动（框选）结束"不应误添加块，仅位移小于阈值的简单点击才添加
     if (Math.hypot(e.clientX - mouseDownX, e.clientY - mouseDownY) > CLICK_DRAG_THRESHOLD) return
     const key = ADD_OPTIONS[addIdx.value]?.key
-    if (key) OJCRef.value?.addComponent(key, canvasPointFromMouse(e) ?? undefined)
+    if (key) MdrCRef.value?.addComponent(key, canvasPointFromMouse(e) ?? undefined)
     return
   }
   if (componentOf.value !== 'RichTextEditor' || Date.now() < applyLockUntil || !selectionInBlock()) return
@@ -273,17 +273,17 @@ const cancelApply = () => {
 }
 
 const mobileButtonLabel = computed(() => {
-  if (OJCRef.value?.forceMobile === null) return '模拟移动端'
-  return OJCRef.value?.forceMobile ? '强制桌面' : '恢复自动布局'
+  if (MdrCRef.value?.forceMobile === null) return '模拟移动端'
+  return MdrCRef.value?.forceMobile ? '强制桌面' : '恢复自动布局'
 })
 
 const toggleMobileSim = () => {
-  OJCRef.value!.syncComponentData() // 模式切换会重挂载组件，先同步组件数据
-  OJCRef.value!.forceMobile = OJCRef.value!.nextForceMobile() // 布局刷新由 watch(mobileMode) 统一处理，此处仅切换标志
+  MdrCRef.value!.syncComponentData() // 模式切换会重挂载组件，先同步组件数据
+  MdrCRef.value!.forceMobile = MdrCRef.value!.nextForceMobile() // 布局刷新由 watch(mobileMode) 统一处理，此处仅切换标志
 }
 
 const toggleEditMode = () => {
-  OJCRef.value!.isEditMode = !OJCRef.value!.isEditMode
+  MdrCRef.value!.isEditMode = !MdrCRef.value!.isEditMode
 }
 
 // 非友好缩放比（整数/半整数之外）会让内容乘缩放比落亚像素、即便取整也抖动模糊，
@@ -295,7 +295,7 @@ const getSharpScale = (target: number) =>
 // 滑动条直接改内部 ref，中转一次避免模板里写嵌套 ref 赋值；同时吸附到友好缩放比
 const setZoom = (v: number | null) => {
   const t = typeof v === 'number' && v > 0 ? v : 1
-  OJCRef.value!.zoom = getSharpScale(t)
+  MdrCRef.value!.zoom = getSharpScale(t)
 }
 
 const route = useRoute()
@@ -304,48 +304,48 @@ const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0]
 
 const save = async () => {
   try {
-    await invokeCommand("set_omnijot_file_body", { fileName, content: OJCRef.value?.save() ?? '' })
+    await invokeCommand("set_mdr_file_body", { fileName, content: MdrCRef.value?.save() ?? '' })
   } catch {}
 }
 
 const load = async () => {
-  const raw = await invokeCommand<{ content: string }>("get_omnijot_file_body", { fileName })
-  OJCRef.value?.load(raw.content ?? '')
+  const raw = await invokeCommand<{ content: string }>("get_mdr_file_body", { fileName })
+  MdrCRef.value?.load(raw.content ?? '')
 }
 
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
   const refs = getComponentRefs()
-  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+  Array.from(MdrCRef.value!.state.selectedIds).forEach((id) => {
     refs[id]?.commands?.toggleHeading?.({ level })
   })
 }
 
 const batchToggleBold = () => {
   const refs = getComponentRefs()
-  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+  Array.from(MdrCRef.value!.state.selectedIds).forEach((id) => {
     refs[id]?.commands?.toggleBold?.()
   })
 }
 
 const batchToggleItalic = () => {
   const refs = getComponentRefs()
-  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+  Array.from(MdrCRef.value!.state.selectedIds).forEach((id) => {
     refs[id]?.commands?.toggleItalic?.()
   })
 }
 
 const batchToggleUnderline = () => {
   const refs = getComponentRefs()
-  Array.from(OJCRef.value!.state.selectedIds).forEach((id) => {
+  Array.from(MdrCRef.value!.state.selectedIds).forEach((id) => {
     refs[id]?.commands?.toggleUnderline?.()
   })
 }
 
 const deleteSelected = () => {
-  if (OJCRef.value!.state.selectedIds.size === 0) return
-  const ids = Array.from(OJCRef.value!.state.selectedIds)
-  OJCRef.value!.state.items = OJCRef.value!.state.items.filter((it) => !ids.includes(it.id))
-  OJCRef.value!.state.selectedIds = new Set()
+  if (MdrCRef.value!.state.selectedIds.size === 0) return
+  const ids = Array.from(MdrCRef.value!.state.selectedIds)
+  MdrCRef.value!.state.items = MdrCRef.value!.state.items.filter((it) => !ids.includes(it.id))
+  MdrCRef.value!.state.selectedIds = new Set()
   const refs = getComponentRefs()
   ids.forEach(id => { delete refs[id] })
 }

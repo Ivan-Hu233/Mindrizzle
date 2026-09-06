@@ -7,7 +7,7 @@
 //   缩放手柄    1003  块大小调整（ResizeBox .handle），需在描边环之上
 //   描边环      1002  选中态主题色描边（.selected-outline），需在拖拽栏之上（高亮边不被手柄遮断）
 //   拖拽栏      1001  紧贴块边缘的拖动手柄（.floating-handle），需高于选中块（块重叠时不被盖住）
-//   选中块      1000  含块内 popup 对外层级（OJCanvas blockZ），需高于普通块
+//   选中块      1000  含块内 popup 对外层级（MdrCanvas blockZ），需高于普通块
 //   普通块      ≤499  itemZ 受 itemZLimit 限制，恒低于所有叠加层（防普通块盖住 overlay）
 export const Z_LAYER = {
   popup: 1005,

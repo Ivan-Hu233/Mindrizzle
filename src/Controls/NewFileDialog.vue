@@ -84,8 +84,8 @@ async function submit() {
   if (!valid) return;
 
   try {
-    const createdFileName = await invokeCommand<string>('create_omnijot_file', {
-      omnijotFileInfo: {
+    const createdFileName = await invokeCommand<string>('create_mdr_file', {
+      MindrizzleFileInfo: {
         title: title.value,
         description: description.value,
         tag: ["新笔记"],

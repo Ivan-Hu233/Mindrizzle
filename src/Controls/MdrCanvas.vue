@@ -109,7 +109,7 @@
 
 <script lang="ts">
 import type { NodeJSON } from '@prosekit/core'
-import type { EditorCommands } from './BaseIrEditor/extension'
+import type { EditorCommands } from './BaseIrEditor/extension.ts'
 
 // 这些类型需在普通 <script> 中导出供父组件复用，置于此处
 export interface RichTextConfig {
@@ -140,9 +140,9 @@ import ResizeBox from './ResizeBox.vue'
 import { mdiDragVariant, mdiPaperclip, mdiCogOutline, mdiArrowUp } from '@mdi/js'
 import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
-import { normalizeConstraints, type ResizeConstraints } from '../Controls/resizeConstraints'
-import { Z_LAYER } from './zIndex'
-import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform } from '../utils/canvasCoords'
+import { normalizeConstraints, type ResizeConstraints } from './resizeConstraints.ts'
+import { Z_LAYER } from './zIndex.ts'
+import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform } from '../utils/canvasCoords.ts'
 
 import { useDisplay } from 'vuetify'
 
@@ -401,7 +401,7 @@ watch(
   () => [pan.x, pan.y, zoom.value],
   () => {
     // autoHeight 重测只需响应 zoom（宽变→高变），pan 纯平移无需重测，携带 zoom 供消费者区分
-    window.dispatchEvent(new CustomEvent('omnijot:canvas-transform', { detail: { zoom: zoom.value } }))
+    window.dispatchEvent(new CustomEvent('Mindrizzle:canvas-transform', { detail: { zoom: zoom.value } }))
   },
   { flush: 'post' },
 )
@@ -1546,7 +1546,7 @@ const pushOverlapped = (item: CanvasItem) => {
   })
 }
 
-// autoHeight 块高度由内容驱动（富文本经 omnijot:auto-height 上报），写入当前布局并保底 minHeight
+// autoHeight 块高度由内容驱动（富文本经 Mindrizzle:auto-height 上报），写入当前布局并保底 minHeight
 const onAutoHeight = (e: Event) => {
   const detail = (e as CustomEvent<{ id?: string; height?: number; cursorY?: number }>).detail
   if (!detail?.id || typeof detail.height !== 'number') return
@@ -1967,8 +1967,6 @@ const hoveredBlockId = ref<string | null>(null)
 const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemId : hoveredBlockId.value)
 // 选中/取消选中只应随"鼠标是否真的在块上"变化（浮层的最近块回退不影响选中），单独跟踪真正的命中块
 let lastHitId: string | null = null
-// "添加块后不自动选中"（保持无选中以连续添加），记录最近添加的块 id，鼠标在其上时忽略 hover 选中
-let recentAddId: string | null = null
 const hoverFocusBlock = (e: MouseEvent) => {
   if (!isEditMode.value || e.button !== 0) return
   if (selectionState.active || customDrag.active) return
@@ -2316,8 +2314,6 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   }
   // 需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，按新块是否在视口可见区判断
   if (!isRectVisibleInViewport(layoutOf(newItem))) panToBlock(newItem.id)
-  // "添加块后不自动选中"（保持无选中以便连续添加），锁定新块：鼠标在其上时忽略 hover 选中
-  recentAddId = newItem.id
   recomputeMasks() // 新块加入会改变贴合关系，刷新遮罩
 }
 // #endregion 自动布局与添加
@@ -2490,11 +2486,11 @@ onMounted(() => {
   window.addEventListener('mouseup', stopPan)
   window.addEventListener('contextmenu', preventContextMenu)
   window.addEventListener('mousemove', updateMousePos, true)
-  window.addEventListener('omnijot:canvas-pan', onCanvasPanEvent)
-  window.addEventListener('omnijot:block-popup', onBlockPopupChange)
-  window.addEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
-  window.addEventListener('omnijot:block-handle-active', onBlockHandleActiveChange)
-  window.addEventListener('omnijot:auto-height', onAutoHeight)
+  window.addEventListener('Mindrizzle:canvas-pan', onCanvasPanEvent)
+  window.addEventListener('Mindrizzle:block-popup', onBlockPopupChange)
+  window.addEventListener('Mindrizzle:block-popup-top', onBlockPopupTopChange)
+  window.addEventListener('Mindrizzle:block-handle-active', onBlockHandleActiveChange)
+  window.addEventListener('Mindrizzle:auto-height', onAutoHeight)
   // mouseup 丢失时需及时兜底重置会话，挂失焦/指针取消兜底
   window.addEventListener('blur', abortSessions)
   window.addEventListener('pointercancel', abortSessions)
@@ -2512,11 +2508,11 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', stopPan)
   window.removeEventListener('contextmenu', preventContextMenu)
   window.removeEventListener('mousemove', updateMousePos, true)
-  window.removeEventListener('omnijot:canvas-pan', onCanvasPanEvent)
-  window.removeEventListener('omnijot:block-popup', onBlockPopupChange)
-  window.removeEventListener('omnijot:block-popup-top', onBlockPopupTopChange)
-  window.removeEventListener('omnijot:block-handle-active', onBlockHandleActiveChange)
-  window.removeEventListener('omnijot:auto-height', onAutoHeight)
+  window.removeEventListener('Mindrizzle:canvas-pan', onCanvasPanEvent)
+  window.removeEventListener('Mindrizzle:block-popup', onBlockPopupChange)
+  window.removeEventListener('Mindrizzle:block-popup-top', onBlockPopupTopChange)
+  window.removeEventListener('Mindrizzle:block-handle-active', onBlockHandleActiveChange)
+  window.removeEventListener('Mindrizzle:auto-height', onAutoHeight)
   window.removeEventListener('blur', abortSessions)
   window.removeEventListener('pointercancel', abortSessions)
 })

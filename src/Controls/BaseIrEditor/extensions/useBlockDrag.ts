@@ -81,7 +81,7 @@ export function useBlockDrag(options: {
   }
 
   // 拖到画布边缘需画布自动平移（鼠标靠上/左边缘时内容向下/右移露出上方/左侧），
-  // 经 omnijot:canvas-pan 事件驱动 Editor.vue 的 pan
+  // 经 Mindrizzle:canvas-pan 事件驱动 Editor.vue 的 pan
   const CANVAS_PAN_EDGE = 60 // 距画布视口边缘多少 px 触发
   const CANVAS_PAN_MAX = 8 // 每帧最大平移 px
   function panCanvas(x: number, y: number): boolean {
@@ -95,7 +95,7 @@ export function useBlockDrag(options: {
     if (y < r.top + CANVAS_PAN_EDGE) dy = Math.min(r.top + CANVAS_PAN_EDGE - y, CANVAS_PAN_MAX)
     else if (y > r.bottom - CANVAS_PAN_EDGE) dy = -Math.min(y - (r.bottom - CANVAS_PAN_EDGE), CANVAS_PAN_MAX)
     if (!dx && !dy) return false
-    window.dispatchEvent(new CustomEvent('omnijot:canvas-pan', { detail: { dx, dy } }))
+    window.dispatchEvent(new CustomEvent('Mindrizzle:canvas-pan', { detail: { dx, dy } }))
     return true
   }
 

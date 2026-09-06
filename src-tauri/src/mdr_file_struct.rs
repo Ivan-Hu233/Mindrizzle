@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename = "meta")]
-pub struct OmniJotFileMeta {
+pub struct MindrizzleFileMeta {
     #[serde(rename = "title")]
     pub title: String,
     #[serde(rename = "description")]
@@ -13,7 +13,7 @@ pub struct OmniJotFileMeta {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename = "body")]
-pub struct OmniJotFileBody {
+pub struct MindrizzleFileBody {
     #[serde(rename = "content")]
     pub content: String,
 }

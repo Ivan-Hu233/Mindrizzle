@@ -113,7 +113,7 @@ function syncTmOverlap() {
       const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
       const blockId = wrapper?.dataset.id ?? null
       const open = !!handleVisible.value && popupOverlapsTm()
-      window.dispatchEvent(new CustomEvent('omnijot:block-popup', { detail: { open, blockId } }))
+      window.dispatchEvent(new CustomEvent('Mindrizzle:block-popup', { detail: { open, blockId } }))
     })
   })
 }
@@ -126,7 +126,7 @@ watch([handleVisible, activeHover, popupKeep, handlePlacement], syncTmOverlap)
 // 派发事件通知画布隐藏曲别针（代码块无 block-handle，仅富文本走此路径）
 watch([handleVisible, handlePlacement], () => {
   const topOpen = !!handleVisible.value && handlePlacement.value === 'top'
-  window.dispatchEvent(new CustomEvent('omnijot:block-popup-top', { detail: { open: topOpen } }))
+  window.dispatchEvent(new CustomEvent('Mindrizzle:block-popup-top', { detail: { open: topOpen } }))
 })
 
 // popup 弹出时鼠标移向 popup 会经过上方的组件，若画布 hover 聚焦把焦点切到背后块 popup 即消失，
@@ -134,7 +134,7 @@ watch([handleVisible, handlePlacement], () => {
 watch(handleVisible, (visible) => {
   const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
   const blockId = wrapper?.dataset.id ?? null
-  window.dispatchEvent(new CustomEvent('omnijot:block-handle-active', { detail: { active: !!visible, blockId } }))
+  window.dispatchEvent(new CustomEvent('Mindrizzle:block-handle-active', { detail: { active: !!visible, blockId } }))
 })
 
 // popup 贴右缘时可能盖住滚动条，此时 wheel 目标落在 popup 上（其祖先无滚动容器），

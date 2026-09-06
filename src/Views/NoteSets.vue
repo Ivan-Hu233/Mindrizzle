@@ -19,7 +19,7 @@ async function loadNoteSets() {
     fileListRef.value = fileList;
     for (const fileName of fileList) {
       const fileInfo = await invokeCommand<{ title: string; description: string; tag: string }>(
-        'get_omnijot_file_meta',
+        'get_mdr_file_meta',
         { fileName: fileName }
       );
       noteSets.value.push({

@@ -157,8 +157,8 @@ export function useHoverUi(options: {
   }
 
   // 画布平移/缩放会改变块视口位置而高亮是 fixed 视口定位，需随画布重算，
-  // 监听 OJCanvas 派发的画布变换事件（首次 hover 时才挂载）；
-  // OJCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），此处直接重算即可
+  // 监听 MdrCanvas 派发的画布变换事件（首次 hover 时才挂载）；
+  // MdrCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），此处直接重算即可
   function onCanvasTransform() {
     // 无 hover 的编辑器高亮/popup 均未显示，平移中每帧派发下跳过可显著减负（块多时收益明显）
     if (!hoveredBlock.value && !activeHover.value) return
@@ -168,7 +168,7 @@ export function useHoverUi(options: {
     const dom = view()?.dom
     if (leaveBound || !dom) return
     leaveBound = true
-    window.addEventListener('omnijot:canvas-transform', onCanvasTransform)
+    window.addEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
     dom.addEventListener('pointerleave', onEditorPointerLeave)
     const wrapper = dom.closest('.editor-wrapper') as HTMLElement | null
     if (wrapper) {
@@ -265,7 +265,7 @@ export function useHoverUi(options: {
     cancelLeave()
     cancelHide()
     if (leaveBound) {
-      window.removeEventListener('omnijot:canvas-transform', onCanvasTransform)
+      window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
       view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
     }
     wrapperBoundEl?.removeEventListener('pointerleave', onWrapperPointerLeave)
