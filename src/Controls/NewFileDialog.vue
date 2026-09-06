@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
 import { ref, watch } from 'vue'
-import { error, info, trace } from '@tauri-apps/plugin-log';
 import { useRouter } from 'vue-router';
+import { invokeCommand } from '../utils/invoke'
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ 'update:close': [value: { status: boolean }] }>()
@@ -54,7 +53,6 @@ let debounceTimer: number | null = null
 const debouncedCheck = (name: string) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = window.setTimeout(async () => {
-    trace("检查文件名是否合规")
     if (!name) {
       fileNameAsyncError.value = true
       return
@@ -64,12 +62,9 @@ const debouncedCheck = (name: string) => {
       return
     }
     try {
-      const valid = await invoke<boolean>('is_file_name_valid', { fileName: name })
+      const valid = await invokeCommand<boolean>('is_file_name_valid', { fileName: name })
       fileNameAsyncError.value = valid ? true : '文件名已被占用'
-    } catch(e) {
-      if(e instanceof Error){
-        error(e.message)
-      }
+    } catch {
       fileNameAsyncError.value = '校验失败，请重试'
     }
   }, 500)
@@ -89,7 +84,7 @@ async function submit() {
   if (!valid) return;
 
   try {
-    const result = await invoke('create_omnijot_file', {
+    const createdFileName = await invokeCommand<string>('create_omnijot_file', {
       omnijotFileInfo: {
         title: title.value,
         description: description.value,
@@ -98,12 +93,8 @@ async function submit() {
       fileName: fileName.value,
     });
     dialog.value = false;
-    router.push(`/editor/${fileName}`)
-  } catch (e) {
-    if(e instanceof Error){
-      error(e.message)
-    }
-  }
+    router.push(`/editor/${createdFileName}`)
+  } catch {}
 }
 </script>
 <template>

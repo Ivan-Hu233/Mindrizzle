@@ -62,7 +62,7 @@ import hljs from 'highlight.js/lib/core';
 import githubCss from 'highlight.js/styles/github.css?raw';
 import atomDarkCss from 'highlight.js/styles/atom-one-dark.css?raw';
 
-import { info, warn, error as logError } from '@tauri-apps/plugin-log';
+import { warn, error as logError } from '@tauri-apps/plugin-log';
 
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -213,7 +213,6 @@ const copyCode = async () => {
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
-      info('复制成功 (Clipboard API)');
     } else {
       const textarea = document.createElement('textarea');
       textarea.value = text;
@@ -223,7 +222,6 @@ const copyCode = async () => {
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      info('复制成功 (execCommand)');
     }
     snackbar.value = true;
   } catch (err) {

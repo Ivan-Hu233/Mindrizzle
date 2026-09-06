@@ -71,9 +71,8 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces } from '@mdi/js'
 import OJCanvas, { type ComponentController } from '../Controls/OJCanvas.vue'
 import { screenToContent } from '../utils/canvasCoords'
-import { invoke } from '@tauri-apps/api/core'
 import { useRoute } from 'vue-router'
-import { info } from '@tauri-apps/plugin-log'
+import { invokeCommand } from '../utils/invoke'
 
 const OJCRef = ref<InstanceType<typeof OJCanvas> | null>()
 
@@ -304,11 +303,13 @@ const route = useRoute()
 const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0] : route.params.fileName
 
 const save = async () => {
-  await invoke("set_omnijot_file_body", { fileName, content: OJCRef.value?.save() ?? '' })
+  try {
+    await invokeCommand("set_omnijot_file_body", { fileName, content: OJCRef.value?.save() ?? '' })
+  } catch {}
 }
 
 const load = async () => {
-  const raw = await invoke<{ content: string }>("get_omnijot_file_body", { fileName })
+  const raw = await invokeCommand<{ content: string }>("get_omnijot_file_body", { fileName })
   OJCRef.value?.load(raw.content ?? '')
 }
 
@@ -350,8 +351,7 @@ const deleteSelected = () => {
 }
 
 onMounted(() => {
-  load()
-  info("打开文件"+fileName)
+  load().catch(() => undefined)
   // 需整个界面任意位置滚轮切换按钮项且需阻止默认滚动，挂 window 级监听并显式非 passive（否则 preventDefault 无效）
   window.addEventListener('wheel', cycleOption, { passive: false })
   // 拖动选字可能跨出编辑器范围，mouseup 会落在编辑器外，挂 window 级 mouseup 确保松开时都能定稿应用

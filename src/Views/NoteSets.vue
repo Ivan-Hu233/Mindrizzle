@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { mdiNoteOffOutline } from '@mdi/js';
-import { invoke } from '@tauri-apps/api/core'
-import { trace } from '@tauri-apps/plugin-log';
+import { info } from '@tauri-apps/plugin-log';
+import { invokeCommand } from '../utils/invoke'
 
 loadNoteSets();
 
@@ -15,11 +15,10 @@ const fileListRef = ref<string[]>([]);
 
 async function loadNoteSets() {
   try {
-    const fileList = await invoke<string[]>('fetch_file_list');
+    const fileList = await invokeCommand<string[]>('fetch_file_list');
     fileListRef.value = fileList;
-    trace("已经获得文件列表{" + fileList + "}")
     for (const fileName of fileList) {
-      const fileInfo = await invoke<{ title: string; description: string; tag: string }>(
+      const fileInfo = await invokeCommand<{ title: string; description: string; tag: string }>(
         'get_omnijot_file_meta',
         { fileName: fileName }
       );
@@ -29,6 +28,7 @@ async function loadNoteSets() {
         tag: fileInfo.tag,
       });
     }
+    info(`读取笔记元信息成功，共 ${noteSets.value.length} 条`)
   } catch (error) {
     isError = true;
   }

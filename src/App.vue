@@ -18,7 +18,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import NewFileDialog from './Controls/NewFileDialog.vue';
 import { attachConsole } from '@tauri-apps/plugin-log';
 import { useRouter } from 'vue-router';
-import { info, error as logError } from '@tauri-apps/plugin-log';
+import { error as logError } from '@tauri-apps/plugin-log';
 
 if (isTauri()) {
   attachConsole();
@@ -44,7 +44,6 @@ onMounted(async () => {
   try {
     const win = getCurrentWindow();
     await win.show();
-    info('Tauri 窗口已显示');
   } catch (error) {
     logError(getErrorMessage(error))
   }

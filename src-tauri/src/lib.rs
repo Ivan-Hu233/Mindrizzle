@@ -3,49 +3,47 @@ mod omnijot_file_dir;
 mod omnijot_file_op;
 mod omnijot_file_struct;
 mod omnijot_file_tar;
+mod utils;
 
 use tauri_plugin_log::{
-    RotationStrategy, Target, TargetKind, TimezoneStrategy, fern::FormatCallback, log::{LevelFilter, trace},
+    RotationStrategy, Target, TargetKind, TimezoneStrategy, fern::FormatCallback, log::LevelFilter,
 };
+use anyhow::Context;
+use log::info;
 use log::Record;
 use std::fmt::Arguments;
 use tokio::fs;
 
-#[tauri::command]
-fn fetch_file_list() -> Vec<String> {
-    let mut file_list: Vec<String> = Vec::new();
-    let dir = omnijot_file_dir::get_omnijot_file_save_dir();
-    trace!("正在扫描路径：{:?}", dir.to_str());
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.is_file() {
+tauri_cmd! {
+    fn fetch_file_list() -> anyhow::Result<Vec<String>> {
+        let mut file_list: Vec<String> = Vec::new();
+        let dir = omnijot_file_dir::get_omnijot_file_save_dir();
+        for entry in std::fs::read_dir(&dir).with_context(|| format!("读取笔记目录：{}", dir.display()))? {
+            let entry = entry.context("读取笔记目录项")?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
             let is_omnijot_file = path
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("ojf"));
-
             if !is_omnijot_file {
-                trace!("跳过非 .ojf 文件：{:?}", path.to_str());
                 continue;
             }
-
-            trace!("找到文件：{:?}", path.to_str());
-            if let Some(file_name) = path.file_stem() {
-                if let Some(file_name_str) = file_name.to_str() {
-                    file_list.push(file_name_str.to_string());
-                }
+            if let Some(file_name) = path.file_stem().and_then(|name| name.to_str()) {
+                file_list.push(file_name.to_string());
             }
         }
+        info!("读取笔记列表成功，共 {} 个文件", file_list.len());
+        Ok(file_list)
     }
-    file_list
 }
 
 #[tauri::command]
 async fn is_file_name_valid(file_name: String) -> bool {
     let path = omnijot_file_dir::get_omnijot_file_dir(file_name);
     let result = !fs::try_exists(path).await.unwrap_or(false);
-    trace!("检查文件名是否占用结果：{}", !result);
     result
 }
 
