@@ -1,7 +1,7 @@
 [package]
 name = "Mindrizzle"
 version = "0.1.0"
-description = "Not an Ordinary Plain Editor"
+description = "Catch your mind drizzle."
 authors = ["Ivan Hu233"]
 edition = "2021"
 
