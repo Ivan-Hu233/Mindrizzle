@@ -53,10 +53,37 @@ const isDev = computed(() => import.meta.env.DEV);
 
 const menuRef = shallowRef(false)
 const newFileRef = shallowRef(false)
+type ResizeDirection = 'East' | 'North' | 'NorthEast' | 'NorthWest' | 'South' | 'SouthEast' | 'SouthWest' | 'West'
+
+const resizeEdges: Array<{ direction: ResizeDirection; cursor: string }> = [
+  { direction: 'NorthWest', cursor: 'nwse-resize' },
+  { direction: 'North', cursor: 'ns-resize' },
+  { direction: 'NorthEast', cursor: 'nesw-resize' },
+  { direction: 'West', cursor: 'ew-resize' },
+  { direction: 'East', cursor: 'ew-resize' },
+  { direction: 'SouthWest', cursor: 'nesw-resize' },
+  { direction: 'South', cursor: 'ns-resize' },
+  { direction: 'SouthEast', cursor: 'nwse-resize' },
+]
+
+const startResize = (direction: ResizeDirection) => {
+  if (isTauri()) {
+    void getCurrentWindow().startResizeDragging(direction)
+  }
+}
 </script>
 
 <template>
   <v-app class="container">
+    <div
+      v-if="isTauri()"
+      v-for="edge in resizeEdges"
+      :key="edge.direction"
+      class="window-resize-edge"
+      :class="`window-resize-${edge.direction.toLowerCase()}`"
+      :style="{ cursor: edge.cursor }"
+      @mousedown.prevent="startResize(edge.direction)"
+    />
     <v-toolbar color="primary" density="compact" style="padding: 0;">
       <div data-tauri-drag-region style="
           display: flex; 
@@ -109,6 +136,15 @@ const newFileRef = shallowRef(false)
 
 }
 
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
 body,
 .titlebar,
 [data-tauri-drag-region] {
@@ -135,5 +171,73 @@ textarea {
 
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+.container {
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.window-resize-edge {
+  position: fixed;
+  z-index: 10000;
+}
+
+.window-resize-north,
+.window-resize-south {
+  right: 4px;
+  left: 4px;
+  height: 4px;
+}
+
+.window-resize-north {
+  top: 0;
+}
+
+.window-resize-south {
+  bottom: 0;
+}
+
+.window-resize-west,
+.window-resize-east {
+  top: 4px;
+  bottom: 4px;
+  width: 4px;
+}
+
+.window-resize-west {
+  left: 0;
+}
+
+.window-resize-east {
+  right: 0;
+}
+
+.window-resize-northwest,
+.window-resize-northeast,
+.window-resize-southwest,
+.window-resize-southeast {
+  width: 8px;
+  height: 8px;
+}
+
+.window-resize-northwest {
+  top: 0;
+  left: 0;
+}
+
+.window-resize-northeast {
+  top: 0;
+  right: 0;
+}
+
+.window-resize-southwest {
+  bottom: 0;
+  left: 0;
+}
+
+.window-resize-southeast {
+  right: 0;
+  bottom: 0;
 }
 </style>
