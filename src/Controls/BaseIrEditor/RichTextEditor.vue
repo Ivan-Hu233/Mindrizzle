@@ -200,8 +200,22 @@ const syncAutoHeight = () => {
   window.dispatchEvent(new CustomEvent('Mindrizzle:auto-height', { detail: { id, height, cursorY } }))
 }
 
+// 因组件 width/height 由 attr 驱动，改 attr 未必改变内容容器自身盒子，
+// 故 doc change 后再补测一次（rAF 合并同帧多次事务）
+let metricsFrame = 0
+const scheduleScrollMetrics = () => {
+  if (metricsFrame) return
+  metricsFrame = requestAnimationFrame(() => {
+    metricsFrame = 0
+    updateScrollMetrics()
+  })
+}
+
 // autoHeight 需文档编辑时实时跟随块高，监听 doc change（内部按开关与否跳过）
-useDocChange(() => syncAutoHeight(), { editor })
+useDocChange(() => {
+  syncAutoHeight()
+  scheduleScrollMetrics()
+}, { editor })
 
 // 仅 zoom 变化会重排内容（宽变→高变），pan 纯平移无需重测（否则拖动画布时每帧测量会卡顿），仅 zoom 变化时重测
 let lastTransformZoom: number | null = null
@@ -213,10 +227,13 @@ const onCanvasTransform = (e: Event) => {
 }
 
 onMounted(() => {
+  // 因 .editor-scroll 高度固定，插入组件只撑大内容容器、不改变其自身盒子，
+  // 故独占观测 scrollRef 会漏掉内容增高，必须一并观测 editorMount 才能刷新 thumb 与显隐
   const observer = new ResizeObserver(updateScrollMetrics)
   if (scrollRef.value) observer.observe(scrollRef.value)
   if (editorMount.value) {
     editor.mount(editorMount.value)
+    observer.observe(editorMount.value)
     if (isMobile.value) {
       // view.focus() 不带 preventScroll，聚焦 ProseMirror 根 DOM 触发默认滚动
       // 会把 overflow:hidden 的画布容器滚出偏移，直接对根 DOM 用 preventScroll 聚焦
@@ -236,6 +253,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (metricsFrame) cancelAnimationFrame(metricsFrame)
+  metricsFrame = 0
   stopScrollbarDrag()
   editor.unmount()
   window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
