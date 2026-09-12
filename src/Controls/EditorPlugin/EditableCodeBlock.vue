@@ -308,12 +308,11 @@ watch(
 
 const resizeObserver = ref<ResizeObserver | null>(null);
 onMounted(() => {
+  // 因挂载即聚焦会让"插入块/打开便签"时焦点被 textarea 抢走（含插入富文本的组件），
+  // 故挂载只渲染高亮与滚动同步，聚焦交给用户点击
   nextTick(() => {
     renderHighlight();
     syncScroll();
-    if (textareaRef.value) {
-      textareaRef.value.focus({ preventScroll: true });
-    }
   });
 
   if (window.ResizeObserver && wrapperRef.value) {

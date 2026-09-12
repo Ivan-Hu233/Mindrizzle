@@ -54,6 +54,33 @@ export function dispatchBlockHover(view: any, pos: number): void {
   )
 }
 
+// 因多处需按"最近一次真实指针位置"复核（hover 误报、点击选中后重派 hover），
+// 故在模块级记录一次，忽略自身派发的伪 pointer 事件
+const realPointer = { x: Number.NaN, y: Number.NaN }
+let pointerTracked = false
+
+export function getRealPointer(): { x: number; y: number } {
+  if (!pointerTracked) {
+    pointerTracked = true
+    window.addEventListener(
+      'pointermove',
+      (event) => {
+        if (!event.isTrusted) return
+        realPointer.x = event.clientX
+        realPointer.y = event.clientY
+      },
+      { passive: true },
+    )
+  }
+  return realPointer
+}
+
+export function isPointerInsideRect(rect: DOMRect | null): boolean {
+  const { x, y } = getRealPointer()
+  if (!rect || Number.isNaN(x)) return false
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+}
+
 export function getScrollEl(view: any): HTMLElement | null {
   return view?.dom?.closest('.editor-scroll') ?? null
 }

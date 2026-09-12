@@ -276,9 +276,6 @@ export const vueComponentNodeView = defineVueNodeView({
         if (typeof pos !== 'number') return
         const store = resolveBlockHandleStore(findPositionerEl(view))
         store?.hoverState?.set({ node: node.value, pos })
-        const wrapper = view.dom.closest<HTMLElement>('.drag-wrapper')
-        const id = wrapper?.dataset.id
-        if (id) wrapper?.dispatchEvent(new CustomEvent('mindrizzle-rich-text-hover', { bubbles: true, detail: { id } }))
       }
 
       const notifyBlockHover = () => {

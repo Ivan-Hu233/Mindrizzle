@@ -213,10 +213,14 @@ let mouseDownX = 0
 let mouseDownY = 0
 // mousedown 时已存在选中 → 本次点击语义是"取消选中"，mouseup 添加块逻辑须据此跳过
 let isDeselectClick = false
+// 因悬停不再自动选中，点击已有块时选中集可能为空，此时若按"无选中即添加"会把新块叠在旧块上，
+// 故记录按下位置是否落在块/块浮层内，落在其上的点击一律走选中而非添加
+let isBlockPress = false
 const trackMouseDown = (e: MouseEvent) => {
   mouseDownX = e.clientX
   mouseDownY = e.clientY
   isDeselectClick = hasSelection.value
+  isBlockPress = !!(e.target as HTMLElement).closest?.('.drag-wrapper, .floating-handle, .side-settings, .handle, .block-handle-popup')
 }
 
 const onMouseUp = (e: MouseEvent) => {
@@ -224,7 +228,7 @@ const onMouseUp = (e: MouseEvent) => {
   // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
   if (!hasSelection.value) {
     // "取消多选的点击"在 mouseup 时选中已被 MdrCanvas 清空、会误入添加分支，此处拦截
-    if (isDeselectClick) return
+    if (isDeselectClick || isBlockPress) return
     if (!MdrCRef.value?.isEditMode || e.button !== 0) return
     if (!(e.target as HTMLElement).closest('.canvas-container')) return
     // "左键拖动（框选）结束"不应误添加块，仅位移小于阈值的简单点击才添加

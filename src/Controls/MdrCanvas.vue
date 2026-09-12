@@ -1,6 +1,5 @@
 <template>
   <v-sheet class="canvas-container" color="surface" :ref="setCanvasContainerRef" :style="containerStyle" @click="handleCanvasClick"
-    @mindrizzle-rich-text-hover="onRichTextHover"
     @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
     <!-- 点阵背景随 pan 平移若用 background-position 会每帧重绘整容器（大视口下卡顿），独立成层用 transform 合成移动 -->
     <div class="canvas-dots" :style="dotsStyle" aria-hidden="true" />
@@ -1109,7 +1108,7 @@ const hideAllBlockHandles = () => {
 const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   if (e.button !== 0) return
   if (!isEditMode.value) return
-  handleSelect(item.id, e)
+  selectForDrag(item.id, e)
   customDrag.active = true
   customDrag.sourceItemId = item.id
   customDrag.startClientX = e.clientX
@@ -1375,7 +1374,12 @@ const insertDraggedComponent = (targetId: string, sourceId: string): boolean => 
   return true
 }
 
+// 拖拽在块上松手后浏览器仍会补发 click，若按点击语义选中会把拖拽组收缩成单选；
+// 标记后由紧随的 click 消费，新的按下重新置位
+let dragJustFinished = false
+
 const onCustomDragUp = () => {
+  dragJustFinished = true
   const targetId = findRichTextDropTarget()
   const sourceId = customDrag.sourceItemId
   const inserted = targetId && sourceId ? insertDraggedComponent(targetId, sourceId) : false
@@ -1782,31 +1786,22 @@ const followCursor = (item: CanvasItem, cursorY: number) => {
 // #endregion 高度自适应
 
 // #region 选中与聚焦
-const handleSelect = (id: string, e?: MouseEvent) => {
-  const isSelected = state.selectedIds.has(id)
-  const selectedCount = state.selectedIds.size
-  const isCtrl = e?.ctrlKey ?? false
-
-  if (isCtrl) {
-    const newSet = new Set(state.selectedIds)
-    if (newSet.has(id)) {
-      newSet.delete(id)
-    } else {
-      newSet.add(id)
-    }
-    state.selectedIds = newSet
-  } else if (isSelected && selectedCount > 1) {
-    // 拖拽手柄时不应把多选收缩为单选，保留当前集合
-    return
-  } else {
+// 点击语义：Ctrl 加选/减选，否则单选（多选中点击某块即收缩为该块）
+const selectOnClick = (id: string, e?: MouseEvent) => {
+  if (!e?.ctrlKey) {
     state.selectedIds = new Set([id])
+    return
   }
+  const next = new Set(state.selectedIds)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  state.selectedIds = next
 }
 
-const onRichTextHover = (event: Event) => {
-  if (customDrag.active || selectionState.active || !isEditMode.value) return
-  const id = (event as CustomEvent<{ id?: string }>).detail?.id
-  if (id && state.items.some((item) => item.id === id)) handleSelect(id)
+// 拖拽语义：已在多选集合中的块被拖拽时保留整个集合，不收缩为单选
+const selectForDrag = (id: string, e: MouseEvent) => {
+  if (state.selectedIds.has(id) && state.selectedIds.size > 1) return
+  selectOnClick(id, e)
 }
 
 const updateSelectionBox = () => {
@@ -1823,6 +1818,9 @@ const isRectIntersectingItem = (rect: { x: number; y: number; w: number; h: numb
 }
 
 const onCanvasMouseDown = (e: MouseEvent) => {
+  // 两个"刚结束"标记都只用于吞掉紧随其后的那次 click，新的按下即视为新会话
+  dragJustFinished = false
+  selectionState.justFinishedSelection = false
   startSelection(e)
   startPan(e)
 }
@@ -1873,7 +1871,7 @@ const updateSelection = (e: MouseEvent) => {
 
 const onCanvasMousemove = (e: MouseEvent) => {
   updateSelection(e)
-  hoverFocusBlock(e)
+  updateHoverOwner(e)
   updateAddPreview(e)
 }
 
@@ -2003,8 +2001,7 @@ const resetCanvasScroll = () => {
   }
 }
 
-// hover 选中块后内容物应同步可编辑（光标可直接进入），聚焦块内编辑器（富文本 ProseMirror 或代码 textarea）；
-// 聚焦用 preventScroll 阻止浏览器默认滚动（见 resetCanvasScroll 注释）
+// 悬停只改选中，不抢焦点：把焦点移入块内编辑器会打断另一块里正在输入的光标，焦点改由点击给出
 const focusBlockContent = (id: string) => {
   nextTick(() => {
     resetCanvasScroll()
@@ -2136,29 +2133,21 @@ const hitPopupBlock = (clientX: number, clientY: number): string | null => {
   return hit
 }
 
-// 手柄提升到顶层、可能被别的块矩形框覆盖，鼠标悬停在某块的拖拽栏上时按该栏所属块判定，不被重叠矩形抢判
-const hitTestBlockAt = (e: MouseEvent): string | null => {
+// 命中优先级：块外浮层（设置栏 → 缩放手柄 → popup → 拖拽栏/缝隙）→ 块本体；
+// 鼠标在块上时 target 必为其后代，浮层按 target 命中优先、坐标兜底（浮层可能被高 z 普通块盖住）
+const resolvePointerHit = (e: MouseEvent): string | null => {
   const target = e.target as HTMLElement
-  // 设置栏是块外浮层（可能盖在背后块矩形上），鼠标悬停其上视作所属块本体：
-  // 既避免聚焦背后块，也避免 hover 空白时误取消选中（设置栏仅选中块显示）
   const settingsId = target.closest<HTMLElement>('.side-settings')?.dataset.id ?? hitSettingsBar(e.clientX, e.clientY)
   if (settingsId) return settingsId
   const resizeId = target.closest<HTMLElement>('.handle')?.dataset.id ?? hitResizeHandle(e.clientX, e.clientY)
   if (resizeId) return resizeId
-  // popup 是块外浮层（z 最高），鼠标在其上或其周边空隙时视作所属块本体，避免误取消选中
-  const popupHit = hitPopupBlock(e.clientX, e.clientY)
-  if (popupHit) return popupHit
-  const handleEl = target.closest<HTMLElement>('.drag-handle')
-  if (handleEl?.dataset.id) return handleEl.dataset.id
-  const resizeHandle = target.closest<HTMLElement>('.handle')
-  if (resizeHandle?.dataset.id) return resizeHandle.dataset.id
-  const { clientX, clientY } = e
-  const barHit = hitHandleBar(clientX, clientY)
-  if (barHit) return barHit
-  const gapHit = hitHandleGap(clientX, clientY)
-  if (gapHit) return gapHit
-  // 鼠标在块上时 target 必为其后代（被覆盖的块不可见、target 不会是其后代），
-  // 经 closest 直接命中，跳过每 mousemove 遍历所有块做矩形测试（块多时消除大量 reflow）
+  const popupId = hitPopupBlock(e.clientX, e.clientY)
+  if (popupId) return popupId
+  const handleId = target.closest<HTMLElement>('.drag-handle')?.dataset.id
+    ?? hitHandleBar(e.clientX, e.clientY)
+    ?? hitHandleGap(e.clientX, e.clientY)
+  if (handleId) return handleId
+  // 被覆盖块不可见、target 不会是其后代，closest 直接命中可跳过每 mousemove 遍历所有块做矩形测试
   return target.closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null
 }
 
@@ -2188,47 +2177,27 @@ const nearestSelectedBlockId = (clientX: number, clientY: number): string | null
   return bestId
 }
 
-// 需"鼠标在哪个块上就聚焦哪个块"（白板式 hover 选中），
-// 画布 mousemove 时按坐标命中块并单选；框选/拖拽/修饰键/已多选时不抢选中
-let lastHoverId: string | null = null
-// "多选时只显示离鼠标最近的块的浮层 UI（拖拽栏/设置栏）"，无论单/多选都记录"命中或最近"的块 id 驱动显隐
+// 浮层归属块（拖拽栏/设置栏显示在哪个选中块上）：选中只由点击/框选决定，悬停仅切换归属
 const hoveredBlockId = ref<string | null>(null)
-// 多选时"浮层归属块（最近的块）"的拖拽栏需在别的块高亮之上、自己块高亮之下，
+// 多选时"浮层归属块（离鼠标最近的选中块）"的拖拽栏需在别的块高亮之上、自己块高亮之下，
 // 以该块 id 区分描边环层级（归属块 outline 之上、其余降到 dragHandle 之下）
 const outlineOwnerId = computed(() => customDrag.active ? customDrag.sourceItemId : hoveredBlockId.value)
-// 选中/取消选中只应随"鼠标是否真的在块上"变化（浮层的最近块回退不影响选中），单独跟踪真正的命中块
-let lastHitId: string | null = null
-const hoverFocusBlock = (e: MouseEvent) => {
-  if (!isEditMode.value || e.button !== 0) return
-  if ((e.target as HTMLElement).closest?.('.handle')) return
-  if (selectionState.active || customDrag.active) return
-  // resize 拖动手柄时鼠标会扫过其他块，若按悬停切选中会令被拖块失活、手柄消失，resize 期间不抢选中
-  if (resizeSession) return
-  // popup 弹出时鼠标移到 popup 上方的组件会触发 hover 聚焦、把焦点切到背后块导致 popup 消失，
-  // popup 激活期间不抢选中（popup 关闭后恢复）
-  if (popupActiveBlockId.value) return
-  if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
-  const hitId = hitTestBlockAt(e)
-  // 鼠标在空白处也需浮层跟随"离鼠标最近的选中块"切换，空白时按距离取最近选中块
-  const id = hitId ?? nearestSelectedBlockId(e.clientX, e.clientY)
-  if (id !== lastHoverId) {
-    lastHoverId = id
-    hoveredBlockId.value = id
-  }
-  // 多选时不抢选中（白板式反选仅单选生效），命中后直接返回
-  if (state.selectedIds.size > 1) return
-  // 鼠标所在块未变化时不重复处理选中/取消（含空白处移动），以真正命中的块去重
-  if (hitId === lastHitId) return
-  lastHitId = hitId
-  if (!hitId) {
-    // 需"鼠标移出所有块即取消选中"（白板式反选），空白处清空选中；
-    // 拖拽栏/设置栏等块附属 UI 已由 hitTestBlockAt 命中所属块 id，不会误走此分支
-    state.selectedIds = new Set()
-    return
-  }
-  if (!state.items.some((i) => i.id === hitId)) return
-  state.selectedIds = new Set([hitId])
-  focusBlockContent(hitId)
+
+// 浮层（拖拽栏/设置栏）只渲染在选中块上，故归属块必须是选中块：命中块已选中则归它，
+// 否则（多选或空白）取离鼠标最近的选中块，避免鼠标扫过未选中块时所有拖拽栏一起消失
+const applyFloatingOwner = (hitId: string | null, clientX: number, clientY: number) => {
+  const owner = hitId && state.selectedIds.has(hitId) ? hitId : nearestSelectedBlockId(clientX, clientY)
+  if (owner !== hoveredBlockId.value) hoveredBlockId.value = owner
+}
+
+const isHoverOwnerLocked = (e: MouseEvent): boolean =>
+  !isEditMode.value || e.button !== 0 || !!resizeSession || selectionState.active || customDrag.active
+  || !!popupActiveBlockId.value || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey
+
+// 悬停只切换浮层归属，不改选中也不移焦点：选中与聚焦一律由点击（或框选）决定
+const updateHoverOwner = (e: MouseEvent) => {
+  if (isHoverOwnerLocked(e)) return
+  applyFloatingOwner(resolvePointerHit(e), e.clientX, e.clientY)
 }
 // #endregion 弹层与命中测试
 
@@ -2254,25 +2223,46 @@ const finishSelection = () => {
   selectionBox.value = null
 }
 
+// 点在可编辑内容上时浏览器已原生聚焦（不重复处理）：块内非交互区域才补聚焦，
+// 且焦点已在本块内时不重设，避免点击块内菜单/按钮后被光标抢走
+const FOCUS_SKIP_SELECTOR =
+  'button, a, input, select, textarea, [contenteditable="true"], [role="button"], .v-btn, .v-menu, .v-overlay, .block-handle-positioner'
+
+const focusBlockOnClick = (id: string, target: HTMLElement) => {
+  const wrapper = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${id}"]`)
+  if (!wrapper || wrapper.contains(document.activeElement)) return
+  if (target.closest(FOCUS_SKIP_SELECTOR)) return
+  focusBlockContent(id)
+}
+
 const handleCanvasClick = (e: MouseEvent) => {
   const target = e.target as HTMLElement
-  if (selectionState.justFinishedSelection) {
+  if (selectionState.justFinishedSelection || dragJustFinished) {
     selectionState.justFinishedSelection = false
+    dragJustFinished = false
     return
   }
-  if (target.closest('.drag-wrapper, .drag-handle, .handle, .side-settings, .snap-paperclip, .toolbar')) return
+  // 缩放/拖拽手柄、设置栏、曲别针都是块外或块边浮层，其点击不参与"点击选中"
+  if (target.closest('.handle, .drag-handle, .side-settings, .snap-paperclip, .toolbar')) return
+  const id = target.closest<HTMLElement>('.drag-wrapper')?.dataset.id
+  if (id && state.items.some((item) => item.id === id)) {
+    if (!isEditMode.value) return
+    selectOnClick(id, e)
+    bringToTop(id)
+    // 因点击时鼠标不再移动、悬停归属不会自行更新，故选中后立即把归属指到该块（未被选中时回落为最近选中块）
+    applyFloatingOwner(id, e.clientX, e.clientY)
+    focusBlockOnClick(id, target)
+    return
+  }
   state.selectedIds = new Set()
 }
 
+// 焦点进入块内（点击或键盘 Tab）只提升层级；选中统一由 click 语义处理，避免 focusin 与 click 重复改选中
 const handleCanvasFocusin = (e: FocusEvent) => {
-  const target = e.target as HTMLElement
-  const wrapper = target.closest<HTMLElement>('.drag-wrapper')
-  if (!wrapper) return
-  const id = wrapper.dataset.id
-  if (!id || !state.items.some((i) => i.id === id)) return
-  if (isEditMode.value) {
-    handleSelect(id)
-  }
+  const wrapper = (e.target as HTMLElement).closest<HTMLElement>('.drag-wrapper')
+  const id = wrapper?.dataset.id
+  if (!id || !isEditMode.value) return
+  if (!state.items.some((item) => item.id === id)) return
   bringToTop(id)
 }
 // #endregion 框选收尾与点击
@@ -2357,6 +2347,13 @@ watch(
       Array.from(linkedPairs.value).filter((k) => k.split('|').every((id) => idSet.has(id)))
     )
   }
+)
+
+// block-handle popup 只在块被选中时显示（选中由点击给出），而编辑器嵌在块内拿不到画布选中态，
+// 故选中集变化时派发全局事件，由块内 block-handle 自行比对所属块 id 决定显隐
+watch(
+  () => [...state.selectedIds].sort().join(','),
+  () => window.dispatchEvent(new CustomEvent('Mindrizzle:block-selection', { detail: { ids: [...state.selectedIds] } })),
 )
 
 const onResize = () => {

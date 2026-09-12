@@ -1,6 +1,6 @@
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
-import { clearStoreHover, dispatchBlockHover, getBlockRect, getClipBottom, getClipTop, getPopupHeight, getPopupWidth, getView, isCompactView } from './blockHandleUtils'
+import { clearStoreHover, dispatchBlockHover, getBlockRect, getClipBottom, getClipTop, getPopupHeight, getPopupWidth, getView, isCompactView, getRealPointer } from './blockHandleUtils'
 
 export interface HoveredBlock {
   node: unknown
@@ -18,24 +18,13 @@ export function useHoverState(
 
   // 因鼠标停住时若光标下 DOM 被替换（画布提升层级/工具栏插入等），浏览器会派发坐标无意义的
   // pointerout（clientX/clientY 为 0），扩展按该坐标判为无块命中并在 180ms 后清 hover，
-  // 表现为 popup 自己消失、必须再动鼠标才回来；故记录真实指针位置（非响应式，避免高频重渲染）
-  let pointerX = Number.NaN
-  let pointerY = Number.NaN
-
-  // 忽略本模块派发的伪 pointermove，否则复核会拿到假坐标
-  function onRealPointerMove(event: PointerEvent) {
-    if (!event.isTrusted) return
-    pointerX = event.clientX
-    pointerY = event.clientY
-  }
-  window.addEventListener('pointermove', onRealPointerMove, { passive: true })
-  onUnmounted(() => window.removeEventListener('pointermove', onRealPointerMove))
-
+  // 表现为 popup 自己消失、必须再动鼠标才回来；故收到空 hover 时按真实指针位置复核
   function isPointerInsideBlock(block: HoveredBlock): boolean {
-    if (Number.isNaN(pointerX)) return false
+    const { x, y } = getRealPointer()
+    if (Number.isNaN(x)) return false
     const rect = getBlockRect(getView(editor), block.pos)
     if (!rect) return false
-    return pointerX >= rect.left && pointerX <= rect.right && pointerY >= rect.top && pointerY <= rect.bottom
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
   }
 
   function onBlockStateChange(event: Event) {
