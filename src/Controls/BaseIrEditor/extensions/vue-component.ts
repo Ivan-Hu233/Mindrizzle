@@ -10,9 +10,13 @@ import {
   PropType,
   onMounted,
   computed,
+  markRaw,
 } from 'vue'
 import { mdiArrowBottomRight } from '@mdi/js'
-import { normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints'
+import { DEFAULT_CONSTRAINTS, normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints'
+import { createStoreResolver, findPositionerEl } from './blockHandleUtils'
+
+const resolveBlockHandleStore = createStoreResolver()
 
 interface ComponentEntry {
   loader: () => Promise<{
@@ -94,9 +98,11 @@ const ResizableContainer = defineComponent({
     maxWidth: { type: Number as PropType<number | null>, default: null },
     minHeight: { type: Number as PropType<number | null>, default: null },
     maxHeight: { type: Number as PropType<number | null>, default: null },
+    // 内容经 prop 传入而非 slot：NodeView 渲染上下文外调用 slot 会触发 Vue 警告
+    content: { type: Object as PropType<any>, required: true },
   },
   emits: ['resize'],
-  setup(props, { emit, slots }) {
+  setup(props, { emit }) {
     const containerRef = ref<HTMLElement | null>(null)
     const isResizing = ref(false)
     const isHovering = ref(false)
@@ -168,7 +174,7 @@ const ResizableContainer = defineComponent({
     })
 
     return () => {
-      const children = slots.default ? slots.default() : []
+      const children = [props.content]
       const surfaceColor = 'var(--v-theme-on-surface, #000000)'
 
       const isActive = isResizing.value || isHovering.value
@@ -263,6 +269,29 @@ export const vueComponentNodeView = defineVueNodeView({
       const node = props.node
       const view = props.view
       const getPos = props.getPos
+      let hoverKeepAlive: ReturnType<typeof setInterval> | null = null
+
+      const setBlockHover = () => {
+        const pos = getPos()
+        if (typeof pos !== 'number') return
+        const store = resolveBlockHandleStore(findPositionerEl(view))
+        store?.hoverState?.set({ node: node.value, pos })
+        const wrapper = view.dom.closest<HTMLElement>('.drag-wrapper')
+        const id = wrapper?.dataset.id
+        if (id) wrapper?.dispatchEvent(new CustomEvent('mindrizzle-rich-text-hover', { bubbles: true, detail: { id } }))
+      }
+
+      const notifyBlockHover = () => {
+        setBlockHover()
+        if (hoverKeepAlive) return
+        hoverKeepAlive = setInterval(setBlockHover, 150)
+      }
+
+      const stopBlockHover = () => {
+        if (!hoverKeepAlive) return
+        clearInterval(hoverKeepAlive)
+        hoverKeepAlive = null
+      }
 
       const state = reactive<{
         component: any | null
@@ -279,7 +308,7 @@ export const vueComponentNodeView = defineVueNodeView({
         const name = node.value.attrs.componentName as string
         try {
           const { component, constraints } = await loadComponent(name)
-          state.component = component
+          state.component = markRaw(component)
           state.constraints = constraints
           state.loaded = true
           state.error = undefined
@@ -316,6 +345,7 @@ export const vueComponentNodeView = defineVueNodeView({
       })
 
       onUnmounted(() => {
+        stopBlockHover()
         if (resizeObserver) {
           resizeObserver.disconnect()
           resizeObserver = null
@@ -340,6 +370,17 @@ export const vueComponentNodeView = defineVueNodeView({
           ...node.value.attrs,
           width: Math.round(newWidth),
           height: Math.round(newHeight),
+        })
+        view.dispatch(tr)
+      }
+
+      const updateComponentProps = (props: Record<string, any>) => {
+        const pos = getPos()
+        if (typeof pos !== 'number') return
+        const tr = view.state.tr
+        tr.setNodeMarkup(pos, undefined, {
+          ...node.value.attrs,
+          props: { ...node.value.attrs.props, ...props },
         })
         view.dispatch(tr)
       }
@@ -401,9 +442,15 @@ export const vueComponentNodeView = defineVueNodeView({
             },
             onMousedown: (e: Event) => e.stopPropagation(),
             onKeydown: (e: Event) => e.stopPropagation(),
+            onPointermove: notifyBlockHover,
+            onPointerenter: notifyBlockHover,
+            onPointerover: notifyBlockHover,
+            onPointerleave: stopBlockHover,
           },
           h(Comp, {
             ...componentProps,
+            'onUpdate:modelValue': (value: string) => updateComponentProps({ modelValue: value }),
+            'onUpdate:language': (value: string) => updateComponentProps({ language: value }),
             style: {
               ...(componentProps.style || {}),
               width: '100%',
@@ -424,8 +471,8 @@ export const vueComponentNodeView = defineVueNodeView({
             minHeight: state.constraints.minHeight,
             maxHeight: state.constraints.maxHeight,
             onResize: handleResize,
-          },
-          { default: () => [innerContent] }
+            content: innerContent,
+          }
         )
       }
     },

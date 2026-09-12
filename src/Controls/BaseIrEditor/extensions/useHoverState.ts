@@ -1,6 +1,6 @@
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
-import { clearStoreHover, getBlockEl, getClipBottom, getClipTop, getPopupHeight, getPopupWidth, getView, isCompactView } from './blockHandleUtils'
+import { clearStoreHover, dispatchBlockHover, getBlockRect, getClipBottom, getClipTop, getPopupHeight, getPopupWidth, getView, isCompactView } from './blockHandleUtils'
 
 export interface HoveredBlock {
   node: unknown
@@ -16,12 +16,40 @@ export function useHoverState(
   const hoveredBlock = ref<HoveredBlock | null>(null)
   const activeHover = ref<HoveredBlock | null>(null)
 
+  // 因鼠标停住时若光标下 DOM 被替换（画布提升层级/工具栏插入等），浏览器会派发坐标无意义的
+  // pointerout（clientX/clientY 为 0），扩展按该坐标判为无块命中并在 180ms 后清 hover，
+  // 表现为 popup 自己消失、必须再动鼠标才回来；故记录真实指针位置（非响应式，避免高频重渲染）
+  let pointerX = Number.NaN
+  let pointerY = Number.NaN
+
+  // 忽略本模块派发的伪 pointermove，否则复核会拿到假坐标
+  function onRealPointerMove(event: PointerEvent) {
+    if (!event.isTrusted) return
+    pointerX = event.clientX
+    pointerY = event.clientY
+  }
+  window.addEventListener('pointermove', onRealPointerMove, { passive: true })
+  onUnmounted(() => window.removeEventListener('pointermove', onRealPointerMove))
+
+  function isPointerInsideBlock(block: HoveredBlock): boolean {
+    if (Number.isNaN(pointerX)) return false
+    const rect = getBlockRect(getView(editor), block.pos)
+    if (!rect) return false
+    return pointerX >= rect.left && pointerX <= rect.right && pointerY >= rect.top && pointerY <= rect.bottom
+  }
+
   function onBlockStateChange(event: Event) {
     const detail = (event as CustomEvent).detail as HoveredBlock | null
     // 拖拽需跨编辑器全局抑制 popup/高亮，通过 body 上的拖拽类判断
     if (document.body.classList.contains('block-handle-dragging')) {
       activeHover.value = null
       if (detail) clearStoreHover(getView(editor), getStore)
+      return
+    }
+    // 指针仍在块内说明扩展这轮空 hover 是坐标误报，保留当前 hover 并请扩展重新确认
+    const hovered = hoveredBlock.value
+    if (!detail && hovered && isPointerInsideBlock(hovered)) {
+      dispatchBlockHover(getView(editor), hovered.pos)
       return
     }
     activeHover.value = detail
@@ -38,9 +66,8 @@ export function useHoverState(
 
     const view = getView(editor)
     if (isCompactView(view)) {
-      const blockEl = getBlockEl(view, hoveredBlock.value.pos)
-      if (blockEl) {
-        const br = blockEl.getBoundingClientRect()
+      const br = getBlockRect(view, hoveredBlock.value.pos)
+      if (br) {
         const need = getPopupHeight(view) + COMPACT_POPUP_GAP
         const spaceAbove = br.top - getClipTop(view)
         const spaceBelow = getClipBottom(view) - br.bottom
@@ -66,8 +93,7 @@ export function useHoverState(
     const spaceLeft = w.left - c.left
     const spaceRight = c.right - w.right
     if (spaceLeft < needX && spaceRight < needX) {
-      const blockEl = getBlockEl(view, hoveredBlock.value.pos)
-      const br = blockEl?.getBoundingClientRect()
+      const br = getBlockRect(view, hoveredBlock.value.pos)
       const top = br ? br.top : w.top
       const bottom = br ? br.bottom : w.bottom
       const needY = getPopupHeight(view) + COMPACT_POPUP_GAP

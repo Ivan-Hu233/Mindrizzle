@@ -134,17 +134,24 @@ const onSelectOption = (index: number | null) => {
   opIdx.value = index
 }
 
-// 鼠标在富文本块滚动条上时滚轮应滚动内容而非循环切项，命中滚动条矩形则放行默认滚动
+// 仅原生滚动条轨道上的滚轮应滚动内容，内容区继续用于循环操作
 const isOnScrollbar = (e: WheelEvent): boolean => {
-  const x = e.clientX
-  const y = e.clientY
+  const target = e.target as HTMLElement | null
+  if (target?.closest?.('.custom-scrollbar')) return true
   for (const el of document.querySelectorAll<HTMLElement>('.editor-scroll')) {
+    if (target === el) return true
     const r = el.getBoundingClientRect()
-    const vBarW = el.offsetWidth - el.clientWidth
-    const hBarH = el.offsetHeight - el.clientHeight
-    const onVBar = vBarW > 0 && x >= r.right - vBarW && x <= r.right && y >= r.top && y <= r.bottom
-    const onHBar = hBarH > 0 && y >= r.bottom - hBarH && y <= r.bottom && x >= r.left && x <= r.right
-    if (onVBar || onHBar) return true
+    const verticalWidth = el.offsetWidth - el.clientWidth
+    const horizontalHeight = el.offsetHeight - el.clientHeight
+    const hasVerticalScroll = el.scrollHeight > el.clientHeight
+    const hasHorizontalScroll = el.scrollWidth > el.clientWidth
+    const onVerticalTrack = hasVerticalScroll && verticalWidth > 0 &&
+      e.clientX >= r.right - verticalWidth && e.clientX <= r.right &&
+      e.clientY >= r.top && e.clientY <= r.bottom
+    const onHorizontalTrack = hasHorizontalScroll && horizontalHeight > 0 &&
+      e.clientY >= r.bottom - horizontalHeight && e.clientY <= r.bottom &&
+      e.clientX >= r.left && e.clientX <= r.right
+    if (onVerticalTrack || onHorizontalTrack) return true
   }
   return false
 }

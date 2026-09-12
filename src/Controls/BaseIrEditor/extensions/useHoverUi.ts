@@ -1,7 +1,7 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
-import { getBlockEl, getScrollEl, getView, isCompactView } from './blockHandleUtils'
+import { dispatchBlockHover, getBlockRect, getScrollEl, getView, isCompactView } from './blockHandleUtils'
 import type { HoveredBlock } from './useHoverState'
 
 export function useHoverUi(options: {
@@ -48,8 +48,8 @@ export function useHoverUi(options: {
     // （2px 强调小条方向由模板按 placement 翻转）
     highlightRect.value = null
     if (hover && (isCompactView(view()) || placement.value === 'top' || placement.value === 'bottom')) {
-      const r = getBlockEl(view(), hover.pos)?.getBoundingClientRect()
-      if (r && !(r.width === 0 && r.height === 0)) {
+      const r = getBlockRect(view(), hover.pos)
+      if (r) {
         // 高亮 fixed 到 body 且 z 极高，块被拖到画布外时高亮会盖住工具栏，
         // 同时 clamp 到画布容器可见区（工具栏之下）与编辑器滚动容器
         const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
@@ -72,7 +72,7 @@ export function useHoverUi(options: {
     popupShiftPx.value = 0
     const hb = hoveredBlock.value
     if (hb) {
-      const br = getBlockEl(view(), hb.pos)?.getBoundingClientRect()
+      const br = getBlockRect(view(), hb.pos)
       if (br) {
         const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
         for (const c of clampEls) {
@@ -92,34 +92,30 @@ export function useHoverUi(options: {
       : 0
   }
 
-  // ProseKit hover 有约 380ms 节流/失效缓冲才清 hoverState，监听内容 DOM 的
-  // pointerleave 短缓冲后主动清，避免 popup/高亮延迟消失
-  let leaveTimer: ReturnType<typeof setTimeout> | null = null
   let hideTimer: ReturnType<typeof setTimeout> | null = null
   let leaveBound = false
   let scrollBoundEl: HTMLElement | null = null
   let wrapperBoundEl: HTMLElement | null = null
 
-  function onEditorPointerLeave() {
-    if (leaveTimer) return
-    // 行高亮需与 block-handle 同步消失（都在 activeHover 清空时由 handleVisible 触发），
-    // 此处不再单独清 highlightRect，仅提前走扩展失效缓冲，避免高亮先消失而 popup 残留
-    leaveTimer = setTimeout(() => {
-      leaveTimer = null
-      clearHoverViaExtension()
-    }, 100)
+  function isInteractiveTarget(target: Node | null): boolean {
+    const element = target as HTMLElement | null
+    return !!element?.closest?.('.block-handle-popup, .v-overlay-container, .v-overlay, .v-menu, .v-list')
   }
 
   // popup 已 Teleport 到 .canvas（不在 wrapper DOM 内），鼠标从 wrapper 移向 popup 时会先触发
   // wrapper 的 pointerleave；若立即 suppressUI 会把 popup 置为 pointer-events:none 导致鼠标到不了
   // popup，延迟缓冲让鼠标有机会进入 popup（onPopupEnter 置 popupKeep 并取消本定时），否则再隐藏
-  function onWrapperPointerLeave() {
-    cancelLeave()
+  function onWrapperPointerLeave(event: PointerEvent) {
+    const relatedTarget = event.relatedTarget as Node | null
+    if (wrapperBoundEl?.contains(relatedTarget) || isInteractiveTarget(relatedTarget)) {
+      cancelHide()
+      return
+    }
     if (hideTimer) return
     hideTimer = setTimeout(() => {
       hideTimer = null
       if (!popupKeep.value) suppressUI()
-    }, 160)
+    }, 400)
   }
   function cancelHide() {
     if (hideTimer) {
@@ -138,7 +134,7 @@ export function useHoverUi(options: {
   function onWrapperFocusOut(e: FocusEvent) {
     const related = e.relatedTarget as Node | null
     // 焦点仍在编辑器区域内（如 popup 按钮等）时不隐藏
-    if (related && wrapperBoundEl && wrapperBoundEl.contains(related)) return
+    if ((related && wrapperBoundEl?.contains(related)) || isInteractiveTarget(related)) return
     editorFocused.value = false
     suppressUI()
   }
@@ -149,13 +145,6 @@ export function useHoverUi(options: {
     forcedHidden.value = false
     updateHoverUi()
   }
-  function cancelLeave() {
-    if (leaveTimer) {
-      clearTimeout(leaveTimer)
-      leaveTimer = null
-    }
-  }
-
   // 画布平移/缩放会改变块视口位置而高亮是 fixed 视口定位，需随画布重算，
   // 监听 MdrCanvas 派发的画布变换事件（首次 hover 时才挂载）；
   // MdrCanvas 用 post flush 派发（渲染完成、.canvas 变换已落到 DOM），此处直接重算即可
@@ -169,7 +158,6 @@ export function useHoverUi(options: {
     if (leaveBound || !dom) return
     leaveBound = true
     window.addEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
-    dom.addEventListener('pointerleave', onEditorPointerLeave)
     const wrapper = dom.closest('.editor-wrapper') as HTMLElement | null
     if (wrapper) {
       wrapperBoundEl = wrapper
@@ -197,7 +185,6 @@ export function useHoverUi(options: {
     if (!view()?.dom) return
     ensureLeaveListener()
     ensureScrollListener()
-    cancelLeave()
     updateHoverUi()
   })
 
@@ -205,18 +192,7 @@ export function useHoverUi(options: {
   // 让扩展自行刷新（同步清计时器与 prevHoverState）
   function refreshHoverState() {
     const block = hoveredBlock.value
-    const dom = block ? getBlockEl(view(), block.pos) : null
-    if (dom) {
-      const r = dom.getBoundingClientRect()
-      dom.dispatchEvent(
-        new PointerEvent('pointermove', {
-          bubbles: true,
-          clientX: r.x + 2,
-          clientY: r.y + r.height / 2,
-          pointerId: 1,
-        }),
-      )
-    }
+    if (block) dispatchBlockHover(view(), block.pos)
   }
   function startKeepAlive() {
     stopKeepAlive()
@@ -231,7 +207,6 @@ export function useHoverUi(options: {
   }
 
   function onPopupEnter() {
-    cancelLeave() // 需保留高亮与 popup，取消“移出编辑器”的待清除定时
     cancelHide() // 鼠标已进入 popup，取消 wrapper 缓冲后的延迟隐藏
     popupKeep.value = true
     startKeepAlive()
@@ -262,11 +237,9 @@ export function useHoverUi(options: {
 
   onUnmounted(() => {
     stopKeepAlive()
-    cancelLeave()
     cancelHide()
     if (leaveBound) {
       window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
-      view()?.dom?.removeEventListener('pointerleave', onEditorPointerLeave)
     }
     wrapperBoundEl?.removeEventListener('pointerleave', onWrapperPointerLeave)
     wrapperBoundEl?.removeEventListener('pointerenter', onWrapperPointerEnter)

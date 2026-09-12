@@ -160,13 +160,15 @@ const onPopupWheel = (e: WheelEvent) => {
   <!-- popup 需显示在曲别针（1003）之上，而其在编辑器内受块层叠上下文限制（对外层级=块 z），
        把含 provider 的 Root 整体 Teleport 到 .canvas：store context 不丢、
        floating-ui 初始化即以 .canvas 为 containing block 计算定位（初始即正确，无需移动重算） -->
-  <Teleport to=".canvas">
+  <Teleport to=".canvas-container">
     <BlockHandleRoot @state-change="onBlockStateChange">
       <BlockHandlePositioner
         :placement="handlePlacement"
         :hide="false"
-        :class="['block-handle-positioner', `placement-${handlePlacement}`]"
+        :class="['block-handle-positioner', `placement-${handlePlacement}`, { interactive: handleVisible }]"
         :style="{ '--block-handle-shift': popupShiftPx + 'px', '--block-handle-hshift': popupHShiftPx + 'px' }"
+        @pointerenter="onPopupEnter"
+        @pointerleave="onPopupLeave"
       >
       <BlockHandlePopup
         class="block-handle-popup"
@@ -212,6 +214,10 @@ const onPopupWheel = (e: WheelEvent) => {
   margin-left: 8px; /* floating-ui 默认 -8px 会左移，以 8px 抵消让 popup 与块左对齐 */
 }
 
+.block-handle-positioner.interactive {
+  pointer-events: auto;
+}
+
 /* right/top 时 floating-ui 的 translate 为正值或垂直方向，不需抵消 -8px */
 .block-handle-positioner.placement-right {
   margin-right: 8px;
@@ -246,7 +252,7 @@ const onPopupWheel = (e: WheelEvent) => {
   transition: opacity 0.1s, scale 0.1s;
   transform-origin: var(--transform-origin, center);
   opacity: 1;
-  scale: 1;
+  scale: var(--canvas-zoom, 1);
   position: relative;
   z-index: 1;
 }
@@ -263,25 +269,25 @@ const onPopupWheel = (e: WheelEvent) => {
   left: 0;
   right: 0;
   top: 100%;
-  height: 24px;
+  height: 48px;
 }
 .block-handle-positioner.placement-bottom .block-handle-popup::before {
   left: 0;
   right: 0;
   bottom: 100%;
-  height: 24px;
+  height: 48px;
 }
 .block-handle-positioner.placement-right .block-handle-popup::before {
   top: 0;
   bottom: 0;
   right: 100%;
-  width: 24px;
+  width: 48px;
 }
 .block-handle-positioner.placement-left .block-handle-popup::before {
   top: 0;
   bottom: 0;
   left: 100%;
-  width: 24px;
+  width: 48px;
 }
 
 /* 滚动条出现使文本右缘左移、右侧 popup 会偏移不对称，按滚动条宽度（--block-handle-hshift）向右推回贴齐块外边缘 */
@@ -319,7 +325,7 @@ const onPopupWheel = (e: WheelEvent) => {
 /* hoverState 失效时 ProseKit 会隐藏 popup，为使鼠标在手柄上仍可点击 ADD/拖拽，强制保持显示 */
 .block-handle-popup.popup-keep {
   opacity: 1 !important;
-  scale: 1 !important;
+  scale: var(--canvas-zoom, 1) !important;
   display: inline-flex !important;
   visibility: visible !important;
 }
@@ -328,7 +334,7 @@ const onPopupWheel = (e: WheelEvent) => {
    但 hover 已命中（行高亮显示），activeHover 时强制显示，位置由 popupShiftPx 贴回可见区 */
 .block-handle-popup.forced-open {
   opacity: 1 !important;
-  scale: 1 !important;
+  scale: var(--canvas-zoom, 1) !important;
   display: inline-flex !important;
   visibility: visible !important;
 }

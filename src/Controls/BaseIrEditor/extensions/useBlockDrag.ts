@@ -6,7 +6,7 @@ import { onUnmounted, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
 import { NodeSelection } from 'prosekit/pm/state'
-import { getView } from './blockHandleUtils'
+import { getBlockRect, getView } from './blockHandleUtils'
 import type { HoveredBlock } from './useHoverState'
 
 interface DragSource {
@@ -189,11 +189,8 @@ export function useBlockDrag(options: {
     if ($pos.depth === 0) return coords.pos
     const before = $pos.before($pos.depth)
     const after = $pos.after($pos.depth)
-    const dom = v.nodeDOM(before) as HTMLElement | null
-    if (dom && typeof dom.getBoundingClientRect === 'function') {
-      const r = dom.getBoundingClientRect()
-      return y < r.top + r.height / 2 ? before : after
-    }
+    const blockRect = getBlockRect(v, before)
+    if (blockRect) return y < blockRect.top + blockRect.height / 2 ? before : after
     return coords.pos - before < after - coords.pos ? before : after
   }
 

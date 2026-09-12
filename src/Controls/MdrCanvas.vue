@@ -1,5 +1,6 @@
 <template>
   <v-sheet class="canvas-container" color="surface" :ref="setCanvasContainerRef" :style="containerStyle" @click="handleCanvasClick"
+    @mindrizzle-rich-text-hover="onRichTextHover"
     @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
     <!-- 点阵背景随 pan 平移若用 background-position 会每帧重绘整容器（大视口下卡顿），独立成层用 transform 合成移动 -->
     <div class="canvas-dots" :style="dotsStyle" aria-hidden="true" />
@@ -90,6 +91,9 @@
             :style="selectedOutlineStyle(item)" />
         </v-fade-transition>
       </template>
+
+      <div v-if="richTextDropTargetId" class="rich-text-drop-target"
+        :style="richTextDropTargetStyle" aria-hidden="true" />
 
       <template v-for="p in paperclipCandidates" :key="`clip-${p.a}-${p.b}`">
         <div class="snap-paperclip" v-show="nearClipKey === p.key" :class="{ linked: p.linked }"
@@ -432,6 +436,7 @@ const containerStyle = computed<CSSProperties>(() => ({
   // flex item 默认 min-height:auto 会被内容撑到 500px（> 剩余空间），导致溢出 v-main 出现竖向滚动条；
   // scoped CSS 的 min-height:0 在 v-sheet（Vuetify 组件根）上未生效，inline 强制允许收缩填满剩余
   minHeight: '0',
+  '--canvas-zoom': zoom.value,
 }))
 // #endregion 点阵背景与容器样式
 
@@ -533,6 +538,7 @@ const autoPanTick = () => {
         if (!mobileMode.value) layout.x += compX
         layout.y += compY
       })
+      richTextDropTargetId.value = findRichTextDropTarget()
     }
     // resize 时画布自动滚动，被拖块坐标由组件受控（prop 即 content 坐标），
     // 按"基准矩形 + 相对起始 pan 位移"重算其 content 坐标使缩放手柄跟随鼠标
@@ -922,6 +928,19 @@ const customDrag = reactive({
   // 拖拽源块 id（拖拽栏只显示该块的浮层，多选联动块不显示，避免"折叠"）
   sourceItemId: null as string | null,
 })
+const richTextDropTargetId = ref<string | null>(null)
+const richTextDropTargetStyle = computed<CSSProperties>(() => {
+  const id = richTextDropTargetId.value
+  const item = id ? state.items.find((target) => target.id === id) : null
+  if (!item) return { display: 'none' }
+  const layout = layoutOf(item)
+  return {
+    left: `${roundToPx(layout.x) - 4}px`,
+    top: `${roundToPx(layout.y) - 4}px`,
+    width: `${roundToPx(layout.w) + 8}px`,
+    height: `${roundToPx(layout.h) + 8}px`,
+  }
+})
 let customDragGroup: Record<string, { x: number; y: number }> = {}
 // 拖拽中每帧按 id 遍历 state.items 查找会随块数增长卡顿，会话开始时缓存被拖块引用到 Map
 let customDragItems = new Map<string, CanvasItem>()
@@ -1150,6 +1169,29 @@ const onCustomDragMove = (e: MouseEvent) => {
   customDragRafId = requestAnimationFrame(applyCustomDrag)
 }
 
+const findRichTextDropTarget = (): string | null => {
+  const source = state.items.find((item) => item.id === customDrag.sourceItemId)
+  const viewport = viewRect.value
+  if (!source || !componentNodeOf(source) || !viewport) return null
+  const sourceLayout = layoutOf(source)
+  const sourceTopLeft = contentToScreen(canvasTransform(), viewport, sourceLayout.x, sourceLayout.y)
+  const sourceBottomRight = contentToScreen(
+    canvasTransform(), viewport, sourceLayout.x + sourceLayout.w, sourceLayout.y + sourceLayout.h,
+  )
+  for (const target of state.items) {
+    if (target.id === source.id || target.component !== 'RichTextEditor') continue
+    const targetLayout = layoutOf(target)
+    const targetTopLeft = contentToScreen(canvasTransform(), viewport, targetLayout.x, targetLayout.y)
+    const targetBottomRight = contentToScreen(
+      canvasTransform(), viewport, targetLayout.x + targetLayout.w, targetLayout.y + targetLayout.h,
+    )
+    const overlapWidth = Math.min(sourceBottomRight.x, targetBottomRight.x) - Math.max(sourceTopLeft.x, targetTopLeft.x)
+    const overlapHeight = Math.min(sourceBottomRight.y, targetBottomRight.y) - Math.max(sourceTopLeft.y, targetTopLeft.y)
+    if (overlapWidth > 0 && overlapHeight > 0) return target.id
+  }
+  return null
+}
+
 const applyCustomDrag = () => {
   customDragRafId = 0
   if (!customDrag.active) return
@@ -1167,6 +1209,7 @@ const applyCustomDrag = () => {
     layout.y = Math.round(origin.y + dy - panDy)
     if (!mobileMode.value) snapLayoutToOthers(target, layout)
   })
+  richTextDropTargetId.value = findRichTextDropTarget()
 }
 
 // 自定义拖拽绕过 VDR 的 handleDrag（snap 吸附不再触发），
@@ -1308,12 +1351,40 @@ const resolveDragConflict = () => {
   })
 }
 
+const componentNodeOf = (item: CanvasItem): { name: string; props: Record<string, any> } | null => {
+  if (item.component !== 'EditableCodeBlock') return null
+  const config = item.config as CodeBlockConfig
+  return { name: 'CodeBlock', props: { modelValue: config.code, language: config.language } }
+}
+
+const insertDraggedComponent = (targetId: string, sourceId: string): boolean => {
+  const target = state.items.find((item) => item.id === targetId)
+  const source = state.items.find((item) => item.id === sourceId)
+  const component = source ? componentNodeOf(source) : null
+  if (!target || !component) return false
+  const inserted = componentRefs.value[target.id]?.commands?.insertVueComponent?.(component.name, component.props)
+  if (!inserted) return false
+  const removedIds = new Set([sourceId])
+  state.items = state.items.filter((item) => !removedIds.has(item.id))
+  state.selectedIds = new Set()
+  delete componentRefs.value[sourceId]
+  linkedPairs.value = new Set([...linkedPairs.value].filter((key) => {
+    const [first, second] = key.split('|')
+    return !removedIds.has(first) && !removedIds.has(second)
+  }))
+  return true
+}
+
 const onCustomDragUp = () => {
+  const targetId = findRichTextDropTarget()
+  const sourceId = customDrag.sourceItemId
+  const inserted = targetId && sourceId ? insertDraggedComponent(targetId, sourceId) : false
+  richTextDropTargetId.value = null
   customDrag.active = false
   customDrag.sourceItemId = null
   // 冲突检测需读取拖拽组（被拖块及各自起点），须在清空 customDragGroup 前执行，
   // 否则清空后 draggedIds 为空集、检测恒不命中
-  resolveDragConflict()
+  if (!inserted) resolveDragConflict()
   // 拖拽组仅本会话有效，结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
   customDragGroup = {}
   customDragItems = new Map()
@@ -1730,6 +1801,12 @@ const handleSelect = (id: string, e?: MouseEvent) => {
   } else {
     state.selectedIds = new Set([id])
   }
+}
+
+const onRichTextHover = (event: Event) => {
+  if (customDrag.active || selectionState.active || !isEditMode.value) return
+  const id = (event as CustomEvent<{ id?: string }>).detail?.id
+  if (id && state.items.some((item) => item.id === id)) handleSelect(id)
 }
 
 const updateSelectionBox = () => {
@@ -2781,6 +2858,31 @@ defineExpose({
   /* 选中高亮边需绘制在拖拽栏之上（不被手柄遮断），置 Z_LAYER.outline（1002） */
   z-index: 1002;
   box-sizing: border-box;
+}
+
+.rich-text-drop-target {
+  position: absolute;
+  border: 3px solid rgb(var(--v-theme-primary));
+  border-radius: 6px;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1003;
+  animation: rich-text-drop-pulse 1s linear infinite;
+}
+
+@keyframes rich-text-drop-pulse {
+  0% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0.55);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 4px rgba(var(--v-theme-primary), 0.18);
+  }
+  100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0.55);
+  }
 }
 
 /* 添加块预览：主题色虚线框 + 半透明填充标出将添加的块（z 由 addPreviewStyle 置 Z_LAYER.outline） */

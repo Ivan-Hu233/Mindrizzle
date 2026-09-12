@@ -22,6 +22,7 @@ interface ResizeSession {
 }
 
 const props = withDefaults(defineProps<{
+  itemId?: string
   x: number
   y: number
   w: number

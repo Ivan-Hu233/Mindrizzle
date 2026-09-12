@@ -11,8 +11,20 @@
     @touchstart.stop
   >
     <ProseKit :editor="editor">
-      <div class="editor-scroll">
-        <div ref="editorMount" class="editor-mount" />
+      <div class="editor-scroll-shell">
+        <div ref="scrollRef" class="editor-scroll" @scroll="updateScrollMetrics">
+          <div ref="editorMount" class="editor-mount" />
+        </div>
+        <div v-if="scrollMetrics.hasVertical" class="custom-scrollbar custom-scrollbar-vertical"
+          @pointerdown="startVerticalScrollbar" @wheel="scrollVertical">
+          <div class="custom-scrollbar-thumb" :style="verticalThumbStyle"
+            @pointerdown.stop="startVerticalThumb" />
+        </div>
+        <div v-if="scrollMetrics.hasHorizontal" class="custom-scrollbar custom-scrollbar-horizontal"
+          @pointerdown="startHorizontalScrollbar" @wheel="scrollHorizontal">
+          <div class="custom-scrollbar-thumb" :style="horizontalThumbStyle"
+            @pointerdown.stop="startHorizontalThumb" />
+        </div>
       </div>
       <blockHandle :editor="editor" />
       <!-- .vdr 的 transform 祖先会使 fixed 定位基准偏移，teleport 到 body -->
@@ -39,7 +51,7 @@ import 'prosekit/pm/view/style/prosemirror.css'
 
 import blockHandle from './extensions/block-handle.vue'
 import RowDropIndicator from './extensions/RowDropIndicator.vue'
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, reactive, watch } from 'vue'
 import { ProseKit, useDocChange } from '@prosekit/vue'
 import { useDisplay } from 'vuetify'
 
@@ -62,6 +74,103 @@ const extension = defineExtension()
 const editor = createEditor({ extension })
 const editorMount = ref<HTMLDivElement>()
 const wrapperRef = ref<HTMLDivElement>()
+const scrollRef = ref<HTMLDivElement>()
+const scrollMetrics = reactive({ scrollTop: 0, scrollLeft: 0, scrollHeight: 0, scrollWidth: 0, clientHeight: 0, clientWidth: 0, hasVertical: false, hasHorizontal: false })
+
+const updateScrollMetrics = () => {
+  const scroll = scrollRef.value
+  if (!scroll) return
+  Object.assign(scrollMetrics, {
+    scrollTop: scroll.scrollTop,
+    scrollLeft: scroll.scrollLeft,
+    scrollHeight: scroll.scrollHeight,
+    scrollWidth: scroll.scrollWidth,
+    clientHeight: scroll.clientHeight,
+    clientWidth: scroll.clientWidth,
+    hasVertical: scroll.scrollHeight > scroll.clientHeight,
+    hasHorizontal: scroll.scrollWidth > scroll.clientWidth,
+  })
+}
+
+const verticalThumbStyle = computed(() => ({
+  height: `${Math.max(24, scrollMetrics.clientHeight ** 2 / Math.max(scrollMetrics.scrollHeight, 1))}px`,
+  transform: `translateY(${getThumbOffset('vertical')}px)`,
+}))
+
+const horizontalThumbStyle = computed(() => ({
+  width: `${Math.max(24, scrollMetrics.clientWidth ** 2 / Math.max(scrollMetrics.scrollWidth, 1))}px`,
+  transform: `translateX(${getThumbOffset('horizontal')}px)`,
+}))
+
+const getThumbOffset = (axis: 'vertical' | 'horizontal') => {
+  const viewport = axis === 'vertical' ? scrollMetrics.clientHeight : scrollMetrics.clientWidth
+  const content = axis === 'vertical' ? scrollMetrics.scrollHeight : scrollMetrics.scrollWidth
+  const current = axis === 'vertical' ? scrollMetrics.scrollTop : scrollMetrics.scrollLeft
+  const track = Math.max(viewport - 4, 0)
+  const thumb = Math.max(24, viewport ** 2 / Math.max(content, 1))
+  const maximumScroll = Math.max(content - viewport, 1)
+  return (current / maximumScroll) * Math.max(track - thumb, 0)
+}
+
+const scrollVertical = (event: WheelEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  const scroll = scrollRef.value
+  if (!scroll) return
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroll.clientHeight : 1
+  scroll.scrollTop += event.deltaY * unit
+}
+
+const scrollHorizontal = (event: WheelEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  const scroll = scrollRef.value
+  if (!scroll) return
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroll.clientWidth : 1
+  scroll.scrollLeft += (event.deltaX || event.deltaY) * unit
+}
+
+const startVerticalScrollbar = (event: PointerEvent) => {
+  if ((event.target as HTMLElement).classList.contains('custom-scrollbar-thumb')) return
+  const scroll = scrollRef.value
+  if (!scroll) return
+  const track = event.currentTarget as HTMLElement
+  const direction = event.clientY < track.getBoundingClientRect().top + getThumbOffset('vertical') ? -1 : 1
+  scroll.scrollTop += direction * scroll.clientHeight
+}
+
+const startHorizontalScrollbar = (event: PointerEvent) => {
+  if ((event.target as HTMLElement).classList.contains('custom-scrollbar-thumb')) return
+  const scroll = scrollRef.value
+  if (!scroll) return
+  const track = event.currentTarget as HTMLElement
+  const direction = event.clientX < track.getBoundingClientRect().left + getThumbOffset('horizontal') ? -1 : 1
+  scroll.scrollLeft += direction * scroll.clientWidth
+}
+
+let scrollbarDrag: { axis: 'vertical' | 'horizontal'; start: number; scroll: number } | null = null
+const startVerticalThumb = (event: PointerEvent) => startScrollbarDrag('vertical', event)
+const startHorizontalThumb = (event: PointerEvent) => startScrollbarDrag('horizontal', event)
+const startScrollbarDrag = (axis: 'vertical' | 'horizontal', event: PointerEvent) => {
+  scrollbarDrag = { axis, start: axis === 'vertical' ? event.clientY : event.clientX, scroll: axis === 'vertical' ? scrollMetrics.scrollTop : scrollMetrics.scrollLeft }
+  window.addEventListener('pointermove', moveScrollbarDrag)
+  window.addEventListener('pointerup', stopScrollbarDrag, { once: true })
+  event.preventDefault()
+}
+const moveScrollbarDrag = (event: PointerEvent) => {
+  if (!scrollbarDrag || !scrollRef.value) return
+  const scroll = scrollRef.value
+  const delta = (scrollbarDrag.axis === 'vertical' ? event.clientY : event.clientX) - scrollbarDrag.start
+  const viewport = scrollbarDrag.axis === 'vertical' ? scroll.clientHeight : scroll.clientWidth
+  const content = scrollbarDrag.axis === 'vertical' ? scroll.scrollHeight : scroll.scrollWidth
+  const next = scrollbarDrag.scroll + delta * content / Math.max(viewport, 1)
+  if (scrollbarDrag.axis === 'vertical') scroll.scrollTop = next
+  else scroll.scrollLeft = next
+}
+const stopScrollbarDrag = () => {
+  scrollbarDrag = null
+  window.removeEventListener('pointermove', moveScrollbarDrag)
+}
 
 // autoHeight 时块高需随内容实时调整，经块 id 上报内容高度给画布
 const blockId = (): string | null => {
@@ -104,6 +213,8 @@ const onCanvasTransform = (e: Event) => {
 }
 
 onMounted(() => {
+  const observer = new ResizeObserver(updateScrollMetrics)
+  if (scrollRef.value) observer.observe(scrollRef.value)
   if (editorMount.value) {
     editor.mount(editorMount.value)
     if (isMobile.value) {
@@ -115,12 +226,17 @@ onMounted(() => {
       editor.setContent(props.doc)
     }
     // 内容渲染需在 mount/setContent 完成后才可测量，rAF 后测一次
-    requestAnimationFrame(() => syncAutoHeight())
+    requestAnimationFrame(() => {
+      updateScrollMetrics()
+      syncAutoHeight()
+    })
   }
   window.addEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
+  onUnmounted(() => observer.disconnect())
 })
 
 onUnmounted(() => {
+  stopScrollbarDrag()
   editor.unmount()
   window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
 })
@@ -184,8 +300,77 @@ defineExpose({
   width: 100%;
   height: 100%;
   overflow: auto;
+  scrollbar-width: none;
   box-sizing: border-box;
   pointer-events: auto;
+}
+.editor-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-scroll-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.editor-wrapper.auto-height .editor-scroll-shell {
+  height: auto;
+}
+
+.custom-scrollbar {
+  position: absolute;
+  z-index: 6;
+  pointer-events: auto;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 4px;
+  opacity: 0.7;
+  touch-action: none;
+}
+
+.custom-scrollbar:hover {
+  opacity: 1;
+}
+
+.custom-scrollbar-vertical {
+  top: 2px;
+  right: 2px;
+  bottom: 2px;
+  width: 8px;
+}
+
+.custom-scrollbar-horizontal {
+  right: 2px;
+  bottom: 2px;
+  left: 2px;
+  height: 8px;
+}
+
+.custom-scrollbar-thumb {
+  position: absolute;
+  pointer-events: auto;
+  background: rgba(var(--v-theme-on-surface), 0.42);
+  border-radius: 4px;
+  cursor: grab;
+}
+
+.custom-scrollbar-thumb:active {
+  cursor: grabbing;
+  background: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+.custom-scrollbar-vertical .custom-scrollbar-thumb {
+  top: 0;
+  right: 0;
+  left: 0;
+}
+
+.custom-scrollbar-horizontal .custom-scrollbar-thumb {
+  top: 0;
+  bottom: 0;
+  left: 0;
 }
 
 /* auto-height 需量取内容自然高度（否则被 height:100% 钳制到块高、缩短时测不到），

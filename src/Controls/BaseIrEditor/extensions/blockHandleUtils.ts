@@ -20,6 +20,40 @@ export function getBlockEl(view: any, pos: number): HTMLElement | null {
   }
 }
 
+// 因 Vue 节点视图外层是 display:contents、getBoundingClientRect 恒为 0×0 且位于 (0,0)，
+// 故块矩形需下探到有尺寸的后代，否则按零矩形派发的伪 pointermove 会落到 (0,0) 被判为无块命中
+export function getVisibleBlockRect(el: HTMLElement | null): DOMRect | null {
+  if (!el?.isConnected) return null
+  const rect = el.getBoundingClientRect()
+  if (rect.width > 0 || rect.height > 0) return rect
+  for (const child of Array.from(el.children)) {
+    const childRect = getVisibleBlockRect(child as HTMLElement)
+    if (childRect) return childRect
+  }
+  return null
+}
+
+export function getBlockRect(view: any, pos: number): DOMRect | null {
+  return getVisibleBlockRect(getBlockEl(view, pos))
+}
+
+// 向块 DOM 派发伪 pointermove 让扩展重新确认 hover；坐标必须取自真实尺寸的块矩形，
+// 否则零矩形会算出 (0,0) 被扩展判为无块命中而反向清掉 hover
+// （扩展内部只有 pointermove 有节流，伪事件需周期性重派，见 useHoverUi 的 keepAlive）
+export function dispatchBlockHover(view: any, pos: number): void {
+  const dom = getBlockEl(view, pos)
+  const rect = getVisibleBlockRect(dom)
+  if (!dom || !rect) return
+  dom.dispatchEvent(
+    new PointerEvent('pointermove', {
+      bubbles: true,
+      clientX: rect.x + 2,
+      clientY: rect.y + rect.height / 2,
+      pointerId: 1,
+    }),
+  )
+}
+
 export function getScrollEl(view: any): HTMLElement | null {
   return view?.dom?.closest('.editor-scroll') ?? null
 }
