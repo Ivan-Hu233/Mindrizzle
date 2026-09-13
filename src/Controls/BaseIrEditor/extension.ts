@@ -34,6 +34,7 @@ import { vueComponentNode, vueComponentNodeView } from './extensions/vue-compone
 import { defineBlockquote } from 'prosekit/extensions/blockquote'
 import { defineSubscript } from 'prosekit/extensions/subscript'
 import { defineSuperscript } from 'prosekit/extensions/superscript'
+import { NodeSelection } from 'prosekit/pm/state'
 
 // 父组件统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.({ level })），注册自定义命令
 // 注：标题切换复用 defineHeading() 内置的 toggleHeading({ level })，避免同名命令被合并成交叉类型
@@ -48,6 +49,26 @@ const customCommands = defineCommands({
         type: 'vueComponent',
         attrs: { componentName, props, width: defaultWidth, height: defaultHeight },
       })(state, dispatch)
+    }
+  },
+  // 画布拖组件入块时落点由指示线给出，需按指定块边界插入而非当前选区
+  insertVueComponentAt(pos: number, componentName: string, props: Record<string, any> = {}) {
+    return (state, dispatch, view) => {
+      if (!view) return false
+      // 落点来自画布帧缓存，越界时直接失败让调用方回退，避免 tr.insert 抛错打断拖拽收尾
+      if (pos < 0 || pos > state.doc.content.size) return false
+      const node = state.schema.nodes.vueComponent?.create({
+        componentName,
+        props,
+        width: Math.min(360, view.dom.clientWidth || 360),
+        height: 240,
+      })
+      if (!node) return false
+      if (!dispatch) return true
+      const tr = state.tr.insert(pos, node)
+      tr.setSelection(NodeSelection.create(tr.doc, pos))
+      dispatch(tr.scrollIntoView())
+      return true
     }
   },
   insertMathInline(latex: string) {

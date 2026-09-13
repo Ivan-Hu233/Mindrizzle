@@ -57,6 +57,7 @@ import { useDisplay } from 'vuetify'
 
 import { defineExtension } from './extension.ts'
 import { createEditor, NodeJSON } from '@prosekit/core'
+import { getBlockRect } from './extensions/blockHandleUtils'
 
 interface Props {
   dir?: 'ltr' | 'rtl'
@@ -172,6 +173,28 @@ const stopScrollbarDrag = () => {
   window.removeEventListener('pointermove', moveScrollbarDrag)
 }
 
+// 画布拖组件入本块需先知道落点：按指针位置解析插入点与落点线 y（视口坐标），
+// 规则同块内拖段落——按指针落在所在块的上下半区决定插到块前还是块后
+function resolveDropAt(clientX: number, clientY: number): { pos: number; y: number } | null {
+  const view = editor.view
+  if (!view) return null
+  const coords = view.posAtCoords({ left: clientX, top: clientY })
+  if (!coords) return null
+  const $pos = view.state.doc.resolve(coords.pos)
+  if ($pos.depth === 0) return { pos: coords.pos, y: view.coordsAtPos(coords.pos)?.bottom ?? clientY }
+  const before = $pos.before($pos.depth)
+  const after = $pos.after($pos.depth)
+  const rect = getBlockRect(view, before)
+  const isBefore = !rect || clientY < rect.top + rect.height / 2
+  const pos = isBefore ? before : after
+  return { pos, y: rect ? (isBefore ? rect.top : rect.bottom) : view.coordsAtPos(pos)?.bottom ?? clientY }
+}
+
+// 画布拖拽中鼠标贴近块内上下边缘时需滚动块内内容，否则深处的落点看不到
+function scrollContent(deltaY: number) {
+  if (scrollRef.value) scrollRef.value.scrollTop += deltaY
+}
+
 // autoHeight 时块高需随内容实时调整，经块 id 上报内容高度给画布
 const blockId = (): string | null => {
   let el: HTMLElement | null = wrapperRef.value ?? null
@@ -277,6 +300,8 @@ defineExpose({
   commands: editor.commands,
   doc: editor.state.doc,
   importJSON,
+  resolveDropAt,
+  scrollContent,
   getDocJSON() {
     return editor.state.doc.toJSON()
   },

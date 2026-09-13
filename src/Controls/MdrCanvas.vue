@@ -94,6 +94,12 @@
       <div v-if="richTextDropTargetId" class="rich-text-drop-target"
         :style="richTextDropTargetStyle" aria-hidden="true" />
 
+      <!-- 拖组件入富文本块的落点线：用视口坐标 fixed 到 body 绘制（落点 y 取自 ProseMirror，
+           随画布缩放一致），避免被画布 transform/裁剪影响 -->
+      <Teleport to="body">
+        <div v-if="richTextDrop" class="rich-text-drop-line" :style="richTextDropLineStyle" aria-hidden="true" />
+      </Teleport>
+
       <template v-for="p in paperclipCandidates" :key="`clip-${p.a}-${p.b}`">
         <div class="snap-paperclip" v-show="nearClipKey === p.key" :class="{ linked: p.linked }"
           :style="{ left: `${roundToPx(p.x)}px`, top: `${roundToPx(p.y)}px` }"
@@ -138,6 +144,9 @@ export interface ComponentController {
   loadConfig?: (config: WidgetConfig) => void
   // 父组件需经命令链调用富文本命令（如 toggleHeading）且要 IDE 补全，用 editor.commands 推导的精确类型而非宽泛索引签名
   commands?: EditorCommands
+  // 拖组件入富文本块需解析落点与驱动块内滚动，二者非编辑器命令，单独暴露
+  resolveDropAt?: (clientX: number, clientY: number) => { pos: number; y: number } | null
+  scrollContent?: (deltaY: number) => void
 }
 </script>
 
@@ -545,6 +554,8 @@ const autoPanTick = () => {
     // 框选时鼠标停住也需随画布滚动扩展选择框（无 mousemove 驱动），用最近鼠标位置每帧刷新框选
     if (selectionState.active) updateSelectionAt(lastMouse.x, lastMouse.y)
   }
+  // 拖组件入富文本块：鼠标停住时块内仍需持续自动滚动、落点线也要跟随内容，故每帧重算
+  if (customDrag.active) updateRichTextDrop()
   requestAnimationFrame(autoPanTick)
 }
 
@@ -928,6 +939,17 @@ const customDrag = reactive({
   sourceItemId: null as string | null,
 })
 const richTextDropTargetId = ref<string | null>(null)
+// 拖入富文本块的落点线（视口坐标）与插入位置，随块内滚动每帧重算
+const richTextDrop = ref<{ id: string; pos: number; left: number; right: number; y: number } | null>(null)
+const richTextDropLineStyle = computed<CSSProperties>(() => {
+  const drop = richTextDrop.value
+  if (!drop) return { display: 'none' }
+  return {
+    left: `${Math.round(drop.left)}px`,
+    width: `${Math.max(2, Math.round(drop.right - drop.left))}px`,
+    transform: `translateY(${Math.round(drop.y)}px)`,
+  }
+})
 const richTextDropTargetStyle = computed<CSSProperties>(() => {
   const id = richTextDropTargetId.value
   const item = id ? state.items.find((target) => target.id === id) : null
@@ -1113,6 +1135,9 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   customDrag.sourceItemId = item.id
   customDrag.startClientX = e.clientX
   customDrag.startClientY = e.clientY
+  // 落点解析由 rAF 循环驱动，按下后未移动也会读取该坐标，需以按下点初始化（否则沿用上次拖拽的残值）
+  customDragLastX = e.clientX
+  customDragLastY = e.clientY
   customDrag.panStartX = pan.x
   customDrag.panStartY = pan.y
   // 锁定按下时的 handle 放置，拖拽中不随 handlePlacementOf 切换（否则块拖到视口顶部时 handle 跳向块下方）
@@ -1191,6 +1216,67 @@ const findRichTextDropTarget = (): string | null => {
   return null
 }
 
+// 拖入富文本块需给出落点线（并支持块内贴边自动滚动），
+// 块内滚动后鼠标不动落点也会变，故由拖拽 rAF 循环每帧重算
+interface RichTextTarget {
+  id: string
+  resolveDropAt: (clientX: number, clientY: number) => { pos: number; y: number } | null
+  scrollContent?: (deltaY: number) => void
+  pmRect: DOMRect
+  scrollRect: DOMRect
+}
+
+const richTextTargetOf = (id: string): RichTextTarget | null => {
+  const wrapper = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${id}"]`)
+  const scroll = wrapper?.querySelector<HTMLElement>('.editor-scroll') ?? null
+  const pm = wrapper?.querySelector<HTMLElement>('.ProseMirror') ?? null
+  const { resolveDropAt, scrollContent } = componentRefs.value[id] ?? {}
+  if (!scroll || !pm || !resolveDropAt) return null
+  return {
+    id,
+    resolveDropAt,
+    scrollContent,
+    pmRect: pm.getBoundingClientRect(),
+    scrollRect: scroll.getBoundingClientRect(),
+  }
+}
+
+// 鼠标贴近块内滚动区上/下边缘时按距离比例滚动（越近越快），鼠标停住也能持续滚（由 rAF 循环驱动）；
+// 离块太远（超出贴边带）不滚，否则拖到块旁就会一直滚
+const RT_SCROLL_EDGE = 40
+const RT_SCROLL_MAX = 12
+const autoScrollRichText = (target: RichTextTarget) => {
+  const { scrollRect } = target
+  if (customDragLastX < scrollRect.left || customDragLastX > scrollRect.right) return
+  const above = scrollRect.top + RT_SCROLL_EDGE - customDragLastY
+  const below = customDragLastY - (scrollRect.bottom - RT_SCROLL_EDGE)
+  const distance = Math.max(above, below)
+  if (distance <= 0 || distance > RT_SCROLL_EDGE) return
+  const step = Math.ceil((RT_SCROLL_MAX * distance) / RT_SCROLL_EDGE)
+  target.scrollContent?.(above > 0 ? -step : step)
+}
+
+// 指针可能落在块外留白（gutter）上，而 posAtCoords 需坐标落在文本区内，故先夹取到文本区
+const resolveRichTextDrop = (target: RichTextTarget, clientX: number, clientY: number) => {
+  const { pmRect, scrollRect } = target
+  const x = clampVal(clientX, pmRect.left, pmRect.right)
+  const y = clampVal(clientY, Math.max(pmRect.top, scrollRect.top), Math.min(pmRect.bottom, scrollRect.bottom))
+  const drop = target.resolveDropAt(x, y)
+  if (!drop) return null
+  return { id: target.id, pos: drop.pos, left: pmRect.left, right: pmRect.right, y: drop.y }
+}
+
+const updateRichTextDrop = () => {
+  const targetId = richTextDropTargetId.value
+  const target = targetId ? richTextTargetOf(targetId) : null
+  if (!target) {
+    richTextDrop.value = null
+    return
+  }
+  autoScrollRichText(target)
+  richTextDrop.value = resolveRichTextDrop(target, customDragLastX, customDragLastY)
+}
+
 const applyCustomDrag = () => {
   customDragRafId = 0
   if (!customDrag.active) return
@@ -1209,6 +1295,7 @@ const applyCustomDrag = () => {
     if (!mobileMode.value) snapLayoutToOthers(target, layout)
   })
   richTextDropTargetId.value = findRichTextDropTarget()
+  updateRichTextDrop()
 }
 
 // 自定义拖拽绕过 VDR 的 handleDrag（snap 吸附不再触发），
@@ -1356,12 +1443,15 @@ const componentNodeOf = (item: CanvasItem): { name: string; props: Record<string
   return { name: 'CodeBlock', props: { modelValue: config.code, language: config.language } }
 }
 
-const insertDraggedComponent = (targetId: string, sourceId: string): boolean => {
+const insertDraggedComponent = (targetId: string, sourceId: string, pos: number | null): boolean => {
   const target = state.items.find((item) => item.id === targetId)
   const source = state.items.find((item) => item.id === sourceId)
   const component = source ? componentNodeOf(source) : null
   if (!target || !component) return false
-  const inserted = componentRefs.value[target.id]?.commands?.insertVueComponent?.(component.name, component.props)
+  const commands = componentRefs.value[target.id]?.commands
+  // 有落点则插到指示线处，落点未能解析（无指示线）时回退到按当前选区插入
+  const inserted = (pos != null && commands?.insertVueComponentAt?.(pos, component.name, component.props))
+    || !!commands?.insertVueComponent?.(component.name, component.props)
   if (!inserted) return false
   const removedIds = new Set([sourceId])
   state.items = state.items.filter((item) => !removedIds.has(item.id))
@@ -1378,12 +1468,18 @@ const insertDraggedComponent = (targetId: string, sourceId: string): boolean => 
 // 标记后由紧随的 click 消费，新的按下重新置位
 let dragJustFinished = false
 
-const onCustomDragUp = () => {
+const onCustomDragUp = (e?: MouseEvent) => {
   dragJustFinished = true
   const targetId = findRichTextDropTarget()
   const sourceId = customDrag.sourceItemId
-  const inserted = targetId && sourceId ? insertDraggedComponent(targetId, sourceId) : false
+  // 松手时重算一次落点（帧内可能已滚动/移动），不用上一帧缓存
+  const target = targetId ? richTextTargetOf(targetId) : null
+  const drop = target
+    ? resolveRichTextDrop(target, e?.clientX ?? customDragLastX, e?.clientY ?? customDragLastY)
+    : null
+  const inserted = targetId && sourceId ? insertDraggedComponent(targetId, sourceId, drop?.pos ?? null) : false
   richTextDropTargetId.value = null
+  richTextDrop.value = null
   customDrag.active = false
   customDrag.sourceItemId = null
   // 冲突检测需读取拖拽组（被拖块及各自起点），须在清空 customDragGroup 前执行，
@@ -2880,6 +2976,19 @@ defineExpose({
     opacity: 0.45;
     box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0.55);
   }
+}
+
+/* 拖组件入富文本块的落点线：Teleport 到 body 用视口坐标固定定位（宽度/位置每帧由 JS 给出），
+   y 用 translateY 而 top 固定为 0，避免亚像素行高下与文本行错半像素 */
+.rich-text-drop-line {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(var(--v-theme-primary));
+  pointer-events: none;
+  z-index: 1004;
 }
 
 /* 添加块预览：主题色虚线框 + 半透明填充标出将添加的块（z 由 addPreviewStyle 置 Z_LAYER.outline） */
