@@ -40,11 +40,7 @@ export function useBlockDrag(options: {
   const SCROLL_EDGE = 48
   const SCROLL_MAX_SPEED = 28
 
-  function findEditorAt(x: number, y: number): Editor | null {
-    const el = document.elementFromPoint(x, y)
-    if (!el?.closest) return null
-    const pm = el.closest('.ProseMirror')
-    if (!pm) return null
+  function editorOfPm(pm: HTMLElement): Editor | null {
     let comp = (pm as any).__vueParentComponent
     while (comp) {
       if (comp.setupState && comp.setupState.editor) return comp.setupState.editor as Editor
@@ -53,10 +49,40 @@ export function useBlockDrag(options: {
     return null
   }
 
+  const clampTo = (min: number, max: number, value: number) => Math.min(Math.max(value, min), max)
+
+  const isInsideRect = (rect: DOMRect, x: number, y: number) =>
+    x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+
+  // 因 .editor-wrapper 左右 gutter 是 pointer-events:none 的留白、block-handle 手柄正落在其中，
+  // 沿 gutter 竖直拖拽时 elementFromPoint 命不中 .ProseMirror，直判会整个丢手（无插入线、松手无反应），
+  // 故未直接命中时按各编辑器包装盒兜底归属，并把落点夹回内容区
+  function resolveEditorHit(x: number, y: number): { editor: Editor; pm: HTMLElement; x: number; y: number } | null {
+    const direct = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.('.ProseMirror') as HTMLElement | null
+    const directEditor = direct ? editorOfPm(direct) : null
+    if (direct && directEditor) return { editor: directEditor, pm: direct, x, y }
+
+    const pms = Array.from(document.querySelectorAll<HTMLElement>('.ProseMirror'))
+    const pm = pms.find((el) => {
+      const wrapper = el.closest('.editor-wrapper')
+      return !!wrapper && isInsideRect(wrapper.getBoundingClientRect(), x, y)
+    })
+    const editor = pm ? editorOfPm(pm) : null
+    if (!pm || !editor) return null
+    const content = pm.getBoundingClientRect()
+    return {
+      editor,
+      pm,
+      x: clampTo(content.left + 1, content.right - 1, x),
+      y: clampTo(content.top, content.bottom, y),
+    }
+  }
+
   function findScrollElAt(x: number, y: number): HTMLElement | null {
     const el = document.elementFromPoint(x, y)
-    if (!el?.closest) return null
-    return el.closest('.editor-scroll') as HTMLElement | null
+    const direct = el?.closest?.('.editor-scroll') as HTMLElement | null
+    // gutter 内同样命不中滚动容器，经编辑器归属兜底，保证贴边拖拽仍能自动滚动
+    return direct ?? ((resolveEditorHit(x, y)?.pm.closest('.editor-scroll') as HTMLElement | null) ?? null)
   }
 
   function autoScroll(x: number, y: number): boolean {
@@ -160,9 +186,9 @@ export function useBlockDrag(options: {
   }
 
   function updateDropIndicator(x: number, y: number) {
-    const target = findEditorAt(x, y)
-    if (target) {
-      updateIndicator(target.view, findDropPos(target.view, x, y))
+    const hit = resolveEditorHit(x, y)
+    if (hit) {
+      updateIndicator(hit.editor.view, findDropPos(hit.editor.view, hit.x, hit.y))
     } else {
       hideIndicator()
     }
@@ -170,12 +196,12 @@ export function useBlockDrag(options: {
 
   function onDragUp(e: MouseEvent) {
     if (!active || !source) return
-    const target = findEditorAt(e.clientX, e.clientY)
-    if (target) {
-      if (target === source.editor) {
-        moveInSameEditor(source, target.view, e.clientX, e.clientY)
+    const hit = resolveEditorHit(e.clientX, e.clientY)
+    if (hit) {
+      if (hit.editor === source.editor) {
+        moveInSameEditor(source, hit.editor.view, hit.x, hit.y)
       } else {
-        moveAcrossEditors(source, target, e.clientX, e.clientY)
+        moveAcrossEditors(source, hit.editor, hit.x, hit.y)
       }
     }
     cleanup()

@@ -137,21 +137,32 @@ watch(handleVisible, (visible) => {
   window.dispatchEvent(new CustomEvent('Mindrizzle:block-handle-active', { detail: { active: !!visible, blockId } }))
 })
 
-// popup 贴右缘时可能盖住滚动条，此时 wheel 目标落在 popup 上（其祖先无滚动容器），
-// 鼠标位于滚动条矩形内时手动转发 delta 并 stopPropagation 防止被切项逻辑拦截
+// 因滚动条是 overlay（原生滚动条已隐藏，offsetWidth-clientWidth 恒为 0，按宽度推算的判据失效），
+// popup 贴右/下缘时其检测区域会压住滚动条，wheel 目标落到 popup（祖先无滚动容器）便滚不动，
+// 故按滚动条元素矩形判定并手动转发 delta
+const LINE_HEIGHT = 16
 const onPopupWheel = (e: WheelEvent) => {
   const scrollEl = getScrollEl(getView(props.editor))
-  if (!scrollEl) return
-  const r = scrollEl.getBoundingClientRect()
-  const vBarW = scrollEl.offsetWidth - scrollEl.clientWidth
-  const hBarH = scrollEl.offsetHeight - scrollEl.clientHeight
-  const x = e.clientX
-  const y = e.clientY
-  const onVBar = vBarW > 0 && x >= r.right - vBarW && x <= r.right && y >= r.top && y <= r.bottom
-  const onHBar = hBarH > 0 && y >= r.bottom - hBarH && y <= r.bottom && x >= r.left && x <= r.right
-  if (!onVBar && !onHBar) return
-  if (onVBar) scrollEl.scrollTop += e.deltaY
-  if (onHBar) scrollEl.scrollLeft += e.deltaX
+  const shell = scrollEl?.closest('.editor-scroll-shell')
+  if (!scrollEl || !shell) return
+
+  const isOnBar = (selector: string) => {
+    const bar = shell.querySelector(selector)
+    if (!bar) return false
+    const r = bar.getBoundingClientRect()
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+  }
+  const unitOf = (extent: number) =>
+    e.deltaMode === 2 ? extent : e.deltaMode === 1 ? LINE_HEIGHT : 1
+
+  if (isOnBar('.custom-scrollbar-vertical')) {
+    scrollEl.scrollTop += e.deltaY * unitOf(scrollEl.clientHeight)
+  } else if (isOnBar('.custom-scrollbar-horizontal')) {
+    scrollEl.scrollLeft += (e.deltaX || e.deltaY) * unitOf(scrollEl.clientWidth)
+  } else {
+    return
+  }
+  e.preventDefault()
   e.stopPropagation()
 }
 </script>
