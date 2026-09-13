@@ -198,8 +198,12 @@ const bringToTop = (id: string) => {
 // 选中块 z 提升到高于所有普通块（VDR 的 activeOnTop 同款行为）；
 // 且需高于描边环使块内 popup 对外层级也在描边环之上，基值取 Z_LAYER.selectedBlock
 const SELECTED_Z_BASE = Z_LAYER.selectedBlock
-const blockZ = (id: string): number =>
-  isEditMode.value && state.selectedIds.has(id) ? Math.max(itemZ(id), SELECTED_Z_BASE) : itemZ(id)
+const blockZ = (id: string): number => {
+  const isSelected = isEditMode.value && state.selectedIds.has(id)
+  const isDragging = customDrag.active && customDrag.draggingIds.has(id)
+  const base = isSelected ? SELECTED_Z_BASE : 0
+  return Math.max(itemZ(id), isDragging ? Z_LAYER.dragHandle : base)
+}
 
 // ResizeBox 的 active 属性会驱动缩放手柄显示，选中块时置为激活
 const isActive = (id: string): boolean => isEditMode.value && state.selectedIds.has(id)
@@ -1306,6 +1310,13 @@ const applyCustomDrag = () => {
 const SNAP_TOLERANCE = 10
 const PAPERCLIP_PROXIMITY = 32
 const snapLayoutToOthers = (target: CanvasItem, layout: Rect) => {
+  const hasOverlap = state.items.some((other) => {
+    if (other.id === target.id || customDragGroup[other.id]) return false
+    const o = layoutOf(other)
+    return layout.x < o.x + o.w && layout.x + layout.w > o.x && layout.y < o.y + o.h && layout.y + layout.h > o.y
+  })
+  if (hasOverlap) return
+
   const candidatesX: number[] = []
   const candidatesY: number[] = []
   state.items.forEach((other) => {
@@ -2983,7 +2994,8 @@ defineExpose({
   border-radius: 6px;
   box-sizing: border-box;
   pointer-events: none;
-  z-index: 1003;
+  /* 活动拖拽层/拖拽栏需高于目标高亮，插入线仍在更高层 */
+  z-index: 999;
   animation: rich-text-drop-pulse 1s linear infinite;
 }
 
@@ -3012,7 +3024,8 @@ defineExpose({
   border-radius: calc(2px / var(--canvas-zoom, 1));
   background: rgb(var(--v-theme-primary));
   pointer-events: none;
-  z-index: 1004;
+  /* 拖拽栏需高于落点线，避免 drop indicator 覆盖手柄 */
+  z-index: 1000;
 }
 
 /* 添加块预览：主题色虚线框 + 半透明填充标出将添加的块（z 由 addPreviewStyle 置 Z_LAYER.outline） */
