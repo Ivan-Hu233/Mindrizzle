@@ -2,6 +2,7 @@
   <div
     ref="wrapperRef"
     class="editor-wrapper"
+    :data-read-only="props.readOnly ? 'true' : 'false'"
     :class="{ compact: useCompact, 'auto-height': autoHeight }"
     :style="{
       color: 'var(--v-theme-on-surface)',
@@ -26,7 +27,7 @@
             @pointerdown.stop="startHorizontalThumb" />
         </div>
       </div>
-      <blockHandle :editor="editor" />
+      <blockHandle :editor="editor" :read-only="props.readOnly === true" />
       <!-- .vdr 的 transform 祖先会使 fixed 定位基准偏移，teleport 到 body -->
       <Teleport to="body">
         <RowDropIndicator :editor="editor" />
@@ -56,6 +57,7 @@ interface Props {
   compact?: boolean
   doc?: NodeJSON | null
   autoHeight?: boolean
+  readOnly?: boolean
 }
 const props = defineProps<Props>()
 
@@ -69,6 +71,15 @@ const editorMount = ref<HTMLDivElement>()
 const wrapperRef = ref<HTMLDivElement>()
 const scrollRef = ref<HTMLDivElement>()
 const scrollMetrics = reactive({ scrollTop: 0, scrollLeft: 0, scrollHeight: 0, scrollWidth: 0, clientHeight: 0, clientWidth: 0, hasVertical: false, hasHorizontal: false })
+let editorMounted = false
+
+const syncReadOnly = (readOnly: boolean) => {
+  if (!editorMounted) return
+  editor.view.setProps({ editable: () => !readOnly })
+  wrapperRef.value?.dispatchEvent(new CustomEvent('Mindrizzle:rich-text-read-only', { detail: readOnly }))
+}
+
+watch(() => props.readOnly, (readOnly) => syncReadOnly(readOnly === true))
 
 const updateScrollMetrics = () => {
   const scroll = scrollRef.value
@@ -265,6 +276,8 @@ onMounted(() => {
   if (scrollRef.value) observer.observe(scrollRef.value)
   if (editorMount.value) {
     editor.mount(editorMount.value)
+    editorMounted = true
+    syncReadOnly(props.readOnly === true)
     observer.observe(editorMount.value)
     if (isMobile.value) {
       // view.focus() 不带 preventScroll，聚焦 ProseMirror 根 DOM 触发默认滚动
@@ -285,6 +298,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  editorMounted = false
   if (metricsFrame) cancelAnimationFrame(metricsFrame)
   metricsFrame = 0
   if (contentResizeFrame) cancelAnimationFrame(contentResizeFrame)
@@ -456,14 +470,17 @@ defineExpose({
   border-color: rgb(var(--v-theme-primary));
 }
 
-.editor-mount :deep(.ProseMirror) {
+/* 因 editor.mount 把 ProseMirror 直接挂在 .editor-mount 上（二者是同一元素），
+   原后代选择器命不中、规则全部失效，故统一改用同元素选择器；
+   又因末行需能被 hover 判定为在 view.dom 内，故不设 height:100%（固定高度会使末行弹不出 popup），
+   高度随内容增长，min-height 沿用 .editor-mount 的 100% 以保证块内空白处也可点击聚焦 */
+.editor-mount.ProseMirror {
   padding: 0;
   outline: none;
-  height: 100%;
-  /* 块随 zoom 重排版放大，固定 min-height 按 --canvas-zoom 缩放保持协调 */
-  min-height: calc(100px * var(--canvas-zoom, 1));
   pointer-events: auto;
   touch-action: auto;
+  /* 只读下仍需可选中并复制文本 */
+  user-select: text;
 }
 
 /* 需保证强制移动端/紧凑模式同样生效，直接绑定 compact 类而非用媒体查询 */

@@ -609,6 +609,7 @@ const getComponentProps = (item: CanvasItem) => {
       doc: cfg.content,
       compact: mobileMode.value,
       autoHeight: cfg.autoHeight === true,
+      readOnly: !isEditMode.value,
       // autoHeight 状态存于父组件 config，经事件回写，块内不维护副本
       'onUpdate:autoHeight': (v: boolean) => { cfg.autoHeight = v },
     }
@@ -618,6 +619,7 @@ const getComponentProps = (item: CanvasItem) => {
     return {
       modelValue: cfg.code,
       language: cfg.language,
+      readOnly: !isEditMode.value,
     }
   }
   return {}
@@ -2831,7 +2833,7 @@ const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
 }
 
 const deleteSelected = () => {
-  if (state.selectedIds.size === 0) return
+  if (!isEditMode.value || state.selectedIds.size === 0) return
   const ids = Array.from(state.selectedIds)
   state.items = state.items.filter((it) => !ids.includes(it.id))
   state.selectedIds = new Set()

@@ -32,7 +32,8 @@
       <v-btn @click="toggleMobileSim">
         {{ mobileButtonLabel }}
       </v-btn>
-      <v-btn color="error" data-test="delete-selected" @click="deleteSelected" :disabled="MdrCRef?.state.selectedIds.size === 0">
+      <v-btn color="error" data-test="delete-selected" @click="deleteSelected"
+        :disabled="!MdrCRef?.isEditMode || MdrCRef?.state.selectedIds.size === 0">
         删除
       </v-btn>
       <v-select
@@ -360,7 +361,7 @@ const batchToggleUnderline = () => {
 }
 
 const deleteSelected = () => {
-  if (MdrCRef.value!.state.selectedIds.size === 0) return
+  if (!MdrCRef.value?.isEditMode || MdrCRef.value.state.selectedIds.size === 0) return
   const ids = Array.from(MdrCRef.value!.state.selectedIds)
   MdrCRef.value!.state.items = MdrCRef.value!.state.items.filter((it) => !ids.includes(it.id))
   MdrCRef.value!.state.selectedIds = new Set()

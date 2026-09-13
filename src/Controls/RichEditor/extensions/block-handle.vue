@@ -18,6 +18,7 @@ import { activeHandleBlockId } from './blockHandleOwner'
 interface Props {
   dir?: 'ltr' | 'rtl'
   editor?: Editor | null
+  readOnly?: boolean
 }
 const props = defineProps<Props>()
 
@@ -183,7 +184,7 @@ const onPopupWheel = (e: WheelEvent) => {
        必须在 .canvas **内**（而非 .canvas-container）：reference（编辑器内的行）的
        getBoundingClientRect 是 .canvas 的布局坐标（不含自己的 CSS zoom），
        popup 只有在同一 zoom 空间里两者才能对齐；放到容器上会随缩放整体偏移 -->
-  <Teleport to=".canvas">
+  <Teleport v-if="!props.readOnly" to=".canvas">
     <BlockHandleRoot @state-change="onBlockStateChange">
       <BlockHandlePositioner
         :placement="handlePlacement"

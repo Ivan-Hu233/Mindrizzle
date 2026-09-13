@@ -4,6 +4,7 @@
       <v-select
         v-model="currentLanguage"
         :items="languageOptions"
+        :disabled="readOnly"
         aria-label="语言"
         variant="solo"
         density="compact"
@@ -25,6 +26,7 @@
         ref="textareaRef"
         v-model="internalCode"
         class="edit-layer"
+        :readonly="readOnly"
         :style="{ caretColor: String(primaryColor) }"
         spellcheck="false"
         @scroll="syncScroll"
@@ -148,6 +150,10 @@ const props = defineProps({
     type: String,
     default: 'plaintext',
   },
+  readOnly: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(['update:modelValue', 'update:language']);
@@ -180,6 +186,7 @@ const renderHighlight = () => {
 };
 
 const onInput = () => {
+  if (props.readOnly) return;
   emit('update:modelValue', internalCode.value);
   renderHighlight();
 };
@@ -225,6 +232,7 @@ const copyCode = async () => {
 };
 
 const handleKeydown = (event: KeyboardEvent) => {
+  if (props.readOnly) return;
   const textarea = textareaRef.value;
   if (!textarea) return;
 
@@ -285,6 +293,7 @@ watch(
 );
 
 watch(currentLanguage, (newLang) => {
+  if (props.readOnly) return;
   emit('update:language', newLang);
   nextTick(renderHighlight);
 });

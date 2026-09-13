@@ -162,6 +162,7 @@ const ResizableContainer = defineComponent({
     maxWidth: { type: Number as PropType<number | null>, default: null },
     minHeight: { type: Number as PropType<number | null>, default: null },
     maxHeight: { type: Number as PropType<number | null>, default: null },
+    readOnly: { type: Boolean, default: false },
     // 内容经 prop 传入而非 slot：NodeView 渲染上下文外调用 slot 会触发 Vue 警告
     content: { type: Object as PropType<any>, required: true },
   },
@@ -189,6 +190,7 @@ const ResizableContainer = defineComponent({
     )
 
     const startResize = (e: MouseEvent) => {
+      if (props.readOnly) return
       e.preventDefault()
       e.stopPropagation()
       isResizing.value = true
@@ -237,6 +239,7 @@ const ResizableContainer = defineComponent({
 
     // 左下角按钮：把插入组件拖出富文本重新变回画布块，是否落位由画布判定（同步回填 accepted）
     const startExtract = (event: MouseEvent) => {
+      if (props.readOnly) return
       event.preventDefault()
       event.stopPropagation()
       isExtracting.value = true
@@ -288,22 +291,24 @@ const ResizableContainer = defineComponent({
         },
         [
           ...children,
-          renderCornerButton({
-            icon: mdiExportVariant,
-            active: isExtractActive,
-            cursor: 'grab',
-            at: { left: '4px', bottom: '4px' },
-            onMousedown: startExtract,
-            onHover: (hovering) => { isExtractHovered.value = hovering },
-          }),
-          renderCornerButton({
-            icon: mdiArrowBottomRight,
-            active: isResizeActive,
-            cursor: 'nwse-resize',
-            at: { right: '4px', bottom: '4px' },
-            onMousedown: startResize,
-            onHover: (hovering) => { isResizeHovered.value = hovering },
-          }),
+          ...(props.readOnly ? [] : [
+            renderCornerButton({
+              icon: mdiExportVariant,
+              active: isExtractActive,
+              cursor: 'grab',
+              at: { left: '4px', bottom: '4px' },
+              onMousedown: startExtract,
+              onHover: (hovering) => { isExtractHovered.value = hovering },
+            }),
+            renderCornerButton({
+              icon: mdiArrowBottomRight,
+              active: isResizeActive,
+              cursor: 'nwse-resize',
+              at: { right: '4px', bottom: '4px' },
+              onMousedown: startResize,
+              onHover: (hovering) => { isResizeHovered.value = hovering },
+            }),
+          ]),
         ],
       )
     }
@@ -376,6 +381,11 @@ export const vueComponentNodeView = defineVueNodeView({
       // 首次取 clientWidth 可能为 0，以 10000 作较大后备避免宽度塌缩
       const containerWidth = ref<number>(view.dom.clientWidth || 10000)
       let resizeObserver: ResizeObserver | null = null
+      const readOnly = ref(!view.editable)
+      let editorWrapper: HTMLElement | null = null
+      const onReadOnlyChange = (event: Event) => {
+        readOnly.value = (event as CustomEvent<boolean>).detail === true
+      }
 
       onMounted(() => {
         const container = view.dom
@@ -409,6 +419,7 @@ export const vueComponentNodeView = defineVueNodeView({
       })
 
       const handleResize = (newWidth: number, newHeight: number) => {
+        if (readOnly.value) return
         const pos = getPos()
         if (typeof pos !== 'number') return
         const tr = view.state.tr
@@ -421,6 +432,7 @@ export const vueComponentNodeView = defineVueNodeView({
       }
 
       const updateComponentProps = (props: Record<string, any>) => {
+        if (readOnly.value) return
         const pos = getPos()
         if (typeof pos !== 'number') return
         const tr = view.state.tr
@@ -434,6 +446,7 @@ export const vueComponentNodeView = defineVueNodeView({
       // 左下按钮拖出成块：由画布判定是否落位（编辑态 + 落在画布内）并同步回填 accepted，
       // 落位成功后从文档删除该节点（画布块已接管其内容）
       const handleExtract = (point: { clientX: number; clientY: number }) => {
+        if (readOnly.value) return
         const pos = getPos()
         if (typeof pos !== 'number') return
         // doc 需 block+，仅剩该节点时抽出会留下非法空文档，直接不响应
@@ -461,6 +474,15 @@ export const vueComponentNodeView = defineVueNodeView({
         },
         { immediate: true }
       )
+
+      onMounted(() => {
+        editorWrapper = view.dom.closest('.editor-wrapper') as HTMLElement | null
+        if (!editorWrapper) return
+        readOnly.value = editorWrapper.dataset.readOnly === 'true'
+        editorWrapper.addEventListener('Mindrizzle:rich-text-read-only', onReadOnlyChange)
+      })
+
+      onUnmounted(() => editorWrapper?.removeEventListener('Mindrizzle:rich-text-read-only', onReadOnlyChange))
 
       return () => {
         const currentNode = node.value
@@ -514,6 +536,7 @@ export const vueComponentNodeView = defineVueNodeView({
           },
           h(Comp, {
             ...componentProps,
+            readOnly: readOnly.value,
             'onUpdate:modelValue': (value: string) => updateComponentProps({ modelValue: value }),
             'onUpdate:language': (value: string) => updateComponentProps({ language: value }),
             style: {
@@ -535,6 +558,7 @@ export const vueComponentNodeView = defineVueNodeView({
             maxWidth: effectiveMaxWidth.value,
             minHeight: state.constraints.minHeight,
             maxHeight: state.constraints.maxHeight,
+            readOnly: readOnly.value,
             onResize: handleResize,
             onExtract: handleExtract,
             content: innerContent,
