@@ -226,11 +226,12 @@ const ResizableContainer = defineComponent({
 
       const onMouseUp = () => {
         isResizing.value = false
-        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mousemove', onMouseMove, true)
         document.removeEventListener('mouseup', onMouseUp)
       }
 
-      document.addEventListener('mousemove', onMouseMove)
+      // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+      document.addEventListener('mousemove', onMouseMove, true)
       document.addEventListener('mouseup', onMouseUp)
     }
 
@@ -247,14 +248,15 @@ const ResizableContainer = defineComponent({
       }
       const onMouseMove = (ev: MouseEvent) => placeGhost(ev)
       const onMouseUp = (ev: MouseEvent) => {
-        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mousemove', onMouseMove, true)
         document.removeEventListener('mouseup', onMouseUp)
         ghost.remove()
         isExtracting.value = false
         emit('extract', { clientX: ev.clientX, clientY: ev.clientY })
       }
       placeGhost(event)
-      document.addEventListener('mousemove', onMouseMove)
+      // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+      document.addEventListener('mousemove', onMouseMove, true)
       document.addEventListener('mouseup', onMouseUp)
     }
 

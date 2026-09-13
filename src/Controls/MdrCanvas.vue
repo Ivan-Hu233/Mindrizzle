@@ -1164,9 +1164,10 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
       }
     })
   }
-  window.addEventListener('pointermove', onCustomDragMove)
+  // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+  window.addEventListener('pointermove', onCustomDragMove, true)
   window.addEventListener('pointerup', onCustomDragUp)
-  window.addEventListener('mousemove', onCustomDragMove)
+  window.addEventListener('mousemove', onCustomDragMove, true)
   window.addEventListener('mouseup', onCustomDragUp)
   customDrag.draggingIds = new Set(Object.keys(customDragGroup))
   e.preventDefault()
@@ -1575,9 +1576,9 @@ const onCustomDragUp = (e?: MouseEvent) => {
     cancelAnimationFrame(customDragRafId)
     customDragRafId = 0
   }
-  window.removeEventListener('pointermove', onCustomDragMove)
+  window.removeEventListener('pointermove', onCustomDragMove, true)
   window.removeEventListener('pointerup', onCustomDragUp)
-  window.removeEventListener('mousemove', onCustomDragMove)
+  window.removeEventListener('mousemove', onCustomDragMove, true)
   window.removeEventListener('mouseup', onCustomDragUp)
   stopAutoPan()
   // 拖拽结束需恢复编辑器 popup/高亮，移除 body 拖拽类

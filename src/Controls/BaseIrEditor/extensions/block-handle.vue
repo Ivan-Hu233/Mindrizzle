@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { mdiPlus, mdiDragVerticalVariant } from '@mdi/js'
 import {
   BlockHandleAdd,
@@ -9,7 +9,7 @@ import {
   BlockHandleRoot,
 } from 'prosekit/vue/block-handle'
 import type { Editor } from '@prosekit/core'
-import { createStoreResolver, getScrollEl, getView } from './blockHandleUtils'
+import { createOverlayStoreResolver, createStoreResolver, getScrollEl, getView } from './blockHandleUtils'
 import { useHoverState } from './useHoverState'
 import { useHoverUi } from './useHoverUi'
 import { useBlockDrag } from './useBlockDrag'
@@ -23,11 +23,14 @@ const props = defineProps<Props>()
 
 // ProseKit BlockHandleStore 每编辑器独立且各 composable 需共享，按实例闭包缓存解析
 const getStore = createStoreResolver()
+// overlay store 用于直接喂"指向当前行的动态参考"给 floating-ui
+const getOverlayStore = createOverlayStoreResolver()
 
 const { hoveredBlock, activeHover, handlePlacement, onBlockStateChange } = useHoverState(
   props.editor ?? null,
   props.dir ?? 'ltr',
   getStore,
+  getOverlayStore,
 )
 const {
   highlightRect,
@@ -51,12 +54,18 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   suppressUI,
 })
 
-// popup 已 Teleport 到 .canvas（脱离 wrapper DOM），画布需经 data-block-id 反查所属块，
-// 从 wrapper 取块 id 绑定到 popup（watcher 内亦用同款取法）
-const blockId = computed(() => {
-  const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
-  return wrapper?.dataset.id ?? null
-})
+// popup/positioner 已 Teleport 到 .canvas（脱离 wrapper DOM），画布与 store 解析需按块 id 反查，
+// 而 setup 阶段 editor 尚未挂载、closest('.drag-wrapper') 为空，故监听 editor 变化后再赋值
+const blockId = ref<string | null>(null)
+watch(
+  () => props.editor,
+  async () => {
+    await nextTick()
+    const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
+    blockId.value = wrapper?.dataset.id ?? null
+  },
+  { immediate: true },
+)
 
 // blockId computed 依赖 props.editor 引用不变时不重算、挂载时序可能取到 null，
 // 协调逻辑用函数实时查 DOM，避免 id 过期为 null 导致误隐藏自己
@@ -170,12 +179,16 @@ const onPopupWheel = (e: WheelEvent) => {
 <template>
   <!-- popup 需显示在曲别针（1003）之上，而其在编辑器内受块层叠上下文限制（对外层级=块 z），
        把含 provider 的 Root 整体 Teleport 到 .canvas：store context 不丢、
-       floating-ui 初始化即以 .canvas 为 containing block 计算定位（初始即正确，无需移动重算） -->
-  <Teleport to=".canvas-container">
+       floating-ui 以 .canvas 为 containing block 计算定位。
+       必须在 .canvas **内**（而非 .canvas-container）：reference（编辑器内的行）的
+       getBoundingClientRect 是 .canvas 的布局坐标（不含自己的 CSS zoom），
+       popup 只有在同一 zoom 空间里两者才能对齐；放到容器上会随缩放整体偏移 -->
+  <Teleport to=".canvas">
     <BlockHandleRoot @state-change="onBlockStateChange">
       <BlockHandlePositioner
         :placement="handlePlacement"
         :hide="false"
+        :data-owner="blockId"
         :class="['block-handle-positioner', `placement-${handlePlacement}`, { interactive: handleVisible }]"
         :style="{ '--block-handle-shift': popupShiftPx + 'px', '--block-handle-hshift': popupHShiftPx + 'px' }"
         @pointerenter="onPopupEnter"
@@ -263,7 +276,6 @@ const onPopupWheel = (e: WheelEvent) => {
   transition: opacity 0.1s, scale 0.1s;
   transform-origin: var(--transform-origin, center);
   opacity: 1;
-  scale: var(--canvas-zoom, 1);
   position: relative;
   z-index: 1;
 }
@@ -336,7 +348,7 @@ const onPopupWheel = (e: WheelEvent) => {
 /* hoverState 失效时 ProseKit 会隐藏 popup，为使鼠标在手柄上仍可点击 ADD/拖拽，强制保持显示 */
 .block-handle-popup.popup-keep {
   opacity: 1 !important;
-  scale: var(--canvas-zoom, 1) !important;
+  scale: 1 !important;
   display: inline-flex !important;
   visibility: visible !important;
 }
@@ -345,7 +357,7 @@ const onPopupWheel = (e: WheelEvent) => {
    但 hover 已命中（行高亮显示），activeHover 时强制显示，位置由 popupShiftPx 贴回可见区 */
 .block-handle-popup.forced-open {
   opacity: 1 !important;
-  scale: var(--canvas-zoom, 1) !important;
+  scale: 1 !important;
   display: inline-flex !important;
   visibility: visible !important;
 }

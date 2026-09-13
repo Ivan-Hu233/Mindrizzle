@@ -1,7 +1,7 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
-import { dispatchBlockHover, getBlockRect, getRealPointer, getScrollEl, getView, isCompactView, isPointerInsideRect } from './blockHandleUtils'
+import { dispatchBlockHover, getBlockRect, getRealPointer, getScrollEl, getView, isCompactView, isPointerInsideRect, layoutToViewportX, layoutToViewportY, viewportToLayout } from './blockHandleUtils'
 import type { HoveredBlock } from './useHoverState'
 
 export function useHoverUi(options: {
@@ -70,8 +70,10 @@ export function useHoverUi(options: {
       if (r) {
         // 高亮 fixed 到 body 且 z 极高，块被拖到画布外时高亮会盖住工具栏，
         // 同时 clamp 到画布容器可见区（工具栏之下）与编辑器滚动容器
+        // 行矩形是 .canvas 布局坐标，高亮/裁剪区是视觉坐标，需换算后再 clamp
         const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
-        let hlLeft = r.left, hlRight = r.right, hlTop = r.top, hlBottom = r.bottom
+        let hlLeft = layoutToViewportX(view(), r.left), hlRight = layoutToViewportX(view(), r.right)
+        let hlTop = layoutToViewportY(view(), r.top), hlBottom = layoutToViewportY(view(), r.bottom)
         for (const c of clampEls) {
           const cr = c.getBoundingClientRect()
           hlLeft = Math.max(hlLeft, cr.left)
@@ -93,12 +95,15 @@ export function useHoverUi(options: {
       const br = getBlockRect(view(), hb.pos)
       if (br) {
         const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
+        const brTop = layoutToViewportY(view(), br.top)
+        const brBottom = layoutToViewportY(view(), br.bottom)
         for (const c of clampEls) {
           const cr = c.getBoundingClientRect()
-          if (placement.value === 'top' && br.top < cr.top) {
-            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(cr.top - br.top))
-          } else if (placement.value === 'bottom' && br.bottom > cr.bottom) {
-            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(cr.bottom - br.bottom))
+          // popup 由 floating-ui 定位在 .canvas 布局空间，偏移量须换算回布局 px，直接给视口像素会被 zoom 二次缩放
+          if (placement.value === 'top' && brTop < cr.top) {
+            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(viewportToLayout(view(), cr.top - brTop)))
+          } else if (placement.value === 'bottom' && brBottom > cr.bottom) {
+            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(viewportToLayout(view(), cr.bottom - brBottom)))
           }
         }
       }

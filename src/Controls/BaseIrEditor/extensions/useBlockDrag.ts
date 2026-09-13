@@ -6,7 +6,7 @@ import { onUnmounted, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
 import { NodeSelection } from 'prosekit/pm/state'
-import { getBlockRect, getView } from './blockHandleUtils'
+import { getVisibleBlockRect, getView, layoutToViewportSize, layoutToViewportX, layoutToViewportY } from './blockHandleUtils'
 import type { HoveredBlock } from './useHoverState'
 
 interface DragSource {
@@ -14,6 +14,19 @@ interface DragSource {
   node: any
   from: number
   to: number
+}
+
+interface EditorHit {
+  editor: Editor
+  pm: HTMLElement
+  x: number
+  y: number
+}
+
+interface DropAnchor {
+  pos: number
+  el: HTMLElement | null
+  before: boolean
 }
 
 export function useBlockDrag(options: {
@@ -51,21 +64,25 @@ export function useBlockDrag(options: {
 
   const clampTo = (min: number, max: number, value: number) => Math.min(Math.max(value, min), max)
 
-  const isInsideRect = (rect: DOMRect, x: number, y: number) =>
-    x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-
   // 因 .editor-wrapper 左右 gutter 是 pointer-events:none 的留白、block-handle 手柄正落在其中，
   // 沿 gutter 竖直拖拽时 elementFromPoint 命不中 .ProseMirror，直判会整个丢手（无插入线、松手无反应），
   // 故未直接命中时按各编辑器包装盒兜底归属，并把落点夹回内容区
-  function resolveEditorHit(x: number, y: number): { editor: Editor; pm: HTMLElement; x: number; y: number } | null {
+  // （wrapper/内容矩形是 .canvas 布局坐标，鼠标是视口坐标，统一经 layoutToViewport* 换算后再比较）
+  function resolveEditorHit(x: number, y: number): EditorHit | null {
     const direct = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.('.ProseMirror') as HTMLElement | null
     const directEditor = direct ? editorOfPm(direct) : null
     if (direct && directEditor) return { editor: directEditor, pm: direct, x, y }
 
     const pms = Array.from(document.querySelectorAll<HTMLElement>('.ProseMirror'))
     const pm = pms.find((el) => {
-      const wrapper = el.closest('.editor-wrapper')
-      return !!wrapper && isInsideRect(wrapper.getBoundingClientRect(), x, y)
+      const wrapper = el.closest('.editor-wrapper') as HTMLElement | null
+      if (!wrapper) return false
+      const r = wrapper.getBoundingClientRect()
+      const left = layoutToViewportX(el, r.left)
+      const right = layoutToViewportX(el, r.left + r.width)
+      const top = layoutToViewportY(el, r.top)
+      const bottom = layoutToViewportY(el, r.top + r.height)
+      return x >= left && x <= right && y >= top && y <= bottom
     })
     const editor = pm ? editorOfPm(pm) : null
     if (!pm || !editor) return null
@@ -73,27 +90,24 @@ export function useBlockDrag(options: {
     return {
       editor,
       pm,
-      x: clampTo(content.left + 1, content.right - 1, x),
-      y: clampTo(content.top, content.bottom, y),
+      x: clampTo(layoutToViewportX(pm, content.left) + 1, layoutToViewportX(pm, content.left + content.width) - 1, x),
+      y: clampTo(layoutToViewportY(pm, content.top), layoutToViewportY(pm, content.top + content.height), y),
     }
   }
 
-  function findScrollElAt(x: number, y: number): HTMLElement | null {
+  function autoScroll(x: number, y: number, hit: EditorHit | null): boolean {
     const el = document.elementFromPoint(x, y)
-    const direct = el?.closest?.('.editor-scroll') as HTMLElement | null
-    // gutter 内同样命不中滚动容器，经编辑器归属兜底，保证贴边拖拽仍能自动滚动
-    return direct ?? ((resolveEditorHit(x, y)?.pm.closest('.editor-scroll') as HTMLElement | null) ?? null)
-  }
-
-  function autoScroll(x: number, y: number): boolean {
-    const scrollEl = findScrollElAt(x, y)
+    const scrollEl = (el?.closest?.('.editor-scroll') as HTMLElement | null) ?? ((hit?.pm.closest('.editor-scroll') as HTMLElement | null) ?? null)
     if (!scrollEl) return false
+    // gutter 内同样命不中滚动容器，经编辑器归属兜底，保证贴边拖拽仍能自动滚动
     const r = scrollEl.getBoundingClientRect()
-    const inTop = y > r.top && y < r.top + SCROLL_EDGE
-    const inBottom = y < r.bottom && y > r.bottom - SCROLL_EDGE
+    const top = hit ? layoutToViewportY(hit.pm, r.top) : r.top
+    const bottom = hit ? layoutToViewportY(hit.pm, r.top + r.height) : r.bottom
+    const inTop = y > top && y < top + SCROLL_EDGE
+    const inBottom = y < bottom && y > bottom - SCROLL_EDGE
     if (!inTop && !inBottom) return false
     // 越贴近边缘滚得越快
-    const dist = inTop ? y - r.top : r.bottom - y
+    const dist = inTop ? y - top : bottom - y
     const step = Math.max(2, Math.round(SCROLL_MAX_SPEED * (1 - dist / SCROLL_EDGE)))
     if (inTop && scrollEl.scrollTop > 0) {
       scrollEl.scrollTop -= step
@@ -133,11 +147,14 @@ export function useBlockDrag(options: {
   function dragLoop() {
     rafId = 0
     if (!active || !source) return
-    const scrolled = autoScroll(lastX, lastY)
+    // 落点、自动滚动、画布平移均需知道鼠标下的编辑器，本帧只解析一次
+    const hit = resolveEditorHit(lastX, lastY)
+    const scrolled = autoScroll(lastX, lastY, hit)
     const panned = panCanvas(lastX, lastY)
     if (needsIndicator || scrolled || panned) {
       needsIndicator = false
-      updateDropIndicator(lastX, lastY)
+      if (hit) updateIndicator(hit.editor.view, resolveDropAnchor(hit.pm, hit.editor.view, hit.x, hit.y))
+      else hideIndicator()
     }
     ensureDragLoop()
   }
@@ -166,9 +183,11 @@ export function useBlockDrag(options: {
     lastX = e.clientX
     lastY = e.clientY
     ensureDragLoop()
-    // mouse.down 后部分环境不再派发 mousemove，同时监听 pointermove 以保证拖拽跟手
-    window.addEventListener('pointermove', onDragMove)
-    window.addEventListener('mousemove', onDragMove)
+    // mouse.down 后部分环境不再派发 mousemove，同时监听 pointermove 以保证拖拽跟手。
+    // 因 hover 自解析会在 window 捕获阶段 stopPropagation 阻断 ProseKit（zoom≠1），
+    // 这里也必须用捕获阶段，否则事件在到达目标前被停止、冒泡阶段的window监听器永远收不到
+    window.addEventListener('pointermove', onDragMove, true)
+    window.addEventListener('mousemove', onDragMove, true)
     window.addEventListener('mouseup', onDragUp)
     window.addEventListener('pointerup', onDragUp)
   }
@@ -187,55 +206,50 @@ export function useBlockDrag(options: {
     ensureDragLoop()
   }
 
-  function updateDropIndicator(x: number, y: number) {
-    const hit = resolveEditorHit(x, y)
-    if (hit) {
-      updateIndicator(hit.editor.view, findDropPos(hit.editor.view, hit.x, hit.y))
-    } else {
-      hideIndicator()
-    }
-  }
-
   function onDragUp(e: MouseEvent) {
     if (!active || !source) return
     const hit = resolveEditorHit(e.clientX, e.clientY)
     if (hit) {
-      if (hit.editor === source.editor) {
-        moveInSameEditor(source, hit.editor.view, hit.x, hit.y)
-      } else {
-        moveAcrossEditors(source, hit.editor, hit.x, hit.y)
-      }
+      if (hit.editor === source.editor) moveInSameEditor(source, hit)
+      else moveAcrossEditors(source, hit)
     }
     cleanup()
   }
 
-  // 插入位置判定：用鼠标 y 与所在块 DOM rect 中心比较，决定插到块前（before）还是块后（after），与行级指示器一致
-  function findDropPos(v: any, x: number, y: number): number {
-    const coords = v.posAtCoords({ left: x, top: y })
-    if (!coords) return v.state.doc.content.size
-    const $pos = v.state.doc.resolve(coords.pos)
-    if ($pos.depth === 0) return coords.pos
-    const before = $pos.before($pos.depth)
-    const after = $pos.after($pos.depth)
-    const blockRect = getBlockRect(v, before)
-    if (blockRect) return y < blockRect.top + blockRect.height / 2 ? before : after
-    return coords.pos - before < after - coords.pos ? before : after
+  // 落点判定：用命中元素所在块元素经 posAtDOM 映射回文档位置（与坐标无关，缩放/平移下都成立），
+  // 再按鼠标 y 与该块视觉矩形中心比较决定插到块前还是块后，与行级指示器一致
+  function resolveDropAnchor(pm: HTMLElement, v: any, x: number, y: number): DropAnchor {
+    const hit = document.elementFromPoint(x, y) as HTMLElement | null
+    let el: HTMLElement | null = hit && pm.contains(hit) ? hit : null
+    while (el && el.parentElement !== pm) el = el.parentElement
+    if (!el) return { pos: v.state.doc.content.size, el: null, before: false }
+    const at = v.posAtDOM(el, 0)
+    const $pos = v.state.doc.resolve(at)
+    const rect = getVisibleBlockRect(el)
+    const mid = rect ? layoutToViewportY(v, rect.top) + layoutToViewportSize(v, rect.height) / 2 : y
+    const before = y < mid
+    // 原子块（NodeView 根）的 $pos.depth 为 0，posAtDOM 落在文档级位置，需按 nodeSize 取前后
+    if ($pos.depth === 0) {
+      const node = v.state.doc.nodeAt(at)
+      return { pos: before ? at : at + (node?.nodeSize ?? 0), el, before }
+    }
+    return { pos: before ? $pos.before($pos.depth) : $pos.after($pos.depth), el, before }
   }
 
   // 删除源块后插入位置会偏移，经 tr.mapping 修正后再插入
-  function moveInSameEditor(s: DragSource, v: any, x: number, y: number) {
-    const insertPos0 = findDropPos(v, x, y)
+  function moveInSameEditor(s: DragSource, hit: EditorHit) {
+    const v = hit.editor.view
+    const anchor = resolveDropAnchor(hit.pm, v, hit.x, hit.y)
     const tr = v.state.tr
     tr.delete(s.from, s.to)
-    const insertPos = tr.mapping.map(insertPos0)
-    tr.insert(insertPos, v.state.schema.nodeFromJSON(s.node.toJSON()))
+    tr.insert(tr.mapping.map(anchor.pos), v.state.schema.nodeFromJSON(s.node.toJSON()))
     v.dispatch(tr)
     v.focus()
   }
 
-  function moveAcrossEditors(s: DragSource, target: Editor, x: number, y: number) {
-    const tgtView = target.view
-    const insertPos = findDropPos(tgtView, x, y)
+  function moveAcrossEditors(s: DragSource, hit: EditorHit) {
+    const tgtView = hit.editor.view
+    const anchor = resolveDropAnchor(hit.pm, tgtView, hit.x, hit.y)
     const srcView = s.editor.view
     const delTr = srcView.state.tr
     delTr.delete(s.from, s.to)
@@ -243,7 +257,7 @@ export function useBlockDrag(options: {
     // 各 editor 的 schema 独立不能直接复用节点，经 nodeFromJSON 转换后插入
     const targetNode = tgtView.state.schema.nodeFromJSON(s.node.toJSON())
     const insTr = tgtView.state.tr
-    insTr.insert(insertPos, targetNode)
+    insTr.insert(anchor.pos, targetNode)
     tgtView.dispatch(insTr)
     tgtView.focus()
   }
@@ -260,8 +274,8 @@ export function useBlockDrag(options: {
     source = null
     removeGhost()
     removeIndicator()
-    window.removeEventListener('pointermove', onDragMove)
-    window.removeEventListener('mousemove', onDragMove)
+    window.removeEventListener('pointermove', onDragMove, true)
+    window.removeEventListener('mousemove', onDragMove, true)
     window.removeEventListener('mouseup', onDragUp)
     window.removeEventListener('pointerup', onDragUp)
   }
@@ -290,7 +304,9 @@ export function useBlockDrag(options: {
     ghostEl = null
   }
 
-  function updateIndicator(v: any, insertPos: number) {
+  // 因 CSS zoom 下 coordsAtPos 拿的是布局坐标、指示器是 fixed 视口定位，直接用会随缩放偏移，
+  // 改为按落点所在块元素的视觉矩形取上/下边缘（末尾落点取编辑器内容底边）
+  function updateIndicator(v: any, anchor: DropAnchor) {
     if (!indicatorEl) {
       indicatorEl = document.createElement('div')
       indicatorEl.style.cssText =
@@ -298,12 +314,15 @@ export function useBlockDrag(options: {
         'background:rgba(var(--v-theme-primary),0.9);z-index:9998;left:0;top:0;'
       document.body.appendChild(indicatorEl)
     }
-    const domRect = v.dom.getBoundingClientRect()
-    const coords = v.coordsAtPos(insertPos)
-    const y = coords ? coords.bottom : domRect.top
+    const pmRect = v.dom.getBoundingClientRect()
+    let y = layoutToViewportY(v, pmRect.top + pmRect.height)
+    if (anchor.el) {
+      const r = getVisibleBlockRect(anchor.el)
+      if (r) y = anchor.before ? layoutToViewportY(v, r.top) : layoutToViewportY(v, r.top + r.height)
+    }
     indicatorEl.style.display = 'block'
-    indicatorEl.style.width = `${Math.max(2, Math.round(domRect.width))}px`
-    indicatorEl.style.transform = `translate(${Math.round(domRect.left)}px, ${Math.round(y - 1)}px)`
+    indicatorEl.style.width = `${Math.max(2, Math.round(layoutToViewportSize(v, pmRect.width)))}px`
+    indicatorEl.style.transform = `translate(${Math.round(layoutToViewportX(v, pmRect.left))}px, ${Math.round(y - 1)}px)`
   }
   function hideIndicator() {
     if (indicatorEl) indicatorEl.style.display = 'none'

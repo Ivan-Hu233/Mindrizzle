@@ -153,7 +153,8 @@ const startVerticalThumb = (event: PointerEvent) => startScrollbarDrag('vertical
 const startHorizontalThumb = (event: PointerEvent) => startScrollbarDrag('horizontal', event)
 const startScrollbarDrag = (axis: 'vertical' | 'horizontal', event: PointerEvent) => {
   scrollbarDrag = { axis, start: axis === 'vertical' ? event.clientY : event.clientX, scroll: axis === 'vertical' ? scrollMetrics.scrollTop : scrollMetrics.scrollLeft }
-  window.addEventListener('pointermove', moveScrollbarDrag)
+  // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+  window.addEventListener('pointermove', moveScrollbarDrag, true)
   window.addEventListener('pointerup', stopScrollbarDrag, { once: true })
   event.preventDefault()
 }
@@ -169,7 +170,7 @@ const moveScrollbarDrag = (event: PointerEvent) => {
 }
 const stopScrollbarDrag = () => {
   scrollbarDrag = null
-  window.removeEventListener('pointermove', moveScrollbarDrag)
+  window.removeEventListener('pointermove', moveScrollbarDrag, true)
 }
 
 // 画布拖组件入本块需先知道落点：由画布命中到的块元素解析插入位置。

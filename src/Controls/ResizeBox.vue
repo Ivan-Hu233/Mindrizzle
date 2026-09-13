@@ -161,14 +161,15 @@ const onHandleDown = (handle: string, e: MouseEvent) => {
     startRect: { x: props.x, y: props.y, w: props.w, h: props.h },
     lastRect: { x: props.x, y: props.y, w: props.w, h: props.h },
   }
-  window.addEventListener('mousemove', onMove)
+  // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+  window.addEventListener('mousemove', onMove, true)
   window.addEventListener('mouseup', onUp)
   emit('resizestart', handle)
   e.preventDefault()
 }
 
 const cleanup = () => {
-  window.removeEventListener('mousemove', onMove)
+  window.removeEventListener('mousemove', onMove, true)
   window.removeEventListener('mouseup', onUp)
 }
 onUnmounted(cleanup)
