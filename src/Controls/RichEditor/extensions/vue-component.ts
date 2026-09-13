@@ -13,8 +13,8 @@ import {
   markRaw,
 } from 'vue'
 import { mdiArrowBottomRight, mdiExportVariant } from '@mdi/js'
-import { DEFAULT_CONSTRAINTS, normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints'
-import { createStoreResolver, findPositionerEl } from './blockHandleUtils'
+import { DEFAULT_CONSTRAINTS, normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints.ts'
+import { createStoreResolver, findPositionerEl } from './blockHandleUtils.ts'
 
 const resolveBlockHandleStore = createStoreResolver()
 
@@ -28,7 +28,7 @@ interface ComponentEntry {
 
 const componentMap: Record<string, ComponentEntry> = {
   CodeBlock: {
-    loader: () => import('../../EditorPlugin/EditableCodeBlock.vue'),
+    loader: () => import('../../EditorComponents/EditableCodeBlock.vue'),
   },
 }
 

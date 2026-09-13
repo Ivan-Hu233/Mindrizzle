@@ -119,32 +119,13 @@
 </template>
 
 <script lang="ts">
-import type { NodeJSON } from '@prosekit/core'
-import type { EditorCommands } from './BaseIrEditor/extension.ts'
-
-// 这些类型需在普通 <script> 中导出供父组件复用，置于此处
-export interface RichTextConfig {
-  content: NodeJSON | null
-  // 块高是否随内容自适应由富文本设置栏控制，持久化于 config
-  autoHeight?: boolean
-}
-
-export interface CodeBlockConfig {
-  code: string
-  language: string
-}
-
-export type WidgetConfig = RichTextConfig | CodeBlockConfig
-
-export interface ComponentController {
-  saveConfig?: () => Partial<WidgetConfig>
-  loadConfig?: (config: WidgetConfig) => void
-  // 父组件需经命令链调用富文本命令（如 toggleHeading）且要 IDE 补全，用 editor.commands 推导的精确类型而非宽泛索引签名
-  commands?: EditorCommands
-  // 拖组件入富文本块需解析落点与驱动块内滚动，二者非编辑器命令，单独暴露
-  resolveDropAtElement?: (el: HTMLElement | null, preferBefore: boolean) => number | null
-  scrollContent?: (deltaY: number) => void
-}
+export type {
+  CanvasItem,
+  ComponentController,
+  RichTextConfig,
+  CodeBlockConfig,
+  WidgetConfig,
+} from './canvasComponents.ts'
 </script>
 
 <script setup lang="ts">
@@ -152,12 +133,23 @@ import { reactive, ref, shallowRef, nextTick, onMounted, onUnmounted, computed, 
 import ResizeBox from './ResizeBox.vue'
 
 import { mdiDragVariant, mdiPaperclip, mdiCogOutline, mdiArrowUp } from '@mdi/js'
-import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Controls/BaseIrEditor/RichTextEditor.vue'
-import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
-import { normalizeConstraints, type ResizeConstraints } from './resizeConstraints.ts'
+import {
+  ADDABLE_COMPONENTS,
+  componentLabelOf,
+  componentMap,
+  componentMetaOf,
+  constraintsOf,
+  type CanvasItem,
+  type ComponentController,
+  type RichTextConfig,
+  type CodeBlockConfig,
+  type Rect,
+  type WidgetConfig,
+} from './canvasComponents.ts'
+import type { ResizeConstraints } from './resizeConstraints.ts'
 import { Z_LAYER } from './zIndex.ts'
 import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform, type Point, type ViewportOrigin } from '../utils/canvasCoords.ts'
-import { getVisibleBlockRect } from './BaseIrEditor/extensions/blockHandleUtils'
+import { getVisibleBlockRect } from './RichEditor/extensions/blockHandleUtils.ts'
 
 import { useDisplay } from 'vuetify'
 
@@ -177,93 +169,6 @@ const nextForceMobile = (): boolean | null => {
 
 const isEditMode = ref(true)
 // #endregion 显示模式
-
-// #region 核心类型
-interface Rect {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-interface CanvasItem {
-  id: string
-  component: 'RichTextEditor' | 'EditableCodeBlock'
-  config: WidgetConfig
-  layout: {
-    desktop: Rect
-    mobile: Rect
-  }
-  // 标记各端布局是否已排好；false 的端在首次进入时自动布局，之后保持用户手动调整
-  arranged: {
-    desktop: boolean
-    mobile: boolean
-  }
-}
-// #endregion 核心类型
-
-// #region 组件注册与尺寸约束
-const componentMap = {
-  RichTextEditor,
-  EditableCodeBlock,
-}
-
-// 新增可添加组件只需在此注册（key 对应 componentMap 的键）即可自动驱动工具栏与添加逻辑，集中于此
-interface AddableComponentMeta {
-  key: CanvasItem['component']
-  label: string
-  addId: string
-  defaultConfig: () => WidgetConfig
-  defaultSize: { w: number; h: number }
-}
-
-const ADDABLE_COMPONENTS: AddableComponentMeta[] = [
-  {
-    key: 'RichTextEditor',
-    label: '富文本',
-    addId: 'add-rich',
-    defaultConfig: () => ({ content: null }),
-    defaultSize: { w: 400, h: 300 },
-  },
-  {
-    key: 'EditableCodeBlock',
-    label: '代码块',
-    addId: 'add-code',
-    defaultConfig: () => ({
-      code: '// 在此编写代码',
-      language: 'javascript',
-    }),
-    defaultSize: { w: 400, h: 250 },
-  },
-]
-
-const componentMetaOf = (key: CanvasItem['component']) =>
-  ADDABLE_COMPONENTS.find((c) => c.key === key)
-
-const componentLabelOf = (key: CanvasItem['component']) =>
-  componentMetaOf(key)?.label ?? key
-
-// 组件未声明 resizeConstraints 时需回退画布默认（min 100，宽高不限），统一经 normalizeConstraints 归一
-const componentConstraints: Partial<
-  Record<CanvasItem['component'], ResizeConstraints>
-> = {
-  RichTextEditor: richTextConstraints,
-  EditableCodeBlock: codeBlockConstraints,
-}
-
-const CANVAS_DEFAULT_CONSTRAINTS: Required<ResizeConstraints> = {
-  minWidth: 100,
-  maxWidth: null,
-  minHeight: 100,
-  maxHeight: null,
-}
-
-const constraintsOf = (item: CanvasItem): Required<ResizeConstraints> => {
-  const raw = componentConstraints[item.component]
-  if (!raw) return CANVAS_DEFAULT_CONSTRAINTS
-  return normalizeConstraints(raw)
-}
-// #endregion 组件注册与尺寸约束
 
 // #region 画布状态与 z 层
 const state = reactive({
@@ -969,6 +874,19 @@ let customDragItems = new Map<string, CanvasItem>()
 // 粘贴链接：记录已用曲别针"粘贴"的块对（key 为两 id 排序后 join），拖动一个时另一块跟着动
 const linkedPairs = ref<Set<string>>(new Set())
 const pairKey = (a: string, b: string) => [a, b].sort().join('|')
+const linkedNeighborMap = computed(() => {
+  const neighbors = new Map<string, string[]>()
+  linkedPairs.value.forEach((key) => {
+    const [firstId, secondId] = key.split('|')
+    const firstNeighbors = neighbors.get(firstId) ?? []
+    const secondNeighbors = neighbors.get(secondId) ?? []
+    firstNeighbors.push(secondId)
+    secondNeighbors.push(firstId)
+    neighbors.set(firstId, firstNeighbors)
+    neighbors.set(secondId, secondNeighbors)
+  })
+  return neighbors
+})
 interface ConnectionPoint {
   x: number
   y: number
@@ -1102,10 +1020,8 @@ const collectLinkedIds = (rootId: string): Set<string> => {
     const id = queue.pop()!
     if (out.has(id)) continue
     out.add(id)
-    linkedPairs.value.forEach((key) => {
-      const [x, y] = key.split('|')
-      if (x === id && !out.has(y)) queue.push(y)
-      else if (y === id && !out.has(x)) queue.push(x)
+    linkedNeighborMap.value.get(id)?.forEach((neighborId) => {
+      if (!out.has(neighborId)) queue.push(neighborId)
     })
   }
   return out
@@ -1742,17 +1658,7 @@ const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: n
 const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<string, Rect>) => {
   const positions: Record<string, Rect> = {}
   const itemMap = new Map(state.items.map((target) => [target.id, target]))
-  const neighborMap = new Map<string, string[]>()
-  const addNeighbor = (fromId: string, toId: string) => {
-    const neighbors = neighborMap.get(fromId)
-    if (neighbors) neighbors.push(toId)
-    else neighborMap.set(fromId, [toId])
-  }
-  linkedPairs.value.forEach((key) => {
-    const [firstId, secondId] = key.split('|')
-    addNeighbor(firstId, secondId)
-    addNeighbor(secondId, firstId)
-  })
+  const neighborMap = linkedNeighborMap.value
   // autoPan 平移改变了联结块 layout，positions 用当前布局初始化以保留自由边平移；
   // 方位判定与位移仍基于 starts（会话起始，避免随动干扰）
   Object.keys(starts).forEach((id) => {
@@ -2239,38 +2145,7 @@ const onBlockPopupTopChange = (e: Event) => {
 // 缝隙带（手柄朝向块一侧 HANDLE_GAP 内）也命中手柄所属块，避免中途焦点转移到背后组件
 const HANDLE_GAP = 2
 
-const hitHandleGap = (clientX: number, clientY: number): string | null => {
-  let hit: string | null = null
-  state.items.forEach((item) => {
-    if (!state.selectedIds.has(item.id)) return
-    const el = document.querySelector<HTMLElement>(`.floating-handle[data-id="${item.id}"]`)
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    if (clientX < r.left || clientX > r.right) return
-    const inGapY = handlePlacementOf(item) === 'top'
-      ? clientY >= r.bottom && clientY <= r.bottom + HANDLE_GAP
-      : clientY <= r.top && clientY >= r.top - HANDLE_GAP
-    if (inGapY) hit = item.id
-  })
-  return hit
-}
-
-// 拖拽栏 z 提升到 1001（高于选中块）后，仍可能低于部分 itemZ 递增后的普通块覆盖，
-// 按坐标命中拖拽栏优先返回所属块，避免 hover 聚焦切到背后块
-const hitHandleBar = (clientX: number, clientY: number): string | null => {
-  let hit: string | null = null
-  state.items.forEach((item) => {
-    if (!state.selectedIds.has(item.id)) return
-    const el = document.querySelector<HTMLElement>(`.floating-handle[data-id="${item.id}"]`)
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) hit = item.id
-  })
-  return hit
-}
-
-// 设置栏是块外浮层、可能盖在背后块矩形上（e.target 或被高 z 普通块盖住），
-// 按坐标命中设置栏时返回所属块，避免 hover 聚焦切到背后块或误判为空白
+// 拖拽栏和设置栏是块外浮层，可能盖在背后块矩形上，按坐标命中时返回所属块
 const hitSettingsBar = (clientX: number, clientY: number): string | null => {
   for (const item of state.items) {
     if (!state.selectedIds.has(item.id)) continue
@@ -2291,6 +2166,21 @@ const hitResizeHandle = (clientX: number, clientY: number): string | null => {
         clientY >= rect.top - RESIZE_HANDLE_HIT_MARGIN && clientY <= rect.bottom + RESIZE_HANDLE_HIT_MARGIN) {
       return handle.dataset.id ?? null
     }
+  }
+  return null
+}
+
+const hitHandle = (clientX: number, clientY: number): string | null => {
+  for (const item of state.items) {
+    if (!state.selectedIds.has(item.id)) continue
+    const el = document.querySelector<HTMLElement>(`.floating-handle[data-id="${item.id}"]`)
+    if (!el) continue
+    const rect = el.getBoundingClientRect()
+    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) return item.id
+    const inGapY = handlePlacementOf(item) === 'top'
+      ? clientY >= rect.bottom && clientY <= rect.bottom + HANDLE_GAP
+      : clientY <= rect.top && clientY >= rect.top - HANDLE_GAP
+    if (clientX >= rect.left && clientX <= rect.right && inGapY) return item.id
   }
   return null
 }
@@ -2324,8 +2214,7 @@ const resolvePointerHit = (e: MouseEvent): string | null => {
   const popupId = hitPopupBlock(e.clientX, e.clientY)
   if (popupId) return popupId
   const handleId = target.closest<HTMLElement>('.drag-handle')?.dataset.id
-    ?? hitHandleBar(e.clientX, e.clientY)
-    ?? hitHandleGap(e.clientX, e.clientY)
+    ?? hitHandle(e.clientX, e.clientY)
   if (handleId) return handleId
   // 被覆盖块不可见、target 不会是其后代，closest 直接命中可跳过每 mousemove 遍历所有块做矩形测试
   return target.closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null

@@ -27,6 +27,8 @@ export function useHoverState(
     const dom = getView(editor)?.dom as HTMLElement | undefined
     const parsed = Number.parseFloat(dom ? getComputedStyle(dom).getPropertyValue('--canvas-zoom') : '')
     canvasZoom.value = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+    if (canvasZoom.value === 1) stopKeepAlive()
+    else if (activeHover.value) startKeepAlive()
   }
 
   // 把视口指针坐标换算成 .canvas 布局坐标后转发给编辑器 DOM：zoom≠1 时真实事件在 ProseKit
@@ -80,6 +82,22 @@ export function useHoverState(
   const storeOf = () => getStore(findPositionerEl(getView(editor)))
   const overlayOf = () => getOverlayStore?.(findPositionerEl(getView(editor)))
 
+  let keepAliveTimer: ReturnType<typeof setInterval> | null = null
+  let jitterFlip = false
+  const stopKeepAlive = () => {
+    if (keepAliveTimer) clearInterval(keepAliveTimer)
+    keepAliveTimer = null
+  }
+  const startKeepAlive = () => {
+    if (canvasZoom.value === 1 || keepAliveTimer) return
+    keepAliveTimer = setInterval(() => {
+      const { x, y } = getRealPointer()
+      if (Number.isNaN(x)) return
+      jitterFlip = !jitterFlip
+      forwardPointerMove(x, y, jitterFlip ? 0.4 : 0.8)
+    }, 150)
+  }
+
   // floating-ui 的虚拟参考：矩形每次现算，缩放/平移/滚动时 autoUpdate 会自行重算，
   // 无需每个 pointermove 都重设 hover 状态（那会受 ProseKit 200ms 节流拖累而卡顿）
   function makeRowAnchor(el: HTMLElement) {
@@ -106,6 +124,7 @@ export function useHoverState(
       cancelHoverClear()
       hoveredBlock.value = hit.row
       activeHover.value = hit.row
+      startKeepAlive()
       storeOf()?.hoverState?.set(hit.row)
       overlayOf()?.setAnchorElement?.(makeRowAnchor(hit.el))
       return
@@ -121,6 +140,7 @@ export function useHoverState(
     hoverClearTimer = setTimeout(() => {
       hoverClearTimer = null
       activeHover.value = null
+      stopKeepAlive()
     }, HOVER_CLEAR_DELAY)
   }
 
@@ -141,58 +161,34 @@ export function useHoverState(
     window.addEventListener('pointermove', onZoomPointerMove, true)
     window.addEventListener('pointermove', onPointerResolve, true)
     window.addEventListener('Mindrizzle:canvas-transform', readCanvasZoom)
-    // 位置由上面喂给 floating-ui 的动态参考驱动（逐帧自算，跟手），这里只负责
-    // 以 150ms 周期刷新 ProseKit 的 hover 状态，抵御它 180ms 的失效清理
-    keepAliveTimer = setInterval(() => {
-      const { x, y } = getRealPointer()
-      if (Number.isNaN(x)) return
-      jitterFlip = !jitterFlip
-      forwardPointerMove(x, y, jitterFlip ? 0.4 : 0.8)
-    }, 150)
   })
-
-  let keepAliveTimer: ReturnType<typeof setInterval> | null = null
-  let jitterFlip = false
 
   onUnmounted(() => {
     window.removeEventListener('pointermove', onZoomPointerMove, true)
     window.removeEventListener('pointermove', onPointerResolve, true)
     window.removeEventListener('Mindrizzle:canvas-transform', readCanvasZoom)
     cancelHoverClear()
-    if (keepAliveTimer) clearInterval(keepAliveTimer)
-    keepAliveTimer = null
+    stopKeepAlive()
   })
-
-  // 因鼠标停住时若光标下 DOM 被替换（画布提升层级/工具栏插入等），浏览器会派发坐标无意义的
-  // pointerout（clientX/clientY 为 0），扩展按该坐标判为无块命中并在 180ms 后清 hover，
-  // 表现为 popup 自己消失、必须再动鼠标才回来；故收到空 hover 时按真实指针位置复核
-  function isPointerInsideBlock(block: HoveredBlock): boolean {
-    const { x, y } = getRealPointer()
-    if (Number.isNaN(x)) return false
-    const rect = getBlockRect(getView(editor), block.pos)
-    if (!rect) return false
-    // 块矩形是布局坐标，真实指针是视口坐标，换算后再比
-    const view = getView(editor)
-    const left = layoutToViewportX(view, rect.left)
-    const right = layoutToViewportX(view, rect.right)
-    const top = layoutToViewportY(view, rect.top)
-    const bottom = layoutToViewportY(view, rect.bottom)
-    return x >= left && x <= right && y >= top && y <= bottom
-  }
 
   function onBlockStateChange(event: Event) {
     const detail = (event as CustomEvent).detail as HoveredBlock | null
     // 拖拽需跨编辑器全局抑制 popup/高亮，通过 body 上的拖拽类判断
     if (document.body.classList.contains('block-handle-dragging')) {
       activeHover.value = null
+      stopKeepAlive()
       return
     }
     // 空 hover 不直接清空：指针可能正停在 popup/手柄上（ProseKit 只认编辑器内容命中），
     // 清空会让 popup 立刻变成 pointer-events:none 从而"一碰就闪"；显隐统一交给按指针命中判断的
     // onPointerResolve 管理（它区分行内/浮层，并对其它位置做 150ms 延迟清空）
-    if (!detail) return
+    if (!detail) {
+      stopKeepAlive()
+      return
+    }
     activeHover.value = detail
     hoveredBlock.value = detail
+    startKeepAlive()
   }
 
   // popup 需与行保持 4px 间距，放置判断以 popup 实际高度 + 该间距为所需空间

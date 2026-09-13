@@ -44,14 +44,7 @@
   </v-sheet>
 </template>
 <script lang="ts">
-import type { ResizeConstraints } from '../resizeConstraints'
-
-export const resizeConstraints: ResizeConstraints = {
-  minWidth: 330,
-  maxWidth: null,
-  minHeight: 210,
-  maxHeight: null,
-}
+export { CODE_BLOCK_CONSTRAINTS as resizeConstraints } from '../componentConstraints.ts'
 </script>
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick, computed, onBeforeUnmount } from 'vue';

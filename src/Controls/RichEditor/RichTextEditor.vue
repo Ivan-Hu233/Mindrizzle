@@ -35,14 +35,7 @@
   </div>
 </template>
 <script lang="ts">
-import type { ResizeConstraints } from '../resizeConstraints'
-
-export const resizeConstraints: ResizeConstraints = {
-  minWidth: 250,
-  maxWidth: null,
-  minHeight: 160,
-  maxHeight: null,
-}
+export { RICH_TEXT_CONSTRAINTS as resizeConstraints } from '../componentConstraints.ts'
 </script>
 <script setup lang="ts">
 import 'prosekit/basic/style.css'

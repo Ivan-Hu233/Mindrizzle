@@ -29,8 +29,8 @@ import {
   underlineKeymap,
   strikethroughKeymap,
   highlightKeymap,
-} from './extensions/formatting'
-import { vueComponentNode, vueComponentNodeView } from './extensions/vue-component'
+} from './extensions/formatting.ts'
+import { vueComponentNode, vueComponentNodeView } from './extensions/vue-component.ts'
 import { defineBlockquote } from 'prosekit/extensions/blockquote'
 import { defineSubscript } from 'prosekit/extensions/subscript'
 import { defineSuperscript } from 'prosekit/extensions/superscript'
