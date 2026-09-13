@@ -14,6 +14,7 @@ interface DragSource {
   node: any
   from: number
   to: number
+  handled?: boolean
 }
 
 interface EditorHit {
@@ -207,13 +208,17 @@ export function useBlockDrag(options: {
   }
 
   function onDragUp(e: MouseEvent) {
-    if (!active || !source) return
-    const hit = resolveEditorHit(e.clientX, e.clientY)
-    if (hit) {
-      if (hit.editor === source.editor) moveInSameEditor(source, hit)
-      else moveAcrossEditors(source, hit)
+    if (!active || !source || source.handled) return
+    source.handled = true
+    try {
+      const hit = resolveEditorHit(e.clientX, e.clientY)
+      if (hit) {
+        if (hit.editor === source.editor) moveInSameEditor(source, hit)
+        else moveAcrossEditors(source, hit)
+      }
+    } finally {
+      cleanup()
     }
-    cleanup()
   }
 
   // 落点判定：用命中元素所在块元素经 posAtDOM 映射回文档位置（与坐标无关，缩放/平移下都成立），
@@ -236,13 +241,26 @@ export function useBlockDrag(options: {
     return { pos: before ? $pos.before($pos.depth) : $pos.after($pos.depth), el, before }
   }
 
+  function clampRange(view: any, from: number, to: number) {
+    const max = view.state.doc.content.size
+    const start = clampTo(0, max, from)
+    const end = clampTo(start, max, to)
+    if (end <= start) return null
+    return { from: start, to: end }
+  }
+
   // 删除源块后插入位置会偏移，经 tr.mapping 修正后再插入
   function moveInSameEditor(s: DragSource, hit: EditorHit) {
     const v = hit.editor.view
     const anchor = resolveDropAnchor(hit.pm, v, hit.x, hit.y)
+    const range = clampRange(v, s.from, s.to)
+    if (!range) return
+
     const tr = v.state.tr
-    tr.delete(s.from, s.to)
-    tr.insert(tr.mapping.map(anchor.pos), v.state.schema.nodeFromJSON(s.node.toJSON()))
+    tr.delete(range.from, range.to)
+    const insertPos = tr.mapping.map(anchor.pos)
+    if (insertPos < 0 || insertPos > v.state.doc.content.size) return
+    tr.insert(insertPos, v.state.schema.nodeFromJSON(s.node.toJSON()))
     v.dispatch(tr)
     v.focus()
   }
@@ -251,13 +269,17 @@ export function useBlockDrag(options: {
     const tgtView = hit.editor.view
     const anchor = resolveDropAnchor(hit.pm, tgtView, hit.x, hit.y)
     const srcView = s.editor.view
+    const srcRange = clampRange(srcView, s.from, s.to)
+    if (!srcRange) return
+
     const delTr = srcView.state.tr
-    delTr.delete(s.from, s.to)
+    delTr.delete(srcRange.from, srcRange.to)
     srcView.dispatch(delTr)
     // 各 editor 的 schema 独立不能直接复用节点，经 nodeFromJSON 转换后插入
     const targetNode = tgtView.state.schema.nodeFromJSON(s.node.toJSON())
     const insTr = tgtView.state.tr
-    insTr.insert(anchor.pos, targetNode)
+    const insertPos = clampTo(0, tgtView.state.doc.content.size, anchor.pos)
+    insTr.insert(insertPos, targetNode)
     tgtView.dispatch(insTr)
     tgtView.focus()
   }
