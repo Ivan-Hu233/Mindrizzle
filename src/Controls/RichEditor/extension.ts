@@ -34,6 +34,7 @@ import { vueComponentNode, vueComponentNodeView } from './extensions/vue-compone
 import { defineBlockquote } from 'prosekit/extensions/blockquote'
 import { defineSubscript } from 'prosekit/extensions/subscript'
 import { defineSuperscript } from 'prosekit/extensions/superscript'
+import { defineGapCursor } from 'prosekit/extensions/gap-cursor'
 import { NodeSelection } from 'prosekit/pm/state'
 
 // 父组件统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.({ level })），注册自定义命令
@@ -105,6 +106,7 @@ export function defineExtension() {
     defineBlockquote(),
     defineSubscript(),
     defineSuperscript(),
+    defineGapCursor(),
     defineMath({ renderMathBlock: renderKaTeXMathBlock, renderMathInline: renderKaTeXMathInline }),
     bold,
     italic,
