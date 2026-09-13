@@ -4,8 +4,7 @@ import {
   mdiWindowMinimize,
   mdiWindowMaximize,
   mdiWindowClose,
-  mdiViewModule,
-  mdiMagnify,
+  mdiContentSave,
   mdiFormatListBulleted,
   mdiCalendarBlankOutline,
   mdiCogOutline,
@@ -51,6 +50,13 @@ onMounted(async () => {
 
 const isDev = computed(() => import.meta.env.DEV);
 
+// 保存依赖编辑器内部的画布状态，只能由路由组件自己暴露；此处以最小结构类型持有其实例
+const routeComponentRef = shallowRef<{ save?: () => Promise<void> } | null>(null)
+
+const saveCurrentFile = () => {
+  void routeComponentRef.value?.save?.()
+}
+
 const menuRef = shallowRef(false)
 const newFileRef = shallowRef(false)
 type ResizeDirection = 'East' | 'North' | 'NorthEast' | 'NorthWest' | 'South' | 'SouthEast' | 'SouthWest' | 'West'
@@ -75,6 +81,7 @@ const startResize = (direction: ResizeDirection) => {
 
 <template>
   <v-app class="container">
+    <div class="window-outline" />
     <div
       v-if="isTauri()"
       v-for="edge in resizeEdges"
@@ -90,14 +97,17 @@ const startResize = (direction: ResizeDirection) => {
           align-items: center; 
           width: 100%; 
           height: 100%;
+          margin-left: 5px;
+          margin-right: 5px;
         ">
         <v-app-bar-nav-icon @click.stop="menuRef = !menuRef" />
         <span data-tauri-drag-region class="text-white" style="flex: 1; font-size: 1.25rem; margin-left: 5px;">
           Mindrizzle
         </span>
-        <v-btn :icon="mdiPlus" @click="newFileRef = !newFileRef" />
-        <v-btn :icon="mdiMagnify" />
-        <v-btn :icon="mdiViewModule" />
+        <v-btn :icon="mdiPlus" @click="newFileRef = !newFileRef" v-if="$route.path=='/set'"/>
+        <v-btn :icon="mdiContentSave" @click="saveCurrentFile" v-if="$route.path.startsWith('/editor')" />
+        <!-- <v-btn :icon="mdiMagnify" />
+        <v-btn :icon="mdiViewModule" /> -->
       </div>
     </v-toolbar>
 
@@ -124,7 +134,7 @@ const startResize = (direction: ResizeDirection) => {
     <v-main class="no-scrollbar">
       <RouterView style="height: 100%;" v-slot="{ Component }">
         <v-fade-transition hide-on-leave>
-          <component :is="Component" />
+          <component :is="Component" ref="routeComponentRef" />
         </v-fade-transition>
       </RouterView>
     </v-main>
@@ -175,7 +185,18 @@ textarea {
 
 .container {
   box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  position: relative;
+}
+
+/* 因窗口 decorations:false 与桌面背景无分界，且 border 会撑高 2px 把底边挤出视口（#app overflow:hidden 裁掉）、
+   outline 会被 v-toolbar 等定位子元素盖住，故改用最高层级的绝对定位覆盖层画描边 */
+.window-outline {
+  position: absolute;
+  inset: 0;
+  /* 需压在窗口缩放边缘（.window-resize-edge, 10000）之上 */
+  z-index: 10001;
+  pointer-events: none;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.24);
 }
 
 .window-resize-edge {

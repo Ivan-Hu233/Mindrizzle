@@ -2656,7 +2656,7 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
 // #endregion 自动布局与添加
 
 // #region 插入组件拖出成块
-// 富文本内插入组件（BaseIrEditor 的 componentMap）拖出成块时的还原规则：
+// 富文本内插入组件（RichEditor 的 componentMap）拖出成块时的还原规则：
 // 插入组件名 → 画布块类型，及其 props → 块 config 的换算
 const EXTRACT_RULES: Record<
   string,

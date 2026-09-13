@@ -1,7 +1,7 @@
 <template>
   <v-sheet class="editor-wrapper">
     <v-container class="toolbar" style="height: 133px;">
-      <v-btn @click="save">保存</v-btn>
+      <!-- <v-btn @click="save">保存</v-btn> -->
       <!-- <v-btn @click="load">加载</v-btn> -->
       <!-- 无选中块时进入"添加块"状态，用单选组展示当前添加类型（滚轮切换、左键直接添加），
            交互与富文本格式操作一致但不再弹确认 overlay -->
@@ -75,6 +75,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces } from '@mdi/js'
+import { isTauri } from '@tauri-apps/api/core'
+import { error as logError } from '@tauri-apps/plugin-log'
 import MdrCanvas, { type ComponentController } from '../Controls/MdrCanvas.vue'
 import { screenToContent } from '../utils/canvasCoords'
 import { useRoute } from 'vue-router'
@@ -324,7 +326,10 @@ const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0]
 const save = async () => {
   try {
     await invokeCommand("set_mdr_file_body", { fileName, content: MdrCRef.value?.save() ?? '' })
-  } catch {}
+  } catch (error) {
+    // 浏览器调试环境无 Tauri IPC，日志插件内部同样走 invoke，故仅在 Tauri 内上报
+    if (isTauri()) logError(error instanceof Error ? error.message : String(error))
+  }
 }
 
 const load = async () => {
@@ -384,6 +389,9 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('mousedown', trackMouseDown)
 })
+
+// 工具栏保存按钮在 App.vue，需跨层触发当前编辑内容落盘
+defineExpose({ save })
 </script>
 
 <style scoped>
