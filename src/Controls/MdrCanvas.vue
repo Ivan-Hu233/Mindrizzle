@@ -430,8 +430,12 @@ const panCompAcc = reactive({ x: 0, y: 0 })
 
 const autoPanTick = () => {
   if (!autoPan.active) return
+  const targetId = richTextDropTargetId.value
+  const target = targetId ? richTextTargetOf(targetId) : null
+  const pointerInsideRichText = !!target && isPointerInsideRichText(target, lastMouse.x, lastMouse.y)
+  const shouldPrioritizeRichText = !!target && pointerInsideRichText && isRichTextFullyVisible(target)
   const { vx: rx, vy: ry } = restrictedPanVelocity()
-  if (rx !== 0 || ry !== 0) {
+  if (!shouldPrioritizeRichText && (rx !== 0 || ry !== 0)) {
     // pan 是外部像素平移（不受 scale 影响），画布滚动按视口像素直接累加
     const sx = mobileMode.value ? 0 : Math.round(rx)
     const sy = Math.round(ry)
@@ -448,8 +452,8 @@ const autoPanTick = () => {
     // 补偿仅对被拖块生效（拖拽中 customDragItems 才有意义），框选等场景不补偿任何块；
     // 否则上次拖拽残留的块会在框选自动滚动时被误当"被拖块"，出现块被移动/钉屏
     if (customDrag.active) {
-      customDragItems.forEach((target) => {
-        const layout = layoutOf(target)
+      customDragItems.forEach((dragTarget) => {
+        const layout = layoutOf(dragTarget)
         if (!mobileMode.value) layout.x += compX
         layout.y += compY
       })
@@ -461,7 +465,7 @@ const autoPanTick = () => {
     // 框选时鼠标停住也需随画布滚动扩展选择框（无 mousemove 驱动），用最近鼠标位置每帧刷新框选
     if (selectionState.active) updateSelectionAt(lastMouse.x, lastMouse.y)
   }
-  // 拖组件入富文本块：鼠标停住时块内仍需持续自动滚动、落点线也要跟随内容，故每帧重算
+  // 拖组件入富文本块：富文本完全显示时优先内部滚动、否则先滚动画布
   if (customDrag.active) updateRichTextDrop()
   requestAnimationFrame(autoPanTick)
 }
@@ -1192,7 +1196,23 @@ const domRectToContent = (target: RichTextTarget, rect: DOMRect) => ({
 // 离块太远（超出贴边带）不滚，否则拖到块旁就会一直滚。带宽与步进按视觉像素折算，各缩放下手感一致
 const RT_SCROLL_EDGE = 40
 const RT_SCROLL_MAX = 12
+const isPointerInsideRichText = (target: RichTextTarget, x: number, y: number): boolean => {
+  const rect = target.pmRect
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+}
+
+const isRichTextFullyVisible = (target: RichTextTarget): boolean => {
+  const rect = viewRect.value
+  if (!rect) return false
+  const pad = 1
+  return target.blockRect.left >= rect.left + pad &&
+    target.blockRect.right <= rect.right - pad &&
+    target.blockRect.top >= rect.top + pad &&
+    target.blockRect.bottom <= rect.bottom - pad
+}
+
 const autoScrollRichText = (target: RichTextTarget, x: number, y: number) => {
+  if (!isRichTextFullyVisible(target) || !isPointerInsideRichText(target, x, y)) return
   const area = domRectToContent(target, target.scrollRect)
   if (x < area.left || x > area.right) return
   const visualToContent = 1 / zoom.value
@@ -1280,6 +1300,11 @@ const updateRichTextDrop = () => {
     return
   }
   const point = screenToContent(canvasTransform(), viewport, customDragLastX, customDragLastY)
+  const pointerInsideRichText = isPointerInsideRichText(target, customDragLastX, customDragLastY)
+  if (!pointerInsideRichText || !isRichTextFullyVisible(target)) {
+    richTextDrop.value = resolveRichTextDrop(target, point, viewport)
+    return
+  }
   autoScrollRichText(target, point.x, point.y)
   richTextDrop.value = resolveRichTextDrop(target, point, viewport)
 }
