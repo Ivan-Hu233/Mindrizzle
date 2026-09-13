@@ -18,7 +18,7 @@
         :handles="resizeHandlesOf(item)" :disabled="!isEditMode" :zoom="zoom"
         @resizestart="(handle: string) => onResizeStart(item, handle)"
         @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
-        :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id }">
+        :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id, 'drag-passthrough': customDrag.draggingIds.has(item.id) }">
         <v-sheet class="block-container" color="surface" elevation="0" rounded :style="cornerStyleOf(item.id)">
           <!-- 需只盖住重叠接触段的边框（露出段保留），按段渲染同色遮罩 -->
           <template v-for="m in masksOf(item.id)" :key="`${m.side}-${m.start}`">
@@ -94,11 +94,8 @@
       <div v-if="richTextDropTargetId" class="rich-text-drop-target"
         :style="richTextDropTargetStyle" aria-hidden="true" />
 
-      <!-- 拖组件入富文本块的落点线：用视口坐标 fixed 到 body 绘制（落点 y 取自 ProseMirror，
-           随画布缩放一致），避免被画布 transform/裁剪影响 -->
-      <Teleport to="body">
-        <div v-if="richTextDrop" class="rich-text-drop-line" :style="richTextDropLineStyle" aria-hidden="true" />
-      </Teleport>
+      <!-- 拖组件入富文本块的落点线：与块同在 .canvas 内、用 content 坐标定位，随画布 zoom/pan 一起变换 -->
+      <div v-if="richTextDrop" class="rich-text-drop-line" :style="richTextDropLineStyle" aria-hidden="true" />
 
       <template v-for="p in paperclipCandidates" :key="`clip-${p.a}-${p.b}`">
         <div class="snap-paperclip" v-show="nearClipKey === p.key" :class="{ linked: p.linked }"
@@ -145,7 +142,7 @@ export interface ComponentController {
   // 父组件需经命令链调用富文本命令（如 toggleHeading）且要 IDE 补全，用 editor.commands 推导的精确类型而非宽泛索引签名
   commands?: EditorCommands
   // 拖组件入富文本块需解析落点与驱动块内滚动，二者非编辑器命令，单独暴露
-  resolveDropAt?: (clientX: number, clientY: number) => { pos: number; y: number } | null
+  resolveDropAtElement?: (el: HTMLElement | null, preferBefore: boolean) => number | null
   scrollContent?: (deltaY: number) => void
 }
 </script>
@@ -159,7 +156,8 @@ import RichTextEditor, { resizeConstraints as richTextConstraints } from '../Con
 import EditableCodeBlock, { resizeConstraints as codeBlockConstraints } from '../Controls/EditorPlugin/EditableCodeBlock.vue'
 import { normalizeConstraints, type ResizeConstraints } from './resizeConstraints.ts'
 import { Z_LAYER } from './zIndex.ts'
-import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform } from '../utils/canvasCoords.ts'
+import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform, type Point, type ViewportOrigin } from '../utils/canvasCoords.ts'
+import { getVisibleBlockRect } from './BaseIrEditor/extensions/blockHandleUtils'
 
 import { useDisplay } from 'vuetify'
 
@@ -937,6 +935,9 @@ const customDrag = reactive({
   placementLocked: false,
   // 拖拽源块 id（拖拽栏只显示该块的浮层，多选联动块不显示，避免"折叠"）
   sourceItemId: null as string | null,
+  // 被拖块（含联结联动块）在拖拽中命中穿透：它们随鼠标移动会盖住落点处的编辑器，
+  // 使 elementFromPoint 命不中编辑器内容（拖入富文本块时的落点解析依赖它）
+  draggingIds: new Set<string>(),
 })
 const richTextDropTargetId = ref<string | null>(null)
 // 拖入富文本块的落点线（视口坐标）与插入位置，随块内滚动每帧重算
@@ -945,9 +946,9 @@ const richTextDropLineStyle = computed<CSSProperties>(() => {
   const drop = richTextDrop.value
   if (!drop) return { display: 'none' }
   return {
-    left: `${Math.round(drop.left)}px`,
-    width: `${Math.max(2, Math.round(drop.right - drop.left))}px`,
-    transform: `translateY(${Math.round(drop.y)}px)`,
+    left: `${roundToPx(drop.left)}px`,
+    width: `${Math.max(2 / zoom.value, roundToPx(drop.right - drop.left))}px`,
+    transform: `translateY(${roundToPx(drop.y)}px)`,
   }
 })
 const richTextDropTargetStyle = computed<CSSProperties>(() => {
@@ -1167,6 +1168,7 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   window.addEventListener('pointerup', onCustomDragUp)
   window.addEventListener('mousemove', onCustomDragMove)
   window.addEventListener('mouseup', onCustomDragUp)
+  customDrag.draggingIds = new Set(Object.keys(customDragGroup))
   e.preventDefault()
   // 拖拽中鼠标会扫过编辑器触发 block-handle popup/高亮，复用 body 类跨编辑器全局抑制
   document.body.classList.add('block-handle-dragging')
@@ -1216,65 +1218,147 @@ const findRichTextDropTarget = (): string | null => {
   return null
 }
 
-// 拖入富文本块需给出落点线（并支持块内贴边自动滚动），
-// 块内滚动后鼠标不动落点也会变，故由拖拽 rAF 循环每帧重算
+// 拖入富文本块需给出落点线（并支持块内贴边自动滚动），块内滚动后鼠标不动落点也会变，故由拖拽 rAF 循环每帧重算。
+// 因 .canvas 的 CSS zoom 只放大渲染、而 getBoundingClientRect 的坐标空间各浏览器不一致（可能不含 zoom），
+// 故以目标块自身 DOM 矩形为参照、用其已知 content 布局实测比例，把编辑器内部矩形统一换算回 content 坐标，
+// 鼠标侧则走 utils 的 screenToContent（该换算已被框选/命中测试验证）
 interface RichTextTarget {
   id: string
-  resolveDropAt: (clientX: number, clientY: number) => { pos: number; y: number } | null
+  resolveDropAtElement: (el: HTMLElement | null, preferBefore: boolean) => number | null
   scrollContent?: (deltaY: number) => void
+  pmEl: HTMLElement
+  blockRect: DOMRect
+  blockLayout: Rect
+  domScale: number
   pmRect: DOMRect
   scrollRect: DOMRect
 }
 
 const richTextTargetOf = (id: string): RichTextTarget | null => {
+  const item = state.items.find((it) => it.id === id)
   const wrapper = document.querySelector<HTMLElement>(`.drag-wrapper[data-id="${id}"]`)
   const scroll = wrapper?.querySelector<HTMLElement>('.editor-scroll') ?? null
   const pm = wrapper?.querySelector<HTMLElement>('.ProseMirror') ?? null
-  const { resolveDropAt, scrollContent } = componentRefs.value[id] ?? {}
-  if (!scroll || !pm || !resolveDropAt) return null
+  const { resolveDropAtElement, scrollContent } = componentRefs.value[id] ?? {}
+  if (!item || !wrapper || !scroll || !pm || !resolveDropAtElement) return null
+  const blockLayout = layoutOf(item)
+  const blockRect = wrapper.getBoundingClientRect()
   return {
     id,
-    resolveDropAt,
+    resolveDropAtElement,
     scrollContent,
+    pmEl: pm,
+    blockRect,
+    blockLayout,
+    // 块 DOM 尺寸 / content 尺寸：浏览器含 zoom 时为 zoom，不含时为 1
+    domScale: blockLayout.w > 0 && blockRect.width > 0 ? blockRect.width / blockLayout.w : 1,
     pmRect: pm.getBoundingClientRect(),
     scrollRect: scroll.getBoundingClientRect(),
   }
 }
 
+// 编辑器内部矩形（与块 DOM 同一空间）→ content 坐标
+const domRectToContent = (target: RichTextTarget, rect: DOMRect) => ({
+  left: target.blockLayout.x + (rect.left - target.blockRect.left) / target.domScale,
+  right: target.blockLayout.x + (rect.right - target.blockRect.left) / target.domScale,
+  top: target.blockLayout.y + (rect.top - target.blockRect.top) / target.domScale,
+  bottom: target.blockLayout.y + (rect.bottom - target.blockRect.top) / target.domScale,
+})
+
 // 鼠标贴近块内滚动区上/下边缘时按距离比例滚动（越近越快），鼠标停住也能持续滚（由 rAF 循环驱动）；
-// 离块太远（超出贴边带）不滚，否则拖到块旁就会一直滚
+// 离块太远（超出贴边带）不滚，否则拖到块旁就会一直滚。带宽与步进按视觉像素折算，各缩放下手感一致
 const RT_SCROLL_EDGE = 40
 const RT_SCROLL_MAX = 12
-const autoScrollRichText = (target: RichTextTarget) => {
-  const { scrollRect } = target
-  if (customDragLastX < scrollRect.left || customDragLastX > scrollRect.right) return
-  const above = scrollRect.top + RT_SCROLL_EDGE - customDragLastY
-  const below = customDragLastY - (scrollRect.bottom - RT_SCROLL_EDGE)
+const autoScrollRichText = (target: RichTextTarget, x: number, y: number) => {
+  const area = domRectToContent(target, target.scrollRect)
+  if (x < area.left || x > area.right) return
+  const visualToContent = 1 / zoom.value
+  const edge = RT_SCROLL_EDGE * visualToContent
+  const above = area.top + edge - y
+  const below = y - (area.bottom - edge)
   const distance = Math.max(above, below)
-  if (distance <= 0 || distance > RT_SCROLL_EDGE) return
-  const step = Math.ceil((RT_SCROLL_MAX * distance) / RT_SCROLL_EDGE)
+  if (distance <= 0 || distance > edge) return
+  const step = Math.ceil((RT_SCROLL_MAX * visualToContent * distance) / edge)
   target.scrollContent?.(above > 0 ? -step : step)
 }
 
-// 指针可能落在块外留白（gutter）上，而 posAtCoords 需坐标落在文本区内，故先夹取到文本区
-const resolveRichTextDrop = (target: RichTextTarget, clientX: number, clientY: number) => {
-  const { pmRect, scrollRect } = target
-  const x = clampVal(clientX, pmRect.left, pmRect.right)
-  const y = clampVal(clientY, Math.max(pmRect.top, scrollRect.top), Math.min(pmRect.bottom, scrollRect.bottom))
-  const drop = target.resolveDropAt(x, y)
-  if (!drop) return null
-  return { id: target.id, pos: drop.pos, left: pmRect.left, right: pmRect.right, y: drop.y }
+// 命中元素 → 编辑器内 ProseMirror 直系子级的块元素（顶层块与 DOM 直系子级一一对应）
+const blockElementAt = (el: HTMLElement | null, pmEl: HTMLElement) => {
+  if (!el || !pmEl.contains(el)) return null
+  let block: HTMLElement = el
+  while (block.parentElement && block.parentElement !== pmEl) block = block.parentElement
+  return block.parentElement === pmEl ? block : null
+}
+
+// 空白处（gutter/块间空隙/文本上下方）命不中块时，按鼠标纵向取最近的顶层块作落点参照
+const nearestBlockElement = (target: RichTextTarget, cy: number): HTMLElement | null => {
+  let best: HTMLElement | null = null
+  let bestDistance = Infinity
+  for (const child of Array.from(target.pmEl.children)) {
+    const el = child as HTMLElement
+    const domRect = getVisibleBlockRect(el)
+    if (!domRect) continue
+    const rect = domRectToContent(target, domRect)
+    if (cy >= rect.top && cy <= rect.bottom) return el
+    const distance = cy < rect.top ? rect.top - cy : cy - rect.bottom
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = el
+    }
+  }
+  return best
+}
+
+// 落点解析：先把鼠标与编辑器内部矩形统一换算到 content 坐标，再按 DOM 命中结果求插入位置。
+// 不用 ProseMirror 的 posAtCoords/coordsAtPos——它们拿 getBoundingClientRect 与鼠标坐标直接比较，
+// 在 .canvas 的 CSS zoom 下两者坐标系不一致，缩放后落点必然偏移
+const resolveRichTextDrop = (target: RichTextTarget, point: Point, viewport: ViewportOrigin) => {
+  const pm = domRectToContent(target, target.pmRect)
+  const area = domRectToContent(target, target.scrollRect)
+  const cx = clampVal(point.x, pm.left, pm.right)
+  const cy = clampVal(point.y, Math.max(pm.top, area.top), Math.min(pm.bottom, area.bottom))
+  const screen = contentToScreen(canvasTransform(), viewport, cx, cy)
+  // 指针在左右 gutter（pointer-events:none）时屏幕处无编辑器元素，再贴文本区左缘探一次
+  const insideX = contentToScreen(canvasTransform(), viewport, pm.left, cy).x + 2
+  const at = (x: number) => document.elementFromPoint(x, screen.y) as HTMLElement | null
+  const hitEl = [at(screen.x), at(insideX)].find((el) => el && target.pmEl.contains(el)) ?? null
+  const blockEl = blockElementAt(hitEl, target.pmEl) ?? nearestBlockElement(target, cy)
+  if (!blockEl) return null
+  const blockDomRect = getVisibleBlockRect(blockEl)
+  if (!blockDomRect) return null
+  const block = domRectToContent(target, blockDomRect)
+  const preferBefore = cy < (block.top + block.bottom) / 2
+  const pos = target.resolveDropAtElement(blockEl, preferBefore)
+  if (pos == null) return null
+  return {
+    id: target.id,
+    pos,
+    left: pm.left,
+    right: pm.right,
+    y: preferBefore ? block.top : block.bottom,
+  }
+}
+
+// 松手时需按鼠标实时坐标重算一次落点（帧内块内可能已滚动/移动），不用上一帧缓存
+const resolveDropForTarget = (targetId: string, event?: MouseEvent) => {
+  const viewport = viewRect.value
+  const target = viewport ? richTextTargetOf(targetId) : null
+  if (!viewport || !target) return null
+  const point = screenToContent(canvasTransform(), viewport, event?.clientX ?? customDragLastX, event?.clientY ?? customDragLastY)
+  return resolveRichTextDrop(target, point, viewport)
 }
 
 const updateRichTextDrop = () => {
+  const viewport = viewRect.value
   const targetId = richTextDropTargetId.value
-  const target = targetId ? richTextTargetOf(targetId) : null
-  if (!target) {
+  const target = viewport && targetId ? richTextTargetOf(targetId) : null
+  if (!viewport || !target) {
     richTextDrop.value = null
     return
   }
-  autoScrollRichText(target)
-  richTextDrop.value = resolveRichTextDrop(target, customDragLastX, customDragLastY)
+  const point = screenToContent(canvasTransform(), viewport, customDragLastX, customDragLastY)
+  autoScrollRichText(target, point.x, point.y)
+  richTextDrop.value = resolveRichTextDrop(target, point, viewport)
 }
 
 const applyCustomDrag = () => {
@@ -1472,11 +1556,7 @@ const onCustomDragUp = (e?: MouseEvent) => {
   dragJustFinished = true
   const targetId = findRichTextDropTarget()
   const sourceId = customDrag.sourceItemId
-  // 松手时重算一次落点（帧内可能已滚动/移动），不用上一帧缓存
-  const target = targetId ? richTextTargetOf(targetId) : null
-  const drop = target
-    ? resolveRichTextDrop(target, e?.clientX ?? customDragLastX, e?.clientY ?? customDragLastY)
-    : null
+  const drop = targetId ? resolveDropForTarget(targetId, e) : null
   const inserted = targetId && sourceId ? insertDraggedComponent(targetId, sourceId, drop?.pos ?? null) : false
   richTextDropTargetId.value = null
   richTextDrop.value = null
@@ -1488,6 +1568,7 @@ const onCustomDragUp = (e?: MouseEvent) => {
   // 拖拽组仅本会话有效，结束即清空，避免残留块在后续框选自动滚动时被误补偿移动/钉屏
   customDragGroup = {}
   customDragItems = new Map()
+  customDrag.draggingIds = new Set()
   if (customDragRafId) {
     cancelAnimationFrame(customDragRafId)
     customDragRafId = 0
@@ -2614,9 +2695,9 @@ const resolveAddSpot = (key: CanvasItem['component'], at?: { x: number; y: numbe
     : { spot }
 }
 
-const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number }) => {
+const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number }, config?: WidgetConfig): string | null => {
   const meta = componentMetaOf(key)
-  if (!meta) return
+  if (!meta) return null
   const id = generateId()
   // 需"在鼠标位置添加"，经 resolveAddSpot 解析：鼠标处不重叠用鼠标处、重叠则自动排列（与预览一致）
   const { spot } = resolveAddSpot(key, at)
@@ -2624,7 +2705,7 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   const newItem: CanvasItem = {
     id,
     component: key,
-    config: meta.defaultConfig(),
+    config: config ?? meta.defaultConfig(),
     layout: {
       desktop: { x, y, ...meta.defaultSize },
       // 移动端宽度运行时拉伸（x 恒 0），此处仅占位，首次进移动端时自动纵向堆叠
@@ -2640,8 +2721,52 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   // 需"新增块在屏幕内不动摄像机、在屏幕外才移动视角"，按新块是否在视口可见区判断
   if (!isRectVisibleInViewport(layoutOf(newItem))) panToBlock(newItem.id)
   recomputeMasks() // 新块加入会改变贴合关系，刷新遮罩
+  return id
 }
 // #endregion 自动布局与添加
+
+// #region 插入组件拖出成块
+// 富文本内插入组件（BaseIrEditor 的 componentMap）拖出成块时的还原规则：
+// 插入组件名 → 画布块类型，及其 props → 块 config 的换算
+const EXTRACT_RULES: Record<
+  string,
+  { key: CanvasItem['component']; toConfig: (props: Record<string, any>) => WidgetConfig }
+> = {
+  CodeBlock: {
+    key: 'EditableCodeBlock',
+    toConfig: (props) => ({ code: props.modelValue ?? '', language: props.language ?? 'javascript' }),
+  },
+}
+
+// 是否抽出由画布说了算：仅编辑态且落点在画布内才新增块（否则富文本保持原样），
+// 经 detail.accepted 同步回填结果
+type ExtractDetail = {
+  componentName: string
+  props: Record<string, any>
+  clientX: number
+  clientY: number
+  accepted: boolean
+}
+const onExtractComponent = (event: Event) => {
+  const detail = (event as CustomEvent<ExtractDetail>).detail
+  const rule = detail && EXTRACT_RULES[detail.componentName]
+  const rect = canvasContainerRef.value?.getBoundingClientRect()
+  if (!rule || !rect || !isEditMode.value) return
+  const isInside = detail.clientX >= rect.left && detail.clientX <= rect.right
+    && detail.clientY >= rect.top && detail.clientY <= rect.bottom
+  if (!isInside) return
+  const id = addComponent(
+    rule.key,
+    screenToContent(canvasTransform(), rect, detail.clientX, detail.clientY),
+    rule.toConfig(detail.props),
+  )
+  if (!id) return
+  detail.accepted = true
+  // 抽出后新块置为选中以给反馈，并对随之补发的 click 置标记，避免被当"点击空白"清掉选中
+  state.selectedIds = new Set([id])
+  dragJustFinished = true
+}
+// #endregion 插入组件拖出成块
 
 // #region 保存与加载
 const save = () => {
@@ -2812,6 +2937,7 @@ onMounted(() => {
   window.addEventListener('contextmenu', preventContextMenu)
   window.addEventListener('mousemove', updateMousePos, true)
   window.addEventListener('Mindrizzle:canvas-pan', onCanvasPanEvent)
+  window.addEventListener('Mindrizzle:extract-component', onExtractComponent)
   window.addEventListener('Mindrizzle:block-popup', onBlockPopupChange)
   window.addEventListener('Mindrizzle:block-popup-top', onBlockPopupTopChange)
   window.addEventListener('Mindrizzle:block-handle-active', onBlockHandleActiveChange)
@@ -2835,6 +2961,7 @@ onUnmounted(() => {
   window.removeEventListener('contextmenu', preventContextMenu)
   window.removeEventListener('mousemove', updateMousePos, true)
   window.removeEventListener('Mindrizzle:canvas-pan', onCanvasPanEvent)
+  window.removeEventListener('Mindrizzle:extract-component', onExtractComponent)
   window.removeEventListener('Mindrizzle:block-popup', onBlockPopupChange)
   window.removeEventListener('Mindrizzle:block-popup-top', onBlockPopupTopChange)
   window.removeEventListener('Mindrizzle:block-handle-active', onBlockHandleActiveChange)
@@ -2928,6 +3055,11 @@ defineExpose({
   user-select: none;
 }
 
+/* 拖拽中的块随鼠标移动会盖住落点处的编辑器（右键平移/框选命中与拖组件入块的落点解析都需穿透） */
+.drag-wrapper.drag-passthrough {
+  pointer-events: none;
+}
+
 .selection-box {
   position: absolute;
   /* --v-theme-primary 为 RGB 分量，直接作 border 颜色无效（虚线不显示），用 rgb() 包裹 */
@@ -2978,14 +3110,14 @@ defineExpose({
   }
 }
 
-/* 拖组件入富文本块的落点线：Teleport 到 body 用视口坐标固定定位（宽度/位置每帧由 JS 给出），
-   y 用 translateY 而 top 固定为 0，避免亚像素行高下与文本行错半像素 */
+/* 拖组件入富文本块的落点线：与块同在 .canvas 内、用 content 坐标定位（随画布 zoom 放大），
+   粗细/圆角按视觉像素折算，各缩放下视觉粗细一致 */
 .rich-text-drop-line {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
-  height: 3px;
-  border-radius: 2px;
+  height: calc(3px / var(--canvas-zoom, 1));
+  border-radius: calc(2px / var(--canvas-zoom, 1));
   background: rgb(var(--v-theme-primary));
   pointer-events: none;
   z-index: 1004;

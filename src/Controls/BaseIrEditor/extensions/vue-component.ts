@@ -12,7 +12,7 @@ import {
   computed,
   markRaw,
 } from 'vue'
-import { mdiArrowBottomRight } from '@mdi/js'
+import { mdiArrowBottomRight, mdiExportVariant } from '@mdi/js'
 import { DEFAULT_CONSTRAINTS, normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints'
 import { createStoreResolver, findPositionerEl } from './blockHandleUtils'
 
@@ -88,6 +88,70 @@ export const vueComponentNode = defineNodeSpec({
   },
 })
 
+interface CornerButtonOptions {
+  icon: string
+  active: boolean
+  cursor: string
+  at: { left?: string; right?: string; bottom: string }
+  onMousedown: (event: MouseEvent) => void
+  onHover: (hovering: boolean) => void
+}
+
+// 左下“拖出成块”与右下缩放共用同一角标视觉（hover/拖拽中提亮并放大），
+// 避免渲染函数里重复整段样式
+const cornerButtonStyle = (active: boolean, cursor: string, at: CornerButtonOptions['at']) => {
+  const tone = 'var(--v-theme-on-surface, #000000)'
+  return {
+    position: 'absolute' as const,
+    ...at,
+    width: '22px',
+    height: '22px',
+    borderRadius: '4px',
+    background: active ? `rgba(${tone}, 0.10)` : `rgba(${tone}, 0.04)`,
+    border: `1px solid ${active ? `rgba(${tone}, 0.25)` : `rgba(${tone}, 0.08)`}`,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor,
+    zIndex: 5,
+    transition: 'background 0.2s, border-color 0.2s, transform 0.15s',
+    userSelect: 'none',
+    transform: `scale(${active ? 1.1 : 1})`,
+  }
+}
+
+function renderCornerButton(options: CornerButtonOptions) {
+  const { icon, active, cursor, at, onMousedown, onHover } = options
+  const tone = 'var(--v-theme-on-surface, #000000)'
+  const iconColor = active ? `rgba(${tone}, 0.85)` : `rgba(${tone}, 0.40)`
+  return h(
+    'div',
+    {
+      style: cornerButtonStyle(active, cursor, at),
+      onMouseenter: () => onHover(true),
+      onMouseleave: () => onHover(false),
+      onMousedown,
+    },
+    [
+      h('svg', { viewBox: '0 0 24 24', width: 16, height: 16, style: { color: iconColor } }, [
+        h('path', { d: icon, fill: 'currentColor' }),
+      ]),
+    ],
+  )
+}
+
+// 拖出成块时跟随鼠标的徽标，仅作“正在拖出”反馈，不可命中
+function createExtractGhost(): HTMLDivElement {
+  const ghost = document.createElement('div')
+  ghost.style.cssText =
+    'position:fixed;pointer-events:none;z-index:9999;width:26px;height:26px;border-radius:4px;' +
+    'display:flex;align-items:center;justify-content:center;' +
+    'background:rgba(var(--v-theme-surface),0.92);' +
+    'border:1px solid rgba(var(--v-theme-on-surface),0.3);color:rgba(var(--v-theme-on-surface),0.6);'
+  ghost.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16"><path d="${mdiExportVariant}" fill="currentColor"/></svg>`
+  return ghost
+}
+
 const ResizableContainer = defineComponent({
   name: 'ResizableContainer',
   props: {
@@ -101,11 +165,13 @@ const ResizableContainer = defineComponent({
     // 内容经 prop 传入而非 slot：NodeView 渲染上下文外调用 slot 会触发 Vue 警告
     content: { type: Object as PropType<any>, required: true },
   },
-  emits: ['resize'],
+  emits: ['resize', 'extract'],
   setup(props, { emit }) {
     const containerRef = ref<HTMLElement | null>(null)
     const isResizing = ref(false)
-    const isHovering = ref(false)
+    const isResizeHovered = ref(false)
+    const isExtractHovered = ref(false)
+    const isExtracting = ref(false)
     const currentWidth = ref(props.width)
     const currentHeight = ref(props.height)
 
@@ -168,6 +234,30 @@ const ResizableContainer = defineComponent({
       document.addEventListener('mouseup', onMouseUp)
     }
 
+    // 左下角按钮：把插入组件拖出富文本重新变回画布块，是否落位由画布判定（同步回填 accepted）
+    const startExtract = (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      isExtracting.value = true
+      const ghost = createExtractGhost()
+      document.body.appendChild(ghost)
+      const placeGhost = (ev: MouseEvent) => {
+        ghost.style.left = `${ev.clientX + 12}px`
+        ghost.style.top = `${ev.clientY + 12}px`
+      }
+      const onMouseMove = (ev: MouseEvent) => placeGhost(ev)
+      const onMouseUp = (ev: MouseEvent) => {
+        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mouseup', onMouseUp)
+        ghost.remove()
+        isExtracting.value = false
+        emit('extract', { clientX: ev.clientX, clientY: ev.clientY })
+      }
+      placeGhost(event)
+      document.addEventListener('mousemove', onMouseMove)
+      document.addEventListener('mouseup', onMouseUp)
+    }
+
     onUnmounted(() => {
       stopWatchWidth()
       stopWatchHeight()
@@ -175,19 +265,8 @@ const ResizableContainer = defineComponent({
 
     return () => {
       const children = [props.content]
-      const surfaceColor = 'var(--v-theme-on-surface, #000000)'
-
-      const isActive = isResizing.value || isHovering.value
-      const bgColor = isActive
-        ? `rgba(${surfaceColor}, 0.10)`
-        : `rgba(${surfaceColor}, 0.04)`
-      const borderColor = isActive
-        ? `rgba(${surfaceColor}, 0.25)`
-        : `rgba(${surfaceColor}, 0.08)`
-      const iconColor = isActive
-        ? `rgba(${surfaceColor}, 0.85)`
-        : `rgba(${surfaceColor}, 0.40)`
-      const scale = isActive ? 1.1 : 1.0
+      const isResizeActive = isResizing.value || isResizeHovered.value
+      const isExtractActive = isExtracting.value || isExtractHovered.value
 
       return h(
         'div',
@@ -207,55 +286,23 @@ const ResizableContainer = defineComponent({
         },
         [
           ...children,
-          h(
-            'div',
-            {
-              style: {
-                position: 'absolute',
-                bottom: '4px',
-                right: '4px',
-                width: '22px',
-                height: '22px',
-                borderRadius: '4px',
-                background: bgColor,
-                border: `1px solid ${borderColor}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'nwse-resize',
-                zIndex: 5,
-                transition:
-                  'background 0.2s, border-color 0.2s, transform 0.15s',
-                userSelect: 'none',
-                transform: `scale(${scale})`,
-              },
-              onMouseenter: () => {
-                isHovering.value = true
-              },
-              onMouseleave: () => {
-                isHovering.value = false
-              },
-              onMousedown: startResize,
-            },
-            [
-              h(
-                'svg',
-                {
-                  viewBox: '0 0 24 24',
-                  width: '16',
-                  height: '16',
-                  style: { color: iconColor },
-                },
-                [
-                  h('path', {
-                    d: mdiArrowBottomRight,
-                    fill: 'currentColor',
-                  }),
-                ]
-              ),
-            ]
-          ),
-        ]
+          renderCornerButton({
+            icon: mdiExportVariant,
+            active: isExtractActive,
+            cursor: 'grab',
+            at: { left: '4px', bottom: '4px' },
+            onMousedown: startExtract,
+            onHover: (hovering) => { isExtractHovered.value = hovering },
+          }),
+          renderCornerButton({
+            icon: mdiArrowBottomRight,
+            active: isResizeActive,
+            cursor: 'nwse-resize',
+            at: { right: '4px', bottom: '4px' },
+            onMousedown: startResize,
+            onHover: (hovering) => { isResizeHovered.value = hovering },
+          }),
+        ],
       )
     }
   },
@@ -382,6 +429,25 @@ export const vueComponentNodeView = defineVueNodeView({
         view.dispatch(tr)
       }
 
+      // 左下按钮拖出成块：由画布判定是否落位（编辑态 + 落在画布内）并同步回填 accepted，
+      // 落位成功后从文档删除该节点（画布块已接管其内容）
+      const handleExtract = (point: { clientX: number; clientY: number }) => {
+        const pos = getPos()
+        if (typeof pos !== 'number') return
+        // doc 需 block+，仅剩该节点时抽出会留下非法空文档，直接不响应
+        if (view.state.doc.childCount <= 1) return
+        const payload = {
+          componentName: node.value.attrs.componentName as string,
+          props: node.value.attrs.props as Record<string, any>,
+          clientX: point.clientX,
+          clientY: point.clientY,
+          accepted: false,
+        }
+        window.dispatchEvent(new CustomEvent('Mindrizzle:extract-component', { detail: payload }))
+        if (!payload.accepted) return
+        view.dispatch(view.state.tr.delete(pos, pos + node.value.nodeSize))
+      }
+
       watch(
         [effectiveMaxWidth, () => node.value.attrs.width],
         ([maxW, currentW]) => {
@@ -468,6 +534,7 @@ export const vueComponentNodeView = defineVueNodeView({
             minHeight: state.constraints.minHeight,
             maxHeight: state.constraints.maxHeight,
             onResize: handleResize,
+            onExtract: handleExtract,
             content: innerContent,
           }
         )

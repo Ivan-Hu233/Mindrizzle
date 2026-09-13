@@ -57,7 +57,6 @@ import { useDisplay } from 'vuetify'
 
 import { defineExtension } from './extension.ts'
 import { createEditor, NodeJSON } from '@prosekit/core'
-import { getBlockRect } from './extensions/blockHandleUtils'
 
 interface Props {
   dir?: 'ltr' | 'rtl'
@@ -173,21 +172,24 @@ const stopScrollbarDrag = () => {
   window.removeEventListener('pointermove', moveScrollbarDrag)
 }
 
-// 画布拖组件入本块需先知道落点：按指针位置解析插入点与落点线 y（视口坐标），
-// 规则同块内拖段落——按指针落在所在块的上下半区决定插到块前还是块后
-function resolveDropAt(clientX: number, clientY: number): { pos: number; y: number } | null {
+// 画布拖组件入本块需先知道落点：由画布命中到的块元素解析插入位置。
+// 不用 posAtCoords/coordsAtPos——其内部用 getBoundingClientRect 与鼠标坐标直接比较，
+// 而 .canvas 的 CSS zoom 下两者坐标系不一定一致（缩放后必然偏移），posAtDOM 只做 DOM↔文档映射
+function resolveDropAtElement(el: HTMLElement | null, preferBefore: boolean): number | null {
   const view = editor.view
-  if (!view) return null
-  const coords = view.posAtCoords({ left: clientX, top: clientY })
-  if (!coords) return null
-  const $pos = view.state.doc.resolve(coords.pos)
-  if ($pos.depth === 0) return { pos: coords.pos, y: view.coordsAtPos(coords.pos)?.bottom ?? clientY }
-  const before = $pos.before($pos.depth)
-  const after = $pos.after($pos.depth)
-  const rect = getBlockRect(view, before)
-  const isBefore = !rect || clientY < rect.top + rect.height / 2
-  const pos = isBefore ? before : after
-  return { pos, y: rect ? (isBefore ? rect.top : rect.bottom) : view.coordsAtPos(pos)?.bottom ?? clientY }
+  if (!view || !el || !view.dom.contains(el)) return null
+  let block: HTMLElement = el
+  while (block.parentElement && block.parentElement !== view.dom) block = block.parentElement
+  // 命中块之外的空白区域时按偏好落到文档首/尾
+  if (block.parentElement !== view.dom) return preferBefore ? 0 : view.state.doc.content.size
+  const at = view.posAtDOM(block, 0)
+  const $pos = view.state.doc.resolve(at)
+  // 原子块（插入组件的 NodeView 根元素）对应文档级位置，需按节点自身取前后
+  if ($pos.depth === 0) {
+    const node = view.state.doc.nodeAt(at)
+    return node && !preferBefore ? at + node.nodeSize : at
+  }
+  return preferBefore ? $pos.before($pos.depth) : $pos.after($pos.depth)
 }
 
 // 画布拖拽中鼠标贴近块内上下边缘时需滚动块内内容，否则深处的落点看不到
@@ -300,7 +302,7 @@ defineExpose({
   commands: editor.commands,
   doc: editor.state.doc,
   importJSON,
-  resolveDropAt,
+  resolveDropAtElement,
   scrollContent,
   getDocJSON() {
     return editor.state.doc.toJSON()
