@@ -175,6 +175,8 @@ export function useBlockDrag(options: {
 
   function onDragMove(e: MouseEvent) {
     if (!active || !source) return
+    // 程序化伪 pointermove（清 hover 时坐标是 -9999）不能当作指针位置，否则指示器被清空
+    if (!e.isTrusted) return
     if (ghostEl) {
       ghostEl.style.left = `${e.clientX + 10}px`
       ghostEl.style.top = `${e.clientY + 10}px`

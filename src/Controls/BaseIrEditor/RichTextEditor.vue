@@ -242,6 +242,19 @@ useDocChange(() => {
   scheduleScrollMetrics()
 }, { editor })
 
+let contentResizeFrame = 0
+// 内容容器尺寸变化（插入组件异步渲染完成、图片加载等）需重测滚动度量；
+// autoHeight 时还要重报块高——否则插入组件后只测到"加载中…"占位高度，块高就一直停在旧值
+const onContentResize = () => {
+  updateScrollMetrics()
+  if (!props.autoHeight || contentResizeFrame) return
+  // 在 RO 回调里同步改块高会触发 RO 循环告警，延后一帧测量
+  contentResizeFrame = requestAnimationFrame(() => {
+    contentResizeFrame = 0
+    syncAutoHeight()
+  })
+}
+
 // 仅 zoom 变化会重排内容（宽变→高变），pan 纯平移无需重测（否则拖动画布时每帧测量会卡顿），仅 zoom 变化时重测
 let lastTransformZoom: number | null = null
 const onCanvasTransform = (e: Event) => {
@@ -254,7 +267,7 @@ const onCanvasTransform = (e: Event) => {
 onMounted(() => {
   // 因 .editor-scroll 高度固定，插入组件只撑大内容容器、不改变其自身盒子，
   // 故独占观测 scrollRef 会漏掉内容增高，必须一并观测 editorMount 才能刷新 thumb 与显隐
-  const observer = new ResizeObserver(updateScrollMetrics)
+  const observer = new ResizeObserver(onContentResize)
   if (scrollRef.value) observer.observe(scrollRef.value)
   if (editorMount.value) {
     editor.mount(editorMount.value)
@@ -280,6 +293,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (metricsFrame) cancelAnimationFrame(metricsFrame)
   metricsFrame = 0
+  if (contentResizeFrame) cancelAnimationFrame(contentResizeFrame)
+  contentResizeFrame = 0
   stopScrollbarDrag()
   editor.unmount()
   window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)

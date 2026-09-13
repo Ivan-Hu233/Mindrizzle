@@ -1189,6 +1189,8 @@ let customDragLastY = 0
 
 const onCustomDragMove = (e: MouseEvent) => {
   if (!customDrag.active) return
+  // 程序化伪事件（hideAllBlockHandles 清 hover 时的 -9999 坐标）不能当作指针位置
+  if (!e.isTrusted) return
   customDragLastX = e.clientX
   customDragLastY = e.clientY
   if (customDragRafId) return
