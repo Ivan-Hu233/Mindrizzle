@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Mindrizzle 打包前的文件暂存缓存，路径跨平台自动生成：
-//! - Windows：`%LOCALAPPDATA%\Mindrizzle\cache`
-//! - macOS：`~/Library/Caches/Mindrizzle`
-//! - Linux：`$XDG_CACHE_HOME/Mindrizzle`
-//!
-//! 缓存目录随结构体 Drop 自动清理，无需手动删除。
-//! 典型流程：先 `write_file` 写入待打包内容，再把 `path()` 交给 `pack_cache` 打包。
-//! 需要跨调用共享同一暂存区（如读写同一 `.mdrf`）时，改用 `new_named(key)`。
+//! Mindrizzle 打包前的文件暂存缓存（Windows: %LOCALAPPDATA%\Mindrizzle\cache，macOS: ~/Library/Caches/Mindrizzle，Linux: $XDG_CACHE_HOME/Mindrizzle）。
+//! 目录随结构体 Drop 自动清理；需跨调用共享暂存区时用 `new_named(key)`。
 //!
 //! ```no_run
 //! use std::fs::File;
@@ -33,7 +27,7 @@ pub struct MindrizzleFileCache {
 
 impl MindrizzleFileCache {
     pub fn new() -> io::Result<Self> {
-        // 用进程号+纳秒时间戳生成唯一目录，避免并发冲突
+        // 因需避免并发冲突，故用进程号+纳秒时间戳生成唯一目录
         let unique_name = format!(
             "Mindrizzle_{:x}_{}",
             std::process::id(),
@@ -78,7 +72,8 @@ impl MindrizzleFileCache {
 
     /// 手动清理缓存目录，可对已 disable_cleanup 的实例主动调用以提前释放磁盘
     pub fn cleanup(&mut self) {
-        self.cleanup_on_drop = false; // 目录已删除，阻止 Drop 重复清理
+        // 因目录已删除，故置位阻止 Drop 重复清理
+        self.cleanup_on_drop = false;
         remove_cache_dir(&self.root);
     }
 
@@ -109,7 +104,7 @@ fn remove_cache_dir(root: &Path) {
     }
 }
 
-/// 进程异常退出或只读不存会残留孤儿缓存目录，启动早期清扫一次；此刻本进程尚未建目录，删除安全
+/// 因进程异常退出或只读不存会残留孤儿目录，故启动早期清扫一次（此刻本进程尚未建目录，删除安全）
 pub fn cleanup_orphan_caches() {
     let Some(cache_base) = AppDirs::new(Some("Mindrizzle"), false).map(|dirs| dirs.cache_dir) else {
         return;
@@ -128,7 +123,7 @@ pub fn cleanup_orphan_caches() {
     }
 }
 
-/// 缓存键会拼进目录路径，替换其中的文件系统非法字符与路径分隔符
+/// 因缓存键会拼进目录路径，故替换其中的文件系统非法字符与路径分隔符
 fn sanitize_cache_key(key: &str) -> String {
     key.chars()
         .map(|c| match c {

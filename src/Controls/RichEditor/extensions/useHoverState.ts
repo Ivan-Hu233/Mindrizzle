@@ -13,29 +13,30 @@ export function useHoverState(
   getStore: (el?: Element | null) => any,
   getOverlayStore?: (el?: Element | null) => any,
 ) {
-  // 拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，hover 离开时不清空 hoveredBlock
+  // 因拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，故 hover 离开时不清空
   const hoveredBlock = ref<HoveredBlock | null>(null)
   const activeHover = ref<HoveredBlock | null>(null)
 
-  // 编辑器 DOM 内元素的 getBoundingClientRect 处于 .canvas 的布局坐标（Chrome 下不含 CSS zoom），
-  // 而 ProseKit 的 hover 命中/参考行/floating-ui 定位全部在布局坐标里自洽、只认事件坐标 ——
-  // 真实指针事件是视口坐标，zoom≠1 时直接放行必然判为空命中（popup 位置冻结、不跟随）。
-  // 故 zoom≠1 时拦下真实事件，改以换算成布局坐标的合成 pointermove 喂给编辑器 DOM，
-  // 让命中、参考行、定位与 data-state/动画全部保持 ProseKit 原生表现（与 100% 一致）
+  // 因 ProseKit 只认布局坐标、而真实指针是视口坐标，故 zoom≠1 时拦下真实事件，改喂换算后的合成 pointermove
   const canvasZoom = ref(1)
-  const readCanvasZoom = () => {
+
+  function zoomFromStyle(): number {
     const dom = getView(editor)?.dom as HTMLElement | undefined
     const parsed = Number.parseFloat(dom ? getComputedStyle(dom).getPropertyValue('--canvas-zoom') : '')
-    canvasZoom.value = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-    if (canvasZoom.value === 1) stopKeepAlive()
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  }
+
+  // 因逐帧读 computed style 会带来 N 次强制样式重算，故优先取事件 detail 的 zoom，值未变则早返回
+  const readCanvasZoom = (event?: Event) => {
+    const detailZoom = (event as CustomEvent<{ zoom?: number }> | undefined)?.detail?.zoom
+    const next = typeof detailZoom === 'number' && detailZoom > 0 ? detailZoom : zoomFromStyle()
+    if (next === canvasZoom.value) return
+    canvasZoom.value = next
+    if (next === 1) stopKeepAlive()
     else if (activeHover.value) startKeepAlive()
   }
 
-  // 把视口指针坐标换算成 .canvas 布局坐标后转发给编辑器 DOM：zoom≠1 时真实事件在 ProseKit
-  // 的布局坐标系里必然判错，合成事件让它的命中/参考行/定位全部自洽。
-  // ProseKit 只给 pointermove 套了 throttle(200)，pointerenter 走同一命中处理且不节流，
-  // 故两者都发（pointerenter 不冒泡，额外往 document 也发一份以防监听不在 view.dom 上），
-  // 否则快速移动时 popup 位置会滞后最多 200ms、明显不如 100% 跟手
+  // 因 ProseKit 只给 pointermove 套了 throttle(200)，故 pointermove/pointerenter 都发（后者另发 document 一份），否则 popup 位置滞后 200ms
   function forwardPointerMove(clientX: number, clientY: number, jitter = 0) {
     const view = getView(editor)
     const dom = view?.dom as HTMLElement | null
@@ -56,14 +57,12 @@ export function useHoverState(
     document.dispatchEvent(new PointerEvent('pointerenter', enterInit))
   }
 
-  // ProseKit 的 stateChange 在缩放环境偶发滞后（拖拽源 hoveredBlock 会空），
-  // 故再用 elementFromPoint + posAtDOM 自解析一次，同时给出所在行元素供浮层做参考
-  function resolveRowAtPointer(clientX: number, clientY: number): { row: HoveredBlock; el: HTMLElement } | null {
+  // 因 stateChange 在缩放环境偶发滞后，故用事件目标 + posAtDOM 自解析；
+  // 又因调 elementFromPoint 会变成每块×每事件的强制布局，故复用事件目标做 O(1) 判定
+  function rowAtElement(hit: HTMLElement): { row: HoveredBlock; el: HTMLElement } | null {
     const view = getView(editor)
     const dom = view?.dom as HTMLElement | null
     if (!view || !dom) return null
-    const hit = document.elementFromPoint(clientX, clientY) as HTMLElement | null
-    if (!hit || !dom.contains(hit)) return null
     let el: HTMLElement = hit
     while (el.parentElement && el.parentElement !== dom) el = el.parentElement
     if (el.parentElement !== dom) return null
@@ -74,10 +73,7 @@ export function useHoverState(
     return node ? { row: { node, pos }, el } : null
   }
 
-  const isHoverUiTarget = (clientX: number, clientY: number) => {
-    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
-    return !!el?.closest?.('.block-handle-popup, .block-handle-positioner, .floating-handle, .side-settings, .handle')
-  }
+  const HOVER_UI_SELECTOR = '.block-handle-popup, .block-handle-positioner, .floating-handle, .side-settings, .handle'
 
   const storeOf = () => getStore(findPositionerEl(getView(editor)))
   const overlayOf = () => getOverlayStore?.(findPositionerEl(getView(editor)))
@@ -98,8 +94,7 @@ export function useHoverState(
     }, 150)
   }
 
-  // floating-ui 的虚拟参考：矩形每次现算，缩放/平移/滚动时 autoUpdate 会自行重算，
-  // 无需每个 pointermove 都重设 hover 状态（那会受 ProseKit 200ms 节流拖累而卡顿）
+  // 因 autoUpdate 会自行重算矩形，故无需每个 pointermove 重设 hover 状态
   function makeRowAnchor(el: HTMLElement) {
     return {
       contextElement: el,
@@ -107,8 +102,7 @@ export function useHoverState(
     }
   }
 
-  // 拖拽源与 hover UI 需要稳定的"当前行"：ProseKit 的 stateChange 在缩放环境不可靠（会空）,
-  // 故独立按指针位置自解析并直接写入 store（同步派发 stateChange，拖拽源稳定）
+  // 因 stateChange 不可靠，故独立按指针位置自解析并直接写 store（同步派发 stateChange，拖拽源稳定）
   const HOVER_CLEAR_DELAY = 150
   let hoverClearTimer: ReturnType<typeof setTimeout> | null = null
   const cancelHoverClear = () => {
@@ -119,7 +113,10 @@ export function useHoverState(
 
   const onPointerResolve = (event: PointerEvent) => {
     if (!event.isTrusted) return
-    const hit = resolveRowAtPointer(event.clientX, event.clientY)
+    const target = event.target as HTMLElement | null
+    const dom = getView(editor)?.dom as HTMLElement | null
+    if (!dom) return
+    const hit = target && dom.contains(target) ? rowAtElement(target) : null
     if (hit) {
       cancelHoverClear()
       hoveredBlock.value = hit.row
@@ -130,12 +127,11 @@ export function useHoverState(
       return
     }
     // 指针在浮层（popup/手柄）上：保持 hover
-    if (isHoverUiTarget(event.clientX, event.clientY)) {
+    if (target?.closest?.(HOVER_UI_SELECTOR)) {
       cancelHoverClear()
       return
     }
-    // 行外空白/画布其它位置：延迟清空。立即清会让 popup 变 pointer-events:none，
-    // 鼠标从行移向 popup 时一旦扫到中间空隙就再也上不去了
+    // 因立即清会让 popup 变 pointer-events:none、鼠标扫到空隙就上不去，故延迟清空
     if (hoverClearTimer) return
     hoverClearTimer = setTimeout(() => {
       hoverClearTimer = null
@@ -145,13 +141,11 @@ export function useHoverState(
   }
 
   const onZoomPointerMove = (event: PointerEvent) => {
-    // 程序化伪 pointermove（清 hover 时坐标是 -9999）不能当作指针位置
+    // 因伪 pointermove 坐标是 -9999，故不能当作指针位置
     if (!event.isTrusted || canvasZoom.value === 1) return
     const view = getView(editor)
     if (!view?.dom) return
-    // 必须拦下真实事件：它带的是视口坐标，ProseKit 在 .canvas 布局坐标系里判命中必然落空，
-    // 且它的处理发生在合成事件之后，会把刚算好的 popup 位置又覆盖成错的。
-    // 各拖拽/框选监听都注册在 window 捕获阶段（同节点，不受 stopPropagation 影响），不会因此失效
+    // 因真实事件带视口坐标、且处理在合成事件之后会覆盖 popup 位置，故须 stopPropagation（拖拽监听同节点捕获阶段，不受影响）
     event.stopPropagation()
     forwardPointerMove(event.clientX, event.clientY)
   }
@@ -173,15 +167,13 @@ export function useHoverState(
 
   function onBlockStateChange(event: Event) {
     const detail = (event as CustomEvent).detail as HoveredBlock | null
-    // 拖拽需跨编辑器全局抑制 popup/高亮，通过 body 上的拖拽类判断
+    // 拖拽需跨编辑器全局抑制 popup/高亮
     if (document.body.classList.contains('block-handle-dragging')) {
       activeHover.value = null
       stopKeepAlive()
       return
     }
-    // 空 hover 不直接清空：指针可能正停在 popup/手柄上（ProseKit 只认编辑器内容命中），
-    // 清空会让 popup 立刻变成 pointer-events:none 从而"一碰就闪"；显隐统一交给按指针命中判断的
-    // onPointerResolve 管理（它区分行内/浮层，并对其它位置做 150ms 延迟清空）
+    // 因指针可能正停在 popup/手柄上，故空 hover 不直接清空，显隐交给 onPointerResolve 管理
     if (!detail) {
       stopKeepAlive()
       return
@@ -191,7 +183,7 @@ export function useHoverState(
     startKeepAlive()
   }
 
-  // popup 需与行保持 4px 间距，放置判断以 popup 实际高度 + 该间距为所需空间
+  // popup 与行保持 4px 间距，放置判断按 popup 高度 + 该间距
   const COMPACT_POPUP_GAP = 4
 
   // 放置规则：移动端优先上方、桌面端优先朝向画布内侧（块在左半 → 行右），空间不足时退化为另一侧/上下
@@ -201,7 +193,7 @@ export function useHoverState(
 
     const view = getView(editor)
     if (isCompactView(view)) {
-      // 行矩形与 popup 尺寸都是布局坐标，裁剪边界是视觉坐标，需统一换算后再比较
+      // 因行矩形是布局坐标、裁剪边界是视觉坐标，故需统一换算
       const br = getBlockRect(view, hoveredBlock.value.pos)
       if (br) {
         const need = layoutToViewportSize(view, getPopupHeight(view)) + COMPACT_POPUP_GAP
@@ -216,11 +208,10 @@ export function useHoverState(
 
     const editorDom = view?.dom as HTMLElement | null
     const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
-    // 无限画布下世界层远大于视口、按它判断内外会恒为同一侧，改用可见视口 .canvas-container 判断
+    // 因世界层远大于视口、按它判断内外恒为同一侧，故改用 .canvas-container
     const container = editorDom?.closest('.canvas-container') as HTMLElement | null
     if (!widget || !container) return fallback
-    // 块矩形是 .canvas 的布局坐标（不含 CSS zoom），容器/裁剪边界是视觉坐标，
-    // 直接比较会在缩放时选错左右侧，统一换算到视觉坐标后再比
+    // 因块矩形是布局坐标、容器是视觉坐标，故统一换算到视觉坐标后再比
     const w = widget.getBoundingClientRect()
     const c = container.getBoundingClientRect()
     const wLeft = layoutToViewportX(view, w.left)
@@ -229,8 +220,7 @@ export function useHoverState(
     const wBottom = layoutToViewportY(view, w.top + w.height)
     const preferred: 'left' | 'right' = wLeft + (wRight - wLeft) / 2 < c.left + c.width / 2 ? 'right' : 'left'
 
-    // 桌面端左右放不下 popup 时需退化为上下放置；左右空间用整块边界（不用文本行 nodeDOM，
-    // nodeDOM(pos) 部分情况取不到元素）；且桌面端 top/bottom 不放大，退化时大小与左右放置一致
+    // 因 nodeDOM(pos) 部分情况取不到元素，故左右空间用整块边界；空间不足时退化为上下放置
     const needX = layoutToViewportSize(view, getPopupWidth(view)) + COMPACT_POPUP_GAP
     const spaceLeft = wLeft - c.left
     const spaceRight = c.right - wRight

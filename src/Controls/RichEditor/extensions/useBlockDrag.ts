@@ -1,6 +1,4 @@
-// 自定义指针拖拽：Tauri Linux 的 WebKitGTK 对 HTML5 DnD 支持不完整
-// （dragover/drop 事件不派发），完全不依赖 HTML5 DnD，改用
-// pointerdown + window 级 pointermove/pointerup 完成拖拽、指示器与插入。
+// 因 Tauri Linux 的 WebKitGTK 不派发 HTML5 DnD 的 dragover/drop，故改用 pointerdown + window 级指针事件实现拖拽
 
 import { onUnmounted, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
@@ -38,19 +36,17 @@ export function useBlockDrag(options: {
   const { editor, hoveredBlock, suppressUI } = options
   const view = () => getView(editor)
 
-  // 拖拽中行高亮会与 NodeSelection 选区框重叠，拖拽期间隐藏
+  // 因行高亮会与 NodeSelection 选区框重叠，故拖拽期间隐藏
   const isDragging = ref(false)
   let active = false
   let source: DragSource | null = null
   let ghostEl: HTMLElement | null = null
   let indicatorEl: HTMLElement | null = null
-  // 「落点/指示器」计算较重（elementFromPoint + posAtCoords + getBoundingClientRect）、
-  // 每次 mousemove 都触发会卡顿，用 rAF 合并到每帧最多一次
+  // 因落点/指示器计算较重，故用 rAF 合并到每帧一次
   let rafId = 0
   let lastX = 0
   let lastY = 0
   let needsIndicator = false
-  // 拖到滚动区上下边缘需自动滚动，定义边缘带宽度与最大每帧滚动像素
   const SCROLL_EDGE = 48
   const SCROLL_MAX_SPEED = 28
 
@@ -65,10 +61,8 @@ export function useBlockDrag(options: {
 
   const clampTo = (min: number, max: number, value: number) => Math.min(Math.max(value, min), max)
 
-  // 因 .editor-wrapper 左右 gutter 是 pointer-events:none 的留白、block-handle 手柄正落在其中，
-  // 沿 gutter 竖直拖拽时 elementFromPoint 命不中 .ProseMirror，直判会整个丢手（无插入线、松手无反应），
-  // 故未直接命中时按各编辑器包装盒兜底归属，并把落点夹回内容区
-  // （wrapper/内容矩形是 .canvas 布局坐标，鼠标是视口坐标，统一经 layoutToViewport* 换算后再比较）
+  // 因 gutter 是 pointer-events:none 的留白、手柄正落在其中，故未直接命中时按 wrapper 盒子兜底并夹回落点
+  // （布局坐标与视口坐标需先经 layoutToViewport* 换算）
   function resolveEditorHit(x: number, y: number): EditorHit | null {
     const direct = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.('.ProseMirror') as HTMLElement | null
     const directEditor = direct ? editorOfPm(direct) : null
@@ -100,14 +94,13 @@ export function useBlockDrag(options: {
     const el = document.elementFromPoint(x, y)
     const scrollEl = (el?.closest?.('.editor-scroll') as HTMLElement | null) ?? ((hit?.pm.closest('.editor-scroll') as HTMLElement | null) ?? null)
     if (!scrollEl) return false
-    // gutter 内同样命不中滚动容器，经编辑器归属兜底，保证贴边拖拽仍能自动滚动
+    // 因 gutter 内同样命不中滚动容器，故经编辑器归属兜底
     const r = scrollEl.getBoundingClientRect()
     const top = hit ? layoutToViewportY(hit.pm, r.top) : r.top
     const bottom = hit ? layoutToViewportY(hit.pm, r.top + r.height) : r.bottom
     const inTop = y > top && y < top + SCROLL_EDGE
     const inBottom = y < bottom && y > bottom - SCROLL_EDGE
     if (!inTop && !inBottom) return false
-    // 越贴近边缘滚得越快
     const dist = inTop ? y - top : bottom - y
     const step = Math.max(2, Math.round(SCROLL_MAX_SPEED * (1 - dist / SCROLL_EDGE)))
     if (inTop && scrollEl.scrollTop > 0) {
@@ -121,10 +114,9 @@ export function useBlockDrag(options: {
     return false
   }
 
-  // 拖到画布边缘需画布自动平移（鼠标靠上/左边缘时内容向下/右移露出上方/左侧），
-  // 经 Mindrizzle:canvas-pan 事件驱动 Editor.vue 的 pan
-  const CANVAS_PAN_EDGE = 60 // 距画布视口边缘多少 px 触发
-  const CANVAS_PAN_MAX = 8 // 每帧最大平移 px
+  // 拖到画布边缘经 Mindrizzle:canvas-pan 事件驱动画布平移
+  const CANVAS_PAN_EDGE = 60
+  const CANVAS_PAN_MAX = 8
   function panCanvas(x: number, y: number): boolean {
     const canvasEl = document.querySelector('.canvas-container') as HTMLElement | null
     if (!canvasEl) return false
@@ -140,7 +132,7 @@ export function useBlockDrag(options: {
     return true
   }
 
-  // 每帧 posAtCoords 重算会卡顿，自动滚动/平移每帧检查、落点/指示器仅在鼠标移动或内容滚动变化时重算
+  // 因每帧重算会卡顿，故自动滚动/平移每帧检查，落点/指示器仅在鼠标移动或内容滚动时重算
   function ensureDragLoop() {
     if (rafId) return
     rafId = requestAnimationFrame(dragLoop)
@@ -148,7 +140,7 @@ export function useBlockDrag(options: {
   function dragLoop() {
     rafId = 0
     if (!active || !source) return
-    // 落点、自动滚动、画布平移均需知道鼠标下的编辑器，本帧只解析一次
+    // 本帧只解析一次鼠标下的编辑器
     const hit = resolveEditorHit(lastX, lastY)
     const scrolled = autoScroll(lastX, lastY, hit)
     const panned = panCanvas(lastX, lastY)
@@ -167,7 +159,7 @@ export function useBlockDrag(options: {
     if (!v || !block || !node) return
     e.preventDefault()
     e.stopPropagation()
-    // 拖拽也应选中该块（与点击手柄一致），pointerdown 时设置 NodeSelection
+    // 与点击手柄一致：拖拽也应选中该块
     try {
       const sel = NodeSelection.create(v.state.doc, block.pos)
       v.dispatch(v.state.tr.setSelection(sel))
@@ -178,15 +170,14 @@ export function useBlockDrag(options: {
     source = { editor: editor as Editor, node, from: block.pos, to: block.pos + node.nodeSize }
     active = true
     isDragging.value = true
-    document.body.classList.add('block-handle-dragging') // 置 body 拖拽类，跨编辑器全局抑制 popup/高亮
+    // 跨编辑器全局抑制 popup/高亮
+    document.body.classList.add('block-handle-dragging')
     suppressUI()
     createGhost(node, e.clientX, e.clientY)
     lastX = e.clientX
     lastY = e.clientY
     ensureDragLoop()
-    // mouse.down 后部分环境不再派发 mousemove，同时监听 pointermove 以保证拖拽跟手。
-    // 因 hover 自解析会在 window 捕获阶段 stopPropagation 阻断 ProseKit（zoom≠1），
-    // 这里也必须用捕获阶段，否则事件在到达目标前被停止、冒泡阶段的window监听器永远收不到
+    // 因部分环境 mouse.down 后不派发 mousemove，故同时监听 pointermove；又因 hover 自解析会 stopPropagation，故用捕获阶段
     window.addEventListener('pointermove', onDragMove, true)
     window.addEventListener('mousemove', onDragMove, true)
     window.addEventListener('mouseup', onDragUp)
@@ -195,7 +186,7 @@ export function useBlockDrag(options: {
 
   function onDragMove(e: MouseEvent) {
     if (!active || !source) return
-    // 程序化伪 pointermove（清 hover 时坐标是 -9999）不能当作指针位置，否则指示器被清空
+    // 因伪 pointermove 坐标是 -9999，故不能当作指针位置
     if (!e.isTrusted) return
     if (ghostEl) {
       ghostEl.style.left = `${e.clientX + 10}px`
@@ -221,8 +212,7 @@ export function useBlockDrag(options: {
     }
   }
 
-  // 落点判定：用命中元素所在块元素经 posAtDOM 映射回文档位置（与坐标无关，缩放/平移下都成立），
-  // 再按鼠标 y 与该块视觉矩形中心比较决定插到块前还是块后，与行级指示器一致
+  // 用命中块元素经 posAtDOM 映射回文档位置（与坐标无关），再按鼠标 y 与块视觉中心比较取前/后
   function resolveDropAnchor(pm: HTMLElement, v: any, x: number, y: number): DropAnchor {
     const hit = document.elementFromPoint(x, y) as HTMLElement | null
     let el: HTMLElement | null = hit && pm.contains(hit) ? hit : null
@@ -233,7 +223,7 @@ export function useBlockDrag(options: {
     const rect = getVisibleBlockRect(el)
     const mid = rect ? layoutToViewportY(v, rect.top) + layoutToViewportSize(v, rect.height) / 2 : y
     const before = y < mid
-    // 原子块（NodeView 根）的 $pos.depth 为 0，posAtDOM 落在文档级位置，需按 nodeSize 取前后
+    // 因原子块的 $pos.depth 为 0，故需按 nodeSize 取前后
     if ($pos.depth === 0) {
       const node = v.state.doc.nodeAt(at)
       return { pos: before ? at : at + (node?.nodeSize ?? 0), el, before }
@@ -249,7 +239,7 @@ export function useBlockDrag(options: {
     return { from: start, to: end }
   }
 
-  // 删除源块后插入位置会偏移，经 tr.mapping 修正后再插入
+  // 因删除源块后插入位置会偏移，故经 tr.mapping 修正
   function moveInSameEditor(s: DragSource, hit: EditorHit) {
     const v = hit.editor.view
     const anchor = resolveDropAnchor(hit.pm, v, hit.x, hit.y)
@@ -275,7 +265,7 @@ export function useBlockDrag(options: {
     const delTr = srcView.state.tr
     delTr.delete(srcRange.from, srcRange.to)
     srcView.dispatch(delTr)
-    // 各 editor 的 schema 独立不能直接复用节点，经 nodeFromJSON 转换后插入
+    // 因各 editor 的 schema 独立，故经 nodeFromJSON 转换后插入
     const targetNode = tgtView.state.schema.nodeFromJSON(s.node.toJSON())
     const insTr = tgtView.state.tr
     const insertPos = clampTo(0, tgtView.state.doc.content.size, anchor.pos)
@@ -326,8 +316,7 @@ export function useBlockDrag(options: {
     ghostEl = null
   }
 
-  // 因 CSS zoom 下 coordsAtPos 拿的是布局坐标、指示器是 fixed 视口定位，直接用会随缩放偏移，
-  // 改为按落点所在块元素的视觉矩形取上/下边缘（末尾落点取编辑器内容底边）
+  // 因 coordsAtPos 在 zoom 下拿的是布局坐标会偏移，故按块元素视觉矩形取上/下边缘
   function updateIndicator(v: any, anchor: DropAnchor) {
     if (!indicatorEl) {
       indicatorEl = document.createElement('div')

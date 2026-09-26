@@ -37,8 +37,8 @@ import { defineSuperscript } from 'prosekit/extensions/superscript'
 import { defineGapCursor } from 'prosekit/extensions/gap-cursor'
 import { NodeSelection } from 'prosekit/pm/state'
 
-// 父组件统一经 editor.commands 命令链调用（如 componentRefs.value[id]?.commands?.toggleHeading?.({ level })），注册自定义命令
-// 注：标题切换复用 defineHeading() 内置的 toggleHeading({ level })，避免同名命令被合并成交叉类型
+// 因父组件统一经 editor.commands 调用，故在此注册自定义命令；
+// 标题切换复用 defineHeading() 内置的 toggleHeading，避免同名命令被合并成交叉类型
 const customCommands = defineCommands({
   insertVueComponent(componentName: string, props: Record<string, any> = {}) {
     return (state, dispatch, view) => {
@@ -52,11 +52,11 @@ const customCommands = defineCommands({
       })(state, dispatch)
     }
   },
-  // 画布拖组件入块时落点由指示线给出，需按指定块边界插入而非当前选区
+  // 落点由指示线给出，按指定位置插入而非当前选区
   insertVueComponentAt(pos: number, componentName: string, props: Record<string, any> = {}) {
     return (state, dispatch, view) => {
       if (!view) return false
-      // 落点来自画布帧缓存，越界时直接失败让调用方回退，避免 tr.insert 抛错打断拖拽收尾
+      // 因落点来自画布帧缓存可能越界，故直接失败让调用方回退，避免 tr.insert 抛错
       if (pos < 0 || pos > state.doc.content.size) return false
       const node = state.schema.nodes.vueComponent?.create({
         componentName,

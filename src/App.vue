@@ -37,7 +37,7 @@ const getErrorMessage = (error: unknown): string => {
 onMounted(async () => {
   await router.isReady()
 
-  // 非 Tauri 环境下无 IPC、plugin-log 内部 invoke 会抛错，此处提前返回
+  // 因非 Tauri 环境无 IPC、plugin-log 内部 invoke 会抛错，故提前返回
   if (!isTauri()) return
 
   try {
@@ -50,7 +50,7 @@ onMounted(async () => {
 
 const isDev = computed(() => import.meta.env.DEV);
 
-// 保存依赖编辑器内部的画布状态，只能由路由组件自己暴露；此处以最小结构类型持有其实例
+// 因保存依赖编辑器内部画布状态，故只能由路由组件自己暴露
 const routeComponentRef = shallowRef<{ save?: () => Promise<void> } | null>(null)
 
 const saveCurrentFile = () => {
@@ -188,12 +188,11 @@ textarea {
   position: relative;
 }
 
-/* 因窗口 decorations:false 与桌面背景无分界，且 border 会撑高 2px 把底边挤出视口（#app overflow:hidden 裁掉）、
-   outline 会被 v-toolbar 等定位子元素盖住，故改用最高层级的绝对定位覆盖层画描边 */
+/* 因 border 会撑高 2px 被 #app 裁掉、outline 会被定位子元素盖住，故用最高层级绝对定位覆盖层画描边 */
 .window-outline {
   position: absolute;
   inset: 0;
-  /* 需压在窗口缩放边缘（.window-resize-edge, 10000）之上 */
+  /* 需压在窗口缩放边缘之上 */
   z-index: 10001;
   pointer-events: none;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.24);

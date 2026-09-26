@@ -57,14 +57,13 @@ const emit = defineEmits<{
 let session: ResizeSession | null = null
 
 const rootEl = ref<HTMLElement | null>(null)
-// 手柄渲染在块边缘会被紧贴的邻块盖住而点不到，Teleport 到 .canvas 顶层
-// （Z_LAYER.resizeHandle：高于选中块、曲别针与选中描边环）
+// 因手柄在块边缘会被紧贴邻块盖住而点不到，故 Teleport 到 .canvas 顶层（Z_LAYER.resizeHandle）
 const canvasEl = ref<HTMLElement | null>(null)
 onMounted(() => {
   canvasEl.value = rootEl.value?.closest('.canvas') ?? null
 })
 
-// 父 .canvas 使用 CSS zoom，渲染层圆整到视觉像素，逻辑仍使用原始 content 坐标
+// 因 .canvas 用 CSS zoom，故渲染层圆整到视觉像素，逻辑仍用 content 坐标
 const roundToPx = (v: number) => Math.round(v * props.zoom) / props.zoom
 const renderRect = computed(() => ({
   x: roundToPx(props.x),
@@ -72,8 +71,7 @@ const renderRect = computed(() => ({
   w: roundToPx(props.w),
   h: roundToPx(props.h),
 }))
-// 块定位禁用 translate3d：强制提升会把块缓存为位图纹理，父 .canvas 放大时
-// 浏览器对该纹理上采样，块内文字必然发虚（与画布层同理），普通 translate 让浏览器按新矩阵重绘块内 DOM
+// 因 translate3d 会把块缓存为位图纹理、放大会上采样致文字发虚，故用普通 translate
 const boxStyle = computed(() => ({
   transform: `translate(${renderRect.value.x}px, ${renderRect.value.y}px)`,
   width: `${renderRect.value.w}px`,
@@ -82,7 +80,7 @@ const boxStyle = computed(() => ({
 }))
 const showHandles = computed(() => props.active && !props.disabled)
 
-// 手柄定位：.canvas 已应用 pan+origin 变换，用块 content 坐标 + 边缘偏移即可（与 floating-handle 同法）
+// .canvas 已应用 pan+origin，故手柄直接用 content 坐标 + 边缘偏移
 const HANDLE_POS: Record<Handle, (r: Rect) => { left: string; top: string }> = {
   tl: (r) => ({ left: `${r.x - 5}px`, top: `${r.y - 5}px` }),
   tm: (r) => ({ left: `${r.x + r.w / 2 - 4}px`, top: `${r.y - 5}px` }),
@@ -101,7 +99,7 @@ const CURSOR: Record<Handle, string> = {
 const handleStyle = (h: string) => {
   const pos = HANDLE_POS[h as Handle](renderRect.value)
   return {
-    // 手柄随 .canvas 的 CSS zoom 缩放，尺寸与定位圆整到整数视觉像素避免边缘亚像素模糊
+    // 因手柄随 zoom 缩放，故尺寸与定位圆整到整数视觉像素
     width: `${roundToPx(8)}px`,
     height: `${roundToPx(8)}px`,
     zIndex: Z_LAYER.resizeHandle,
@@ -114,7 +112,7 @@ const handleStyle = (h: string) => {
 const clampW = (w: number) => Math.min(Math.max(w, props.minWidth), props.maxWidth ?? Infinity)
 const clampH = (h: number) => Math.min(Math.max(h, props.minHeight), props.maxHeight ?? Infinity)
 
-// 锚定边（非手柄所在边）不随鼠标移动、保持 content 坐标，拖 l/t 时 x/y 随尺寸调整
+// 锚定边保持 content 坐标，拖 l/t 时 x/y 随尺寸调整
 const computeRect = (s: ResizeSession, dx: number, dy: number): Rect => {
   const r = s.startRect
   let x = r.x
@@ -136,7 +134,7 @@ const computeRect = (s: ResizeSession, dx: number, dy: number): Rect => {
 
 const onMove = (e: MouseEvent) => {
   if (!session) return
-  // .canvas 使用 CSS zoom，视口鼠标位移需除以 zoom 才等于 content 位移
+  // 因 .canvas 用 zoom，故鼠标位移需除以 zoom
   const rect = computeRect(session, (e.clientX - session.startClientX) / props.zoom, (e.clientY - session.startClientY) / props.zoom)
   session.lastRect = rect
   emit('resizing', rect.x, rect.y, rect.w, rect.h)
@@ -150,8 +148,7 @@ const onUp = () => {
   session = null
 }
 
-// resize 会话以"按下瞬间的矩形 + 鼠标位移"为基准（不依赖实时 prop），
-// autoPan 补偿（父组件改 prop）不会进入反馈环
+// 因会话以按下瞬间矩形 + 鼠标位移为基准，故 autoPan 补偿改动 prop 不会进入反馈环
 const onHandleDown = (handle: string, e: MouseEvent) => {
   if (props.disabled || e.button !== 0) return
   session = {
@@ -161,7 +158,7 @@ const onHandleDown = (handle: string, e: MouseEvent) => {
     startRect: { x: props.x, y: props.y, w: props.w, h: props.h },
     lastRect: { x: props.x, y: props.y, w: props.w, h: props.h },
   }
-  // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+  // 因 hover 自解析会 stopPropagation，故用捕获阶段
   window.addEventListener('mousemove', onMove, true)
   window.addEventListener('mouseup', onUp)
   emit('resizestart', handle)
@@ -180,7 +177,7 @@ onUnmounted(cleanup)
     <!-- 块无边框背景，用虚线框常驻标注内容区范围 -->
     <div class="content-guide" aria-hidden="true" />
     <slot />
-    <!-- 手柄需固定视觉尺寸渲染且不被邻块盖住，Teleport 到 .canvas-container 顶层用视觉坐标定位 -->
+    <!-- 因手柄需固定视觉尺寸且不被邻块盖住，故 Teleport 到 .canvas 顶层 -->
     <Teleport :to="canvasEl" :disabled="!canvasEl">
       <template v-if="showHandles">
         <div v-for="h in handles" :key="h" class="handle" :class="`handle-${h}`" :data-id="itemId"
@@ -199,9 +196,7 @@ onUnmounted(cleanup)
 .content-guide {
   position: absolute;
   inset: 0;
-  /* 需常驻标注内容区边界且不遮挡内容/交互，用低对比度虚线并穿透点击；
-     层级高于块背景（可见）低于拖拽栏/缩放手柄（不挡操作） */
-  /* border: 1px dashed rgb(var(--v-theme-on-surface)); */
+  /* 需可见但不挡操作，故低对比度 + 穿透点击，层级高于块背景低于手柄 */
   opacity: 0.35;
   pointer-events: none;
   z-index: 10;
@@ -210,11 +205,11 @@ onUnmounted(cleanup)
 .handle {
   box-sizing: border-box;
   position: absolute;
-  /* 手柄需在明暗主题下都与块背景有对比，用 on-surface 半透明填充（暗色下浅、浅色下深）配高对比边框 */
+  /* 因需在明暗主题下都与块背景有对比，故用高对比边框 */
   background: rgb(var(--v-theme-background));
   border: 1px solid rgb(var(--v-theme-on-surface));
   box-shadow: 0 0 2px rgba(var(--v-theme-on-surface), 0.4);
-  /* 与 Z_LAYER.resizeHandle 一致（CSS 无法引用 TS 常量） */
+  /* 与 Z_LAYER.resizeHandle 一致 */
   z-index: 1003;
 }
 @media only screen and (max-width: 768px) {

@@ -97,8 +97,7 @@ interface CornerButtonOptions {
   onHover: (hovering: boolean) => void
 }
 
-// 左下“拖出成块”与右下缩放共用同一角标视觉（hover/拖拽中提亮并放大），
-// 避免渲染函数里重复整段样式
+// 左下"拖出成块"与右下缩放共用角标视觉，避免渲染函数重复整段样式
 const cornerButtonStyle = (active: boolean, cursor: string, at: CornerButtonOptions['at']) => {
   const tone = 'var(--v-theme-on-surface, #000000)'
   return {
@@ -140,7 +139,7 @@ function renderCornerButton(options: CornerButtonOptions) {
   )
 }
 
-// 拖出成块时跟随鼠标的徽标，仅作“正在拖出”反馈，不可命中
+// 拖出成块时跟随鼠标的徽标，不可命中
 function createExtractGhost(): HTMLDivElement {
   const ghost = document.createElement('div')
   ghost.style.cssText =
@@ -163,7 +162,7 @@ const ResizableContainer = defineComponent({
     minHeight: { type: Number as PropType<number | null>, default: null },
     maxHeight: { type: Number as PropType<number | null>, default: null },
     readOnly: { type: Boolean, default: false },
-    // 内容经 prop 传入而非 slot：NodeView 渲染上下文外调用 slot 会触发 Vue 警告
+    // 因 NodeView 渲染上下文外调用 slot 会触发 Vue 警告，故内容经 prop 传入
     content: { type: Object as PropType<any>, required: true },
   },
   emits: ['resize', 'extract'],
@@ -232,12 +231,12 @@ const ResizableContainer = defineComponent({
         document.removeEventListener('mouseup', onMouseUp)
       }
 
-      // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+      // 因 hover 自解析会 stopPropagation，故用捕获阶段
       document.addEventListener('mousemove', onMouseMove, true)
       document.addEventListener('mouseup', onMouseUp)
     }
 
-    // 左下角按钮：把插入组件拖出富文本重新变回画布块，是否落位由画布判定（同步回填 accepted）
+    // 左下按钮把插入组件拖出成画布块，是否落位由画布判定
     const startExtract = (event: MouseEvent) => {
       if (props.readOnly) return
       event.preventDefault()
@@ -258,7 +257,7 @@ const ResizableContainer = defineComponent({
         emit('extract', { clientX: ev.clientX, clientY: ev.clientY })
       }
       placeGhost(event)
-      // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+      // 因 hover 自解析会 stopPropagation，故用捕获阶段
       document.addEventListener('mousemove', onMouseMove, true)
       document.addEventListener('mouseup', onMouseUp)
     }
@@ -378,7 +377,7 @@ export const vueComponentNodeView = defineVueNodeView({
         }
       )
 
-      // 首次取 clientWidth 可能为 0，以 10000 作较大后备避免宽度塌缩
+      // 因首次 clientWidth 可能为 0，故以 10000 后备避免宽度塌缩
       const containerWidth = ref<number>(view.dom.clientWidth || 10000)
       let resizeObserver: ResizeObserver | null = null
       const readOnly = ref(!view.editable)
@@ -443,13 +442,12 @@ export const vueComponentNodeView = defineVueNodeView({
         view.dispatch(tr)
       }
 
-      // 左下按钮拖出成块：由画布判定是否落位（编辑态 + 落在画布内）并同步回填 accepted，
       // 落位成功后从文档删除该节点（画布块已接管其内容）
       const handleExtract = (point: { clientX: number; clientY: number }) => {
         if (readOnly.value) return
         const pos = getPos()
         if (typeof pos !== 'number') return
-        // doc 需 block+，仅剩该节点时抽出会留下非法空文档，直接不响应
+        // 因 doc 需 block+，仅剩该节点时抽出会留下非法空文档，故不响应
         if (view.state.doc.childCount <= 1) return
         const payload = {
           componentName: node.value.attrs.componentName as string,

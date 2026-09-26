@@ -3,8 +3,7 @@
     <v-container class="toolbar" style="height: 133px;">
       <!-- <v-btn @click="save">保存</v-btn> -->
       <!-- <v-btn @click="load">加载</v-btn> -->
-      <!-- 无选中块时进入"添加块"状态，用单选组展示当前添加类型（滚轮切换、左键直接添加），
-           交互与富文本格式操作一致但不再弹确认 overlay -->
+      <!-- 无选中块时进入"添加块"状态，用单选组展示当前类型（滚轮切换、左键直接添加） -->
       <v-btn-toggle
         v-if="!hasSelection && MdrCRef?.isEditMode"
         :model-value="addIdx"
@@ -53,8 +52,7 @@
     
     <MdrCanvas class="editor-wrapper" ref="MdrCRef"/>
 
-    <!-- 格式操作需用户确认而非直接应用，弹 overlay 询问：
-         任意位置左键应用、右键取消并清选区（用全屏捕获层接管事件，避开 v-overlay 根透传限制） -->
+    <!-- 因格式操作需确认，故弹 overlay：左键应用、右键取消（全屏捕获层接管事件） -->
     <v-overlay v-model="pendingApply" persistent scroll-strategy="none">
       <div class="apply-layer" @click.left="confirmApply" @mousedown.right="cancelApply" @contextmenu.prevent="cancelApply">
         <v-card class="apply-card" min-width="240" :class="{ 'place-below': overlayPos.below }"
@@ -94,20 +92,20 @@ const componentOf = computed(() => {
   return MdrCRef.value?.state.items.find((it) => it.id === id)?.component
 })
 
-// 无选中块时进入"添加块"状态：滚轮在两种类型间循环、左键直接添加，集中为单一常量源
+// 添加类型单源
 const ADD_OPTIONS = [
   { key: 'RichTextEditor', label: '富文本', icon: mdiNoteText, addId: 'add-rich' },
   { key: 'EditableCodeBlock', label: '代码块', icon: mdiCodeBraces, addId: 'add-code' },
 ] as const
 const hasSelection = computed(() => (MdrCRef.value?.state.selectedIds.size ?? 0) > 0)
-// 添加块类型需单选高亮且默认首项，记录当前索引
+// 添加类型单选索引
 const addIdx = ref(0)
 const onSelectAdd = (index: number | null) => {
   if (index == null) return
   addIdx.value = index
 }
 
-// 添加块预览需随"当前类型/是否有选中/编辑态"同步，经 MdrCanvas.setAddPreview 驱动
+// 添加预览随当前类型/选中/编辑态同步
 watch(
   [addIdx, hasSelection, () => MdrCRef.value?.isEditMode],
   () => {
@@ -118,7 +116,7 @@ watch(
   { immediate: true },
 )
 
-// 按钮项各自携带图标与操作且轮换按索引推进，集中为单一常量源
+// 格式操作单源
 const OPTIONS = [
   { icon: mdiMouse, label: '指针', action: () => {} },
   { icon: mdiFormatHeader1, label: '标题', action: () => batchToggleHeading(1) },
@@ -127,17 +125,16 @@ const OPTIONS = [
   { icon: mdiFormatUnderline, label: '下划线', action: () => batchToggleUnderline() }
 ] as const
 
-// 按钮组需单选高亮且默认选中首项，记录当前索引；切换选中块时重置为首项
+// 单选索引；切换选中块时重置为首项
 const opIdx = ref(0)
 watch(componentOf, () => { opIdx.value = 0 })
 
-// 操作已由各按钮项的 action 字段声明，此处仅按索引分发对应操作
 const onSelectOption = (index: number | null) => {
   if (index == null) return
   opIdx.value = index
 }
 
-// 仅原生滚动条轨道上的滚轮应滚动内容，内容区继续用于循环操作
+// 仅滚动条轨道上的滚轮滚动内容
 const isOnScrollbar = (e: WheelEvent): boolean => {
   const target = e.target as HTMLElement | null
   if (target?.closest?.('.custom-scrollbar')) return true
@@ -159,9 +156,7 @@ const isOnScrollbar = (e: WheelEvent): boolean => {
   return false
 }
 
-// 需整个界面任意位置滚轮循环切换按钮项，按 deltaY 方向在索引间循环；
-// 无选中块时处于"添加块"状态，滚轮在添加类型间循环；有富文本选中时循环格式操作；
-// 编辑器/文本框内滚轮需滚动内容，予以豁免，避免循环切项挡住阅读
+// 任意位置滚轮按 deltaY 循环切换按钮项：无选中循环添加类型、富文本选中循环格式操作；滚动条上豁免
 const cycleOption = (e: WheelEvent) => {
   if (!(e.target as HTMLElement).closest?.('.canvas-container')) return
   if (isOnScrollbar(e)) return
@@ -178,7 +173,7 @@ const cycleOption = (e: WheelEvent) => {
   onSelectOption(next)
 }
 
-// 仅富文本块内选中文本时应自动应用当前按钮项操作，要求选区非空且落在当前选中块内
+// 要求选区非空且落在当前选中块内
 const selectionInBlock = (): boolean => {
   const sel = window.getSelection()
   const id = Array.from(MdrCRef.value!.state.selectedIds)[0]
@@ -187,17 +182,15 @@ const selectionInBlock = (): boolean => {
     !!sel.anchorNode && !!sel.focusNode && block.contains(sel.anchorNode) && block.contains(sel.focusNode)
 }
 
-// 仅 mouseup 时选区才算定稿（拖动选字中途 selectionchange 高频误触发、暂停即会提前应用），
-// 因此不监听 selectionchange，改在 mouseup 时校验选区；操作不直接执行，
-// 而是弹 overlay 询问用户：左键应用、右键取消并清选区
+// 因 selectionchange 途中会误触发，故改在 mouseup 校验选区，并弹 overlay 询问（左键应用、右键取消）
 let applyLockUntil = 0
 const pendingApply = ref(false)
 const pendingActionIndex = ref(0)
 const pendingLabel = computed(() => OPTIONS[pendingActionIndex.value]?.label ?? '更改')
-// v-card 需显示在选区附近，记录选区矩形的中心 x 与上缘 y（上方空间不足时改放下方）
+// 记录选区锚点（上方空间不足时改放下方）
 const overlayPos = ref({ left: 0, top: 0, below: false })
 
-// "左键在画布处添加块"需落在鼠标位置，把视口鼠标坐标经 utils 统一换算为画布 content 坐标
+// 把视口鼠标坐标换算为画布 content 坐标
 const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null => {
   const cont = document.querySelector<HTMLElement>('.canvas-container')
   const ojc = MdrCRef.value
@@ -210,14 +203,13 @@ const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null =>
   )
 }
 
-// 需区分"左键简单点击添加"与"左键拖动（框选）结束不添加"，记录按下位置供 mouseup 比较位移
+// 记录按下位置以区分简单点击与拖动框选
 const CLICK_DRAG_THRESHOLD = 4
 let mouseDownX = 0
 let mouseDownY = 0
-// mousedown 时已存在选中 → 本次点击语义是"取消选中"，mouseup 添加块逻辑须据此跳过
+// 已有选中时本次点击语义为取消选中，添加逻辑须跳过
 let isDeselectClick = false
-// 因悬停不再自动选中，点击已有块时选中集可能为空，此时若按"无选中即添加"会把新块叠在旧块上，
-// 故记录按下位置是否落在块/块浮层内，落在其上的点击一律走选中而非添加
+// 因点击已有块时选中集可能为空，故记录按下是否落在块/浮层内，落在其上走选中而非添加
 let isBlockPress = false
 const trackMouseDown = (e: MouseEvent) => {
   mouseDownX = e.clientX
@@ -227,25 +219,24 @@ const trackMouseDown = (e: MouseEvent) => {
 }
 
 const onMouseUp = (e: MouseEvent) => {
-  if (pendingApply.value) return // 询问中不重复触发
+  if (pendingApply.value) return
   // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
   if (!hasSelection.value) {
-    // "取消多选的点击"在 mouseup 时选中已被 MdrCanvas 清空、会误入添加分支，此处拦截
+    // 因取消多选的点击已在 mouseup 前清空选中，故此处拦截避免误入添加分支
     if (isDeselectClick || isBlockPress) return
     if (!MdrCRef.value?.isEditMode || e.button !== 0) return
     if (!(e.target as HTMLElement).closest('.canvas-container')) return
-    // "左键拖动（框选）结束"不应误添加块，仅位移小于阈值的简单点击才添加
+    // 仅位移小于阈值的简单点击才添加
     if (Math.hypot(e.clientX - mouseDownX, e.clientY - mouseDownY) > CLICK_DRAG_THRESHOLD) return
     const key = ADD_OPTIONS[addIdx.value]?.key
     if (key) MdrCRef.value?.addComponent(key, canvasPointFromMouse(e) ?? undefined)
     return
   }
   if (componentOf.value !== 'RichTextEditor' || Date.now() < applyLockUntil || !selectionInBlock()) return
-  if (opIdx.value === 0) return // 指针模式无可应用操作
+  if (opIdx.value === 0) return
   applyLockUntil = Date.now() + 300
   pendingActionIndex.value = opIdx.value
-  // 卡片需贴近选区显示，以选区矩形为锚点并夹紧到视口内（防超出屏幕）：
-  // 水平中心限在卡片半宽+间距内；垂直优先放选区上方，上方不足放下方，均不足选空间大一侧
+  // 以选区矩形为锚点并夹紧到视口内：垂直优先放上方，上方不足放下方
   const rangeRect = window.getSelection()?.getRangeAt(0).getBoundingClientRect()
   if (rangeRect && rangeRect.width > 0) {
     const vw = window.innerWidth
@@ -279,15 +270,14 @@ const onMouseUp = (e: MouseEvent) => {
 const confirmApply = () => {
   pendingApply.value = false
   OPTIONS[pendingActionIndex.value]?.action()
-  // 应用后选区仍保留会经 mouseup 再次询问，同取消一样清除选区并失焦
+  // 因选区保留会经 mouseup 再次询问，故应用后同样清除选区并失焦
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
 }
 
 const cancelApply = () => {
   pendingApply.value = false
-  // ProseMirror 失焦前会保持并恢复内部选区，仅 removeAllRanges 后右键的 mouseup
-  // 仍会经 onMouseUp 重开询问，让编辑器失焦使 DOM 选区保持为空
+  // 因 ProseMirror 失焦前会恢复内部选区，故须先 blur 再清选区，否则右键 mouseup 会重开询问
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
 }
@@ -298,8 +288,10 @@ const mobileButtonLabel = computed(() => {
 })
 
 const toggleMobileSim = () => {
-  MdrCRef.value!.syncComponentData() // 模式切换会重挂载组件，先同步组件数据
-  MdrCRef.value!.forceMobile = MdrCRef.value!.nextForceMobile() // 布局刷新由 watch(mobileMode) 统一处理，此处仅切换标志
+  // 模式切换会重挂载组件，先同步组件数据
+  MdrCRef.value!.syncComponentData()
+  // 布局刷新由 watch(mobileMode) 统一处理，此处仅切换标志
+  MdrCRef.value!.forceMobile = MdrCRef.value!.nextForceMobile()
 }
 
 const toggleEditMode = () => {
@@ -313,21 +305,21 @@ const ZOOM_OPTIONS = [
   { title: '300%', value: 3 },
 ] as const
 
-// 滑动条直接改内部 ref，中转一次避免模板里写嵌套 ref 赋值
+// 中转一次，避免模板里写嵌套 ref 赋值
 const setZoom = (v: number | null) => {
   if (typeof v !== 'number' || v <= 0) return
   MdrCRef.value!.zoom = v
 }
 
 const route = useRoute()
-// route.params 的值类型为 string|string[]，单路径段时是字符串，直接下标会取首字符而非首元素
+// 因 route.params 可能是数组，故统一取首项
 const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0] : route.params.fileName
 
 const save = async () => {
   try {
     await invokeCommand("set_mdr_file_body", { fileName, content: MdrCRef.value?.save() ?? '' })
   } catch (error) {
-    // 浏览器调试环境无 Tauri IPC，日志插件内部同样走 invoke，故仅在 Tauri 内上报
+    // 因浏览器调试环境无 Tauri IPC，故仅在 Tauri 内上报
     if (isTauri()) logError(error instanceof Error ? error.message : String(error))
   }
 }
@@ -376,11 +368,11 @@ const deleteSelected = () => {
 
 onMounted(() => {
   load().catch(() => undefined)
-  // 需整个界面任意位置滚轮切换按钮项且需阻止默认滚动，挂 window 级监听并显式非 passive（否则 preventDefault 无效）
+  // 挂 window 级并显式非 passive（否则 preventDefault 无效）
   window.addEventListener('wheel', cycleOption, { passive: false })
-  // 拖动选字可能跨出编辑器范围，mouseup 会落在编辑器外，挂 window 级 mouseup 确保松开时都能定稿应用
+  // 因选字可能跨出编辑器，故挂 window 级 mouseup
   window.addEventListener('mouseup', onMouseUp)
-  // 需记录按下位置以区分"简单点击添加"与"拖动框选不添加"，挂 window 级 mousedown
+  // 挂 window 级 mousedown 记录按下位置
   window.addEventListener('mousedown', trackMouseDown)
 })
 
@@ -390,7 +382,7 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', trackMouseDown)
 })
 
-// 工具栏保存按钮在 App.vue，需跨层触发当前编辑内容落盘
+// 供 App.vue 工具栏跨层触发保存
 defineExpose({ save })
 </script>
 
@@ -416,14 +408,12 @@ defineExpose({ save })
   margin: 0 8px;
 }
 
-/* 未选中按钮默认背景与工具栏 v-sheet 相同（纯 surface 色），看不出按钮组边界，
-   给未选中按钮补半透明 on-surface 底色以区分；选中态仍保留默认高亮 */
+/* 因未选中按钮背景与工具栏同色、看不出边界，故补半透明底色 */
 .v-btn-toggle :deep(.v-btn:not(.v-btn--selected)) {
   background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
-/* overlay 需任意位置响应左键/右键，用全屏捕获层接管；
-   v-overlay__content 容器尺寸为 0（inset 失效），用 vw/vh 显式铺满并置 z 高于 scrim */
+/* 因 v-overlay__content 尺寸为 0（inset 失效），故用 vw/vh 显式铺满并置 z 高于 scrim */
 .apply-layer {
   position: fixed;
   left: 0;
@@ -432,7 +422,7 @@ defineExpose({ save })
   height: 100vh;
   z-index: 1;
 }
-/* v-card 需显示在选区上方且水平居中于选区中心，绝对定位 + translate 上移整卡；空间不足时由 place-below 改放选区下方 */
+/* 绝对定位 + translate 使卡片居中于选区上方；空间不足时由 place-below 改放下方 */
 .apply-card {
   position: absolute;
   transform: translate(-50%, calc(-100% - 8px));

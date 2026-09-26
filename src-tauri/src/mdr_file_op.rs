@@ -44,7 +44,7 @@ tauri_cmd!{
             .with_context(|| format!("创建笔记缓存：{}", resolved_name))?;
         let file = File::open(&path).with_context(|| format!("打开笔记文件：{}", resolved_name))?;
         extract_to_cache(file, cache.path(), compressed).context("解包笔记正文")?;
-        // 调用方返回后仍会读取解包文件，此处不清理缓存目录
+        // 因调用方返回后仍会读取解包文件，故此处不清理缓存
         cache.disable_cleanup();
         let body_bytes = cache.read_file("body.json").context("读取笔记正文")?;
         let body_xml = std::str::from_utf8(&body_bytes).context("转换笔记正文编码")?;
@@ -62,7 +62,7 @@ tauri_cmd!{
         let compressed = is_mdrf_compressed(&path).context("检测笔记压缩格式")?;
         let mut cache = MindrizzleFileCache::new_named(&resolved_name)
             .with_context(|| format!("创建笔记缓存：{}", resolved_name))?;
-        // 目录缺 body.json 说明此前未走 get 解包，在此补一次
+        // 因目录缺 body.json 说明此前未走 get 解包，故在此补一次
         if !cache.path().join("body.json").is_file() {
             warn!("笔记缓存缺少正文，重新解包：{}", resolved_name);
             let file = File::open(&path).with_context(|| format!("打开笔记文件：{}", resolved_name))?;
@@ -71,7 +71,7 @@ tauri_cmd!{
         let body_xml = serialize_mdr_file_body_xml(MindrizzleFileBody { content })
             .context("编码笔记正文")?;
         cache.write_file("body.json", body_xml.as_bytes()).context("写入笔记正文缓存")?;
-        // body 已更新，需把缓存目录重新打包同步到 .mdrf
+        // 因 body 已更新，故重新打包同步到 .mdrf
         pack_cache_atomic(&path, cache.path(), compressed).context("保存笔记文件")?;
         cache.cleanup();
         info!("保存笔记正文成功：{}", resolved_name);
@@ -124,7 +124,7 @@ fn resolve_mdrf_file_name(file_name: &str) -> anyhow::Result<String> {
     Ok(resolved)
 }
 
-/// 直接截断原文件再打包，失败会损坏 .mdrf；先写同目录临时文件再 rename，实现原子替换
+/// 因直接截断原文件再打包失败会损坏 .mdrf，故先写同目录临时文件再 rename 原子替换
 fn pack_cache_atomic(path: &Path, root: &Path, compressed: bool) -> anyhow::Result<()> {
     let tmp_path = path.with_extension("mdrf.tmp");
     let packed = File::create(&tmp_path)

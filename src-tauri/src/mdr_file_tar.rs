@@ -2,10 +2,6 @@
 
 //! Mindrizzle `.mdrf` 文件的打包与解包。
 //!
-//! - [`pack_cache`]：把缓存目录打包为 tar（可 gzip 压缩），生成 `.mdrf` 文件。
-//! - [`extract_to_cache`]：把 `.mdrf` 文件解包回缓存目录，供后续读取。
-//! - [`is_mdrf_compressed`]：依据文件头魔数判断 `.mdrf` 是否 gzip 压缩。
-//!
 //! ```no_run
 //! use std::fs::File;
 //! use std::io;
@@ -25,10 +21,6 @@ use tar::{Archive, Builder};
 use walkdir::WalkDir;
 
 /// 将缓存目录内全部文件打包为 tar，可选 gzip 压缩
-/// # Arguments
-/// * `root`：待打包的缓存目录
-/// * `writer`：打包结果的写入目标
-/// * `compress`：为 `true` 时额外做 gzip 压缩
 pub fn pack_cache<W: Write>(root: &Path, writer: W, compress: bool) -> Result<()> {
     let boxed_writer: Box<dyn Write> = if compress {
         Box::new(GzEncoder::new(writer, Compression::default()))
@@ -49,11 +41,7 @@ pub fn pack_cache<W: Write>(root: &Path, writer: W, compress: bool) -> Result<()
     Ok(())
 }
 
-/// 将 tar 归档解包到目标目录，支持 gzip 压缩
-/// # Arguments
-/// * `reader`：`.mdrf` 归档的读取源
-/// * `target`：解包目标目录，不存在时自动创建
-/// * `compressed`：为 `true` 时先做 gzip 解压
+/// 将归档解包到目标目录（不存在时自动创建），可选 gzip 解压
 pub fn extract_to_cache<R: Read>(reader: R, target: &Path, compressed: bool) -> Result<()> {
     fs::create_dir_all(target)?;
     let boxed_reader: Box<dyn Read> = if compressed {
@@ -81,9 +69,6 @@ pub fn extract_to_cache<R: Read>(reader: R, target: &Path, compressed: bool) -> 
 }
 
 /// 仅从归档中提取 `meta.json` 内容，不解包其他条目
-/// # Arguments
-/// * `reader`：`.mdrf` 归档的读取源
-/// * `compressed`：为 `true` 时先做 gzip 解压
 pub fn extract_meta<R: Read>(reader: R, compressed: bool) -> Result<Vec<u8>> {
     let boxed_reader: Box<dyn Read> = if compressed {
         Box::new(GzDecoder::new(reader))
@@ -107,8 +92,6 @@ pub fn extract_meta<R: Read>(reader: R, compressed: bool) -> Result<Vec<u8>> {
 }
 
 /// 依据文件头魔数判断 `.mdrf` 是否 gzip 压缩
-///
-/// `path`：`.mdrf` 文件路径，返回 `true` 表示 gzip 压缩
 pub fn is_mdrf_compressed(path: &Path) -> Result<bool> {
     let mut file = File::open(path)?;
     let mut magic = [0u8; 2];

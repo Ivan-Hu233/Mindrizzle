@@ -28,7 +28,7 @@
         </div>
       </div>
       <blockHandle :editor="editor" :read-only="props.readOnly === true" />
-      <!-- .vdr 的 transform 祖先会使 fixed 定位基准偏移，teleport 到 body -->
+      <!-- 因 .vdr 的 transform 祖先会使 fixed 基准偏移，故 Teleport 到 body -->
       <Teleport to="body">
         <RowDropIndicator :editor="editor" />
       </Teleport>
@@ -157,7 +157,7 @@ const startVerticalThumb = (event: PointerEvent) => startScrollbarDrag('vertical
 const startHorizontalThumb = (event: PointerEvent) => startScrollbarDrag('horizontal', event)
 const startScrollbarDrag = (axis: 'vertical' | 'horizontal', event: PointerEvent) => {
   scrollbarDrag = { axis, start: axis === 'vertical' ? event.clientY : event.clientX, scroll: axis === 'vertical' ? scrollMetrics.scrollTop : scrollMetrics.scrollLeft }
-  // 捕获阶段：编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，冒泡监听会收不到
+  // 因 hover 自解析会 stopPropagation，故用捕获阶段
   window.addEventListener('pointermove', moveScrollbarDrag, true)
   window.addEventListener('pointerup', stopScrollbarDrag, { once: true })
   event.preventDefault()
@@ -177,19 +177,16 @@ const stopScrollbarDrag = () => {
   window.removeEventListener('pointermove', moveScrollbarDrag, true)
 }
 
-// 画布拖组件入本块需先知道落点：由画布命中到的块元素解析插入位置。
-// 不用 posAtCoords/coordsAtPos——其内部用 getBoundingClientRect 与鼠标坐标直接比较，
-// 而 .canvas 的 CSS zoom 下两者坐标系不一定一致（缩放后必然偏移），posAtDOM 只做 DOM↔文档映射
+// 因 posAtCoords/coordsAtPos 混用 BCR 与鼠标坐标、zoom 下必然偏移，故改用 posAtDOM（只做 DOM↔文档映射）
 function resolveDropAtElement(el: HTMLElement | null, preferBefore: boolean): number | null {
   const view = editor.view
   if (!view || !el || !view.dom.contains(el)) return null
   let block: HTMLElement = el
   while (block.parentElement && block.parentElement !== view.dom) block = block.parentElement
-  // 命中块之外的空白区域时按偏好落到文档首/尾
   if (block.parentElement !== view.dom) return preferBefore ? 0 : view.state.doc.content.size
   const at = view.posAtDOM(block, 0)
   const $pos = view.state.doc.resolve(at)
-  // 原子块（插入组件的 NodeView 根元素）对应文档级位置，需按节点自身取前后
+  // 因原子块对应文档级位置，故需按节点自身取前后
   if ($pos.depth === 0) {
     const node = view.state.doc.nodeAt(at)
     return node && !preferBefore ? at + node.nodeSize : at
@@ -197,29 +194,27 @@ function resolveDropAtElement(el: HTMLElement | null, preferBefore: boolean): nu
   return preferBefore ? $pos.before($pos.depth) : $pos.after($pos.depth)
 }
 
-// 画布拖拽中鼠标贴近块内上下边缘时需滚动块内内容，否则深处的落点看不到
+// 画布拖拽贴边时滚动块内内容
 function scrollContent(deltaY: number) {
   if (scrollRef.value) scrollRef.value.scrollTop += deltaY
 }
 
-// autoHeight 时块高需随内容实时调整，经块 id 上报内容高度给画布
+// autoHeight 时经块 id 上报内容高度给画布
 const blockId = (): string | null => {
   let el: HTMLElement | null = wrapperRef.value ?? null
   while (el && !el.classList.contains('drag-wrapper')) el = el.parentElement
   return el?.getAttribute('data-id') ?? null
 }
-// 块高还需补 .content-area 上下 padding(8) 与 .editor-wrapper border(2)，共 10 content 单位
+// 需补 .content-area 上下 padding(8) 与 border(2)，共 10
 const AUTO_HEIGHT_EXTRA = 10
-// auto-height 类解除了 .editor-scroll 的 height:100% 钳制（否则内容缩短时
-// scrollHeight 仍等于块高、测量值不变），其 offsetHeight 即内容自然高度；
-// 未开启 autoHeight 时不测量
+// 因 auto-height 类解除了 height:100% 钳制，故 offsetHeight 即内容自然高度
 const syncAutoHeight = () => {
   if (!props.autoHeight) return
   const id = blockId()
   const scrollEl = wrapperRef.value?.querySelector('.editor-scroll') as HTMLElement | null
   if (!id || !scrollEl) return
   const height = Math.ceil(scrollEl.offsetHeight + AUTO_HEIGHT_EXTRA)
-  // 光标所在行在块内的 y（视觉像素、未缩放），供画布跟随输入滚动
+  // 光标行在块内的 y（视觉像素），供画布跟随输入滚动
   let cursorY = height
   const head = editor.view?.state.selection.head
   const wrapperRect = wrapperRef.value?.getBoundingClientRect()
@@ -230,8 +225,7 @@ const syncAutoHeight = () => {
   window.dispatchEvent(new CustomEvent('Mindrizzle:auto-height', { detail: { id, height, cursorY } }))
 }
 
-// 因组件 width/height 由 attr 驱动，改 attr 未必改变内容容器自身盒子，
-// 故 doc change 后再补测一次（rAF 合并同帧多次事务）
+// 因组件 width/height 走 attr、改 attr 未必改变容器盒子，故 doc change 后补测（rAF 合并同帧事务）
 let metricsFrame = 0
 const scheduleScrollMetrics = () => {
   if (metricsFrame) return
@@ -241,26 +235,25 @@ const scheduleScrollMetrics = () => {
   })
 }
 
-// autoHeight 需文档编辑时实时跟随块高，监听 doc change（内部按开关与否跳过）
+// 编辑时实时跟随块高
 useDocChange(() => {
   syncAutoHeight()
   scheduleScrollMetrics()
 }, { editor })
 
 let contentResizeFrame = 0
-// 内容容器尺寸变化（插入组件异步渲染完成、图片加载等）需重测滚动度量；
-// autoHeight 时还要重报块高——否则插入组件后只测到"加载中…"占位高度，块高就一直停在旧值
+// 内容容器尺寸变化需重测度量；autoHeight 时还须重报块高，否则只测到占位高度、块高停在旧值
 const onContentResize = () => {
   updateScrollMetrics()
   if (!props.autoHeight || contentResizeFrame) return
-  // 在 RO 回调里同步改块高会触发 RO 循环告警，延后一帧测量
+  // 因 RO 回调里同步改块高会触发循环告警，故延后一帧
   contentResizeFrame = requestAnimationFrame(() => {
     contentResizeFrame = 0
     syncAutoHeight()
   })
 }
 
-// 仅 zoom 变化会重排内容（宽变→高变），pan 纯平移无需重测（否则拖动画布时每帧测量会卡顿），仅 zoom 变化时重测
+// 因仅 zoom 变化会重排内容、pan 纯平移每帧测量会卡顿，故仅 zoom 变化时重测
 let lastTransformZoom: number | null = null
 const onCanvasTransform = (e: Event) => {
   const z = (e as CustomEvent<{ zoom?: number }>).detail?.zoom
@@ -270,8 +263,7 @@ const onCanvasTransform = (e: Event) => {
 }
 
 onMounted(() => {
-  // 因 .editor-scroll 高度固定，插入组件只撑大内容容器、不改变其自身盒子，
-  // 故独占观测 scrollRef 会漏掉内容增高，必须一并观测 editorMount 才能刷新 thumb 与显隐
+  // 因插入组件只撑大内容容器、不改 .editor-scroll 自身盒子，故须一并观测 editorMount
   const observer = new ResizeObserver(onContentResize)
   if (scrollRef.value) observer.observe(scrollRef.value)
   if (editorMount.value) {
@@ -280,14 +272,13 @@ onMounted(() => {
     syncReadOnly(props.readOnly === true)
     observer.observe(editorMount.value)
     if (isMobile.value) {
-      // view.focus() 不带 preventScroll，聚焦 ProseMirror 根 DOM 触发默认滚动
-      // 会把 overflow:hidden 的画布容器滚出偏移，直接对根 DOM 用 preventScroll 聚焦
+      // 因默认聚焦滚动会滚动画布容器，故用 preventScroll 聚焦根 DOM
       setTimeout(() => (editor.view?.dom as HTMLElement | undefined)?.focus({ preventScroll: true }), 100)
     }
     if (props.doc) {
       editor.setContent(props.doc)
     }
-    // 内容渲染需在 mount/setContent 完成后才可测量，rAF 后测一次
+    // 因需等 mount/setContent 完成，故 rAF 后测一次
     requestAnimationFrame(() => {
       updateScrollMetrics()
       syncAutoHeight()
@@ -308,7 +299,7 @@ onUnmounted(() => {
   window.removeEventListener('Mindrizzle:canvas-transform', onCanvasTransform)
 })
 
-// 切换开关时需立即按当前内容调整块高，开启瞬间测一次
+// 开启瞬间按当前内容测一次
 watch(() => props.autoHeight, (v) => {
   if (v) requestAnimationFrame(() => syncAutoHeight())
 })
@@ -330,7 +321,7 @@ defineExpose({
   getDocJSON() {
     return editor.state.doc.toJSON()
   },
-  // 父组件需统一调用保存/加载而不按组件类型特判，暴露统一的 saveConfig/loadConfig
+  // 供父组件统一调用保存/加载，不按组件类型特判
   saveConfig() {
     return { content: editor.state.doc.toJSON() }
   },
@@ -346,8 +337,7 @@ defineExpose({
   border: 1px solid transparent;
   border-radius: 4px;
   margin: 0px;
-  /* 需为 block-handle popup 预留左右 gutter 显示区，用负边距扩展；
-     overflow:visible 让 popup 进入 gutter 而不触发滚动条 */
+  /* 因需为 popup 预留左右 gutter，故用负边距扩展、overflow:visible 不触发滚动条 */
   margin-left: -64px;
   margin-right: -80px;
   padding-left: 64px;
@@ -358,13 +348,13 @@ defineExpose({
   height: 100%;
   overflow: visible;
   transition: border-color 0.15s ease;
-  touch-action: auto; /* 需保证触摸滚动正常，设为 auto */
-  /* popup 已 Teleport 到 .canvas、左右 gutter 仅为视觉留白，若保留命中会拦截
-     该区域的画布左键框选，整体穿透；内容区/设置按钮单独恢复 pointer-events */
+  /* 需保证触摸滚动正常 */
+  touch-action: auto;
+  /* 因 gutter 仅为视觉留白、保留命中会拦截画布框选，故整体穿透，内容区单独恢复 */
   pointer-events: none;
 }
 
-/* 滚动条需紧贴文本区右侧、不被 popup gutter 偏移，滚动容器宽度与文本区一致（不进 gutter） */
+/* 滚动条需紧贴文本区右侧，故宽度与文本区一致（不进 gutter） */
 .editor-scroll {
   width: 100%;
   height: 100%;
@@ -442,8 +432,7 @@ defineExpose({
   left: 0;
 }
 
-/* auto-height 需量取内容自然高度（否则被 height:100% 钳制到块高、缩短时测不到），
-   解除钳制让容器随内容撑开，块高 = 内容 + 固定开销 */
+/* 因 height:100% 会把容器钳制到块高致缩短时测不到，故解除钳制让容器随内容撑开 */
 .editor-wrapper.auto-height .editor-scroll {
   height: auto;
 }
@@ -455,12 +444,12 @@ defineExpose({
   width: 100%;
   padding: 44px 0 0 0;
   box-sizing: border-box;
-  /* 移动端首行上方的 popup 需 44px 空间才不被 overflow:auto 裁剪，顶部留白 */
+  /* 因首行 popup 需 44px 空间才不被裁剪，故顶部留白 */
 }
 
 .editor-mount {
   outline: none;
-  /* 固定 100% 高度时底部行会被 ProseKit hover 判定为不在 view.dom 内而无法弹 popup，高度随内容增长 */
+  /* 因固定 100% 高度会使末行弹不出 popup，故高度随内容增长 */
   min-height: 100%;
   width: 100%;
   pointer-events: auto;
@@ -470,10 +459,8 @@ defineExpose({
   border-color: rgb(var(--v-theme-primary));
 }
 
-/* 因 editor.mount 把 ProseMirror 直接挂在 .editor-mount 上（二者是同一元素），
-   原后代选择器命不中、规则全部失效，故统一改用同元素选择器；
-   又因末行需能被 hover 判定为在 view.dom 内，故不设 height:100%（固定高度会使末行弹不出 popup），
-   高度随内容增长，min-height 沿用 .editor-mount 的 100% 以保证块内空白处也可点击聚焦 */
+/* 因 editor.mount 把 ProseMirror 挂在 .editor-mount 同一元素上（后代选择器恒不命中），故改用同元素选择器；
+   且不设 height:100%（固定高度会使末行弹不出 popup），min-height 沿用 .editor-mount 的 100% */
 .editor-mount.ProseMirror {
   padding: 0;
   outline: none;
@@ -483,17 +470,17 @@ defineExpose({
   user-select: text;
 }
 
-/* 需保证强制移动端/紧凑模式同样生效，直接绑定 compact 类而非用媒体查询 */
+/* 因需强制移动端/紧凑模式同样生效，故绑定 compact 类而非媒体查询 */
 .editor-wrapper.compact :deep(.block-handle-popup) {
   transform: translateY(var(--block-handle-shift, 0px)) scale(1.1);
   transform-origin: center bottom;
 }
-/* bottom 放置需向下展开，缩放原点改为顶部 */
+/* bottom 放置向下展开，缩放原点改为顶部 */
 .editor-wrapper.compact :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
   transform-origin: center top;
 }
 
-/* 放大仅针对移动端 compact，桌面端 top/bottom 退化时保持正常大小、仅应用垂直裁剪补偿 */
+/* 因放大仅针对移动端 compact，故桌面端退化放置只应用垂直裁剪补偿 */
 .editor-wrapper:not(.compact) :deep(.block-handle-positioner.placement-top .block-handle-popup),
 .editor-wrapper:not(.compact) :deep(.block-handle-positioner.placement-bottom .block-handle-popup) {
   transform: translateY(var(--block-handle-shift, 0px));
