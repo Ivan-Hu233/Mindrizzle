@@ -91,13 +91,33 @@ export function getClipTop(view: any): number {
   return container ? container.getBoundingClientRect().top : 0
 }
 
+// 因块完全显示在画布视口内时，贴边拖拽应只滚块内内容（画布同时平移会与内容滚动互相拉扯、落点乱跳），
+// 故各处画布滚动共用同一条判据。块内的 getBoundingClientRect 是 .canvas 布局坐标、
+// 容器矩形是视口坐标，两者不同空间，须经 layoutToViewport* 换算后再比较
+export function isFullyVisibleInCanvas(el: HTMLElement | null): boolean {
+  const container = el?.closest('.canvas-container') as HTMLElement | null
+  const wrapper = el?.closest('.drag-wrapper') as HTMLElement | null
+  if (!container || !wrapper) return false
+  const cr = container.getBoundingClientRect()
+  const wr = wrapper.getBoundingClientRect()
+  const left = layoutToViewportX(wrapper, wr.left)
+  const right = layoutToViewportX(wrapper, wr.left + wr.width)
+  const top = layoutToViewportY(wrapper, wr.top)
+  const bottom = layoutToViewportY(wrapper, wr.top + wr.height)
+  const pad = 1
+  return left >= cr.left + pad && right <= cr.right - pad && top >= cr.top + pad && bottom <= cr.bottom - pad
+}
+
 // 画布用 CSS zoom 缩放：编辑器内元素的 getBoundingClientRect 是 .canvas 的布局坐标
 // （Chrome 下不含 zoom，且与原点是文档原点），鼠标/视口是视觉坐标，换算系数 k = zoom / domScale，
 // domScale 用"canvas 与容器的宽度比 × zoom"实测（兼容 BCR 已含 zoom 的浏览器，此时 k 退化为 1）。
-// 实测 zoom=0.5 时布局 y=797 的行渲染在视口 y≈398，即视觉 = 布局 × k，与容器偏移无关
+// 实测 zoom=0.5 时布局 y=797 的行渲染在视口 y≈398，即视觉 = 布局 × k，与容器偏移无关。
+// 入参可为编辑器 view（取其 .dom）或块内元素本身——按元素求 scale 的调用同样很多，
+// 若只认 view 会让这些调用静默拿到 1、zoom≠1 时换算恒错（贴边滚动/命中判定全偏移）
 function getCanvasScale(view: any): number {
-  const canvasEl = view?.dom?.closest?.('.canvas') as HTMLElement | null
-  const container = view?.dom?.closest?.('.canvas-container') as HTMLElement | null
+  const dom = (view?.dom ?? view) as HTMLElement | null
+  const canvasEl = dom?.closest?.('.canvas') as HTMLElement | null
+  const container = dom?.closest?.('.canvas-container') as HTMLElement | null
   if (!canvasEl || !container) return 1
   const zoom = Number.parseFloat(getComputedStyle(canvasEl).zoom) || 1
   const cr = container.getBoundingClientRect()

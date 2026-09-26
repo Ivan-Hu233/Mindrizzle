@@ -149,7 +149,7 @@ import {
 import type { ResizeConstraints } from './resizeConstraints.ts'
 import { Z_LAYER } from './zIndex.ts'
 import { roundToVisual, contentToScreen, screenToContent, contentToVisual, type CanvasTransform, type Point, type ViewportOrigin } from '../utils/canvasCoords.ts'
-import { getVisibleBlockRect } from './RichEditor/extensions/blockHandleUtils.ts'
+import { getVisibleBlockRect, isFullyVisibleInCanvas } from './RichEditor/extensions/blockHandleUtils.ts'
 
 import { useDisplay } from 'vuetify'
 
@@ -432,8 +432,12 @@ const autoPanTick = () => {
   if (!autoPan.active) return
   const targetId = richTextDropTargetId.value
   const target = targetId ? richTextTargetOf(targetId) : null
-  const pointerInsideRichText = !!target && isPointerInsideRichText(target, lastMouse.x, lastMouse.y)
-  const shouldPrioritizeRichText = !!target && pointerInsideRichText && isRichTextFullyVisible(target)
+  const viewport = viewRect.value
+  const pointer = target && viewport ? screenToContent(canvasTransform(), viewport, lastMouse.x, lastMouse.y) : null
+  // 因块完全可见且指针在块内文本区时，块内滚动与画布平移同时发生会互相拉扯、落点乱跳，
+  // 故此时只滚块内内容，仅块未完全显示时才先平移画布把它带进视口（commit 767ea68 的原有规则）
+  const shouldPrioritizeRichText = !!target && !!pointer &&
+    isFullyVisibleInCanvas(target.pmEl) && isPointerInsideRichText(target, pointer)
   const { vx: rx, vy: ry } = restrictedPanVelocity()
   if (!shouldPrioritizeRichText && (rx !== 0 || ry !== 0)) {
     // pan 是外部像素平移（不受 scale 影响），画布滚动按视口像素直接累加
@@ -1198,23 +1202,13 @@ const domRectToContent = (target: RichTextTarget, rect: DOMRect) => ({
 // 离块太远（超出贴边带）不滚，否则拖到块旁就会一直滚。带宽与步进按视觉像素折算，各缩放下手感一致
 const RT_SCROLL_EDGE = 40
 const RT_SCROLL_MAX = 12
-const isPointerInsideRichText = (target: RichTextTarget, x: number, y: number): boolean => {
-  const rect = target.pmRect
-  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-}
-
-const isRichTextFullyVisible = (target: RichTextTarget): boolean => {
-  const rect = viewRect.value
-  if (!rect) return false
-  const pad = 1
-  return target.blockRect.left >= rect.left + pad &&
-    target.blockRect.right <= rect.right - pad &&
-    target.blockRect.top >= rect.top + pad &&
-    target.blockRect.bottom <= rect.bottom - pad
+const isPointerInsideRichText = (target: RichTextTarget, point: Point): boolean => {
+  const rect = domRectToContent(target, target.pmRect)
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
 }
 
 const autoScrollRichText = (target: RichTextTarget, x: number, y: number) => {
-  if (!isRichTextFullyVisible(target) || !isPointerInsideRichText(target, x, y)) return
+  if (!isFullyVisibleInCanvas(target.pmEl) || !isPointerInsideRichText(target, { x, y })) return
   const area = domRectToContent(target, target.scrollRect)
   if (x < area.left || x > area.right) return
   const visualToContent = 1 / zoom.value
@@ -1302,8 +1296,8 @@ const updateRichTextDrop = () => {
     return
   }
   const point = screenToContent(canvasTransform(), viewport, customDragLastX, customDragLastY)
-  const pointerInsideRichText = isPointerInsideRichText(target, customDragLastX, customDragLastY)
-  if (!pointerInsideRichText || !isRichTextFullyVisible(target)) {
+  // 因块未完全显示时需先平移画布把它带进视口，此时不滚块内内容；两者同时进行会让落点乱跳
+  if (!isPointerInsideRichText(target, point) || !isFullyVisibleInCanvas(target.pmEl)) {
     richTextDrop.value = resolveRichTextDrop(target, point, viewport)
     return
   }
