@@ -2939,10 +2939,14 @@ defineExpose({
 .canvas-container {
   flex: 1;
   /* flex item 默认 min-height:auto 会被内容撑到大于剩余空间，导致溢出 v-main 出现竖向滚动条，
-     允许收缩填满剩余（画布内容由 overflow:hidden 裁剪，无需撑高容器） */
+     允许收缩填满剩余（画布内容由 overflow 裁剪，无需撑高容器） */
   min-height: 0;
   position: relative;
+  /* overflow:hidden 仍是滚动容器：ProseMirror 的 scrollIntoView 与聚焦光标都会改写 scrollLeft/Top，
+     而画布换算与点阵层都假定容器原点固定 —— 一旦被滚动，点阵层只比容器大一圈便盖不满，右侧/底部露出空白。
+     故用 overflow:clip 使其不再是滚动容器；旧引擎不支持该值时退回上一行的 hidden，不引入新问题 */
   overflow: hidden;
+  overflow: clip;
 }
 
 /* 点阵背景需随 pan 合成移动且不露白，层仅比容器大一圈（transform 最多移一个 tile）；pointer-events 穿透不挡交互 */
