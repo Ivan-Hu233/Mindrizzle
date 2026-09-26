@@ -17,6 +17,15 @@ export default defineConfig(async () => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+  build: {
+    // 因 Tauri 各平台 WebView 均为现代内核，无需为旧浏览器降级转译
+    target: 'esnext',
+  },
+  // 因路由已改为懒加载，默认只扫 index.html 的入口图不再覆盖各页面链路的依赖，
+  // 故显式扫描全部源码，否则首次进入 /editor 会触发依赖重优化并整页重载
+  optimizeDeps: {
+    entries: ["index.html", "src/**/*.{vue,ts}"],
+  },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
