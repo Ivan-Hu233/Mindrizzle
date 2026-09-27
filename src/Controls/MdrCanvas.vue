@@ -403,15 +403,15 @@ const restrictedPanVelocity = () => {
 // 因 zoom≠1 时 pan 与块补偿取整无法抵消会长期漂移，故用浮点残差累加器跨整补偿
 const panCompAcc = reactive({ x: 0, y: 0 })
 
-const autoPanTick = () => {
+const autoPanTick = (frame: number) => {
   if (!autoPan.active) return
   const targetId = richTextDropTargetId.value
-  const target = targetId ? richTextTargetOf(targetId) : null
+  const target = targetId ? richTextTargetForFrame(targetId, frame) : null
   const viewport = viewRect.value
   const pointer = target && viewport ? screenToContent(canvasTransform(), viewport, lastMouse.x, lastMouse.y) : null
   // 因块完全可见时块内滚动与画布平移会互相拉扯，故只在块未完全显示时平移画布（commit 767ea68 规则）
   const shouldPrioritizeRichText = !!target && !!pointer &&
-    isFullyVisibleInCanvas(target.pmEl) && isPointerInsideRichText(target, pointer)
+    isTargetVisibleForFrame(target.pmEl, frame) && isPointerInsideRichText(target, pointer)
   const { vx: rx, vy: ry } = restrictedPanVelocity()
   if (!shouldPrioritizeRichText && (rx !== 0 || ry !== 0)) {
     // pan 是外部像素平移，按视口像素直接累加
@@ -440,7 +440,7 @@ const autoPanTick = () => {
     // 因框选时无 mousemove 驱动，故用最近鼠标位置每帧刷新选框
     if (selectionState.active) updateSelectionAt(lastMouse.x, lastMouse.y)
   }
-  if (customDrag.active) updateRichTextDrop()
+  if (customDrag.active) updateRichTextDrop(frame)
   requestAnimationFrame(autoPanTick)
 }
 
@@ -1134,6 +1134,29 @@ const richTextTargetOf = (id: string): RichTextTarget | null => {
   }
 }
 
+// 因 autoPanTick 与 updateRichTextDrop 在同一 rAF 帧内会各自重测目标块（querySelector + 多次 BCR），故按帧号缓存；帧号 0 表示帧外调用、须直测实时值
+let rtTargetFrame = 0
+let rtTargetId: string | null = null
+let rtTargetValue: RichTextTarget | null = null
+const richTextTargetForFrame = (id: string, frame: number): RichTextTarget | null => {
+  if (frame > 0 && frame === rtTargetFrame && id === rtTargetId) return rtTargetValue
+  rtTargetFrame = frame
+  rtTargetId = id
+  rtTargetValue = richTextTargetOf(id)
+  return rtTargetValue
+}
+
+let rtVisibleFrame = 0
+let rtVisibleEl: HTMLElement | null = null
+let rtVisibleValue = false
+const isTargetVisibleForFrame = (el: HTMLElement | null, frame: number): boolean => {
+  if (frame > 0 && frame === rtVisibleFrame && el === rtVisibleEl) return rtVisibleValue
+  rtVisibleFrame = frame
+  rtVisibleEl = el
+  rtVisibleValue = isFullyVisibleInCanvas(el)
+  return rtVisibleValue
+}
+
 const domRectToContent = (target: RichTextTarget, rect: DOMRect) => ({
   left: target.blockLayout.x + (rect.left - target.blockRect.left) / target.domScale,
   right: target.blockLayout.x + (rect.right - target.blockRect.left) / target.domScale,
@@ -1149,8 +1172,9 @@ const isPointerInsideRichText = (target: RichTextTarget, point: Point): boolean 
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
 }
 
-const autoScrollRichText = (target: RichTextTarget, x: number, y: number) => {
-  if (!isFullyVisibleInCanvas(target.pmEl) || !isPointerInsideRichText(target, { x, y })) return
+const autoScrollRichText = (target: RichTextTarget, point: Point, frame: number) => {
+  if (!isTargetVisibleForFrame(target.pmEl, frame) || !isPointerInsideRichText(target, point)) return
+  const { x, y } = point
   const area = domRectToContent(target, target.scrollRect)
   if (x < area.left || x > area.right) return
   const visualToContent = 1 / zoom.value
@@ -1227,25 +1251,25 @@ const resolveDropForTarget = (targetId: string, event?: MouseEvent) => {
   return resolveRichTextDrop(target, point, viewport)
 }
 
-const updateRichTextDrop = () => {
+const updateRichTextDrop = (frame = 0) => {
   const viewport = viewRect.value
   const targetId = richTextDropTargetId.value
-  const target = viewport && targetId ? richTextTargetOf(targetId) : null
+  const target = viewport && targetId ? richTextTargetForFrame(targetId, frame) : null
   if (!viewport || !target) {
     richTextDrop.value = null
     return
   }
   const point = screenToContent(canvasTransform(), viewport, customDragLastX, customDragLastY)
   // 因两者同时进行会让落点乱跳，故块未完全显示时不滚块内内容
-  if (!isPointerInsideRichText(target, point) || !isFullyVisibleInCanvas(target.pmEl)) {
+  if (!isPointerInsideRichText(target, point) || !isTargetVisibleForFrame(target.pmEl, frame)) {
     richTextDrop.value = resolveRichTextDrop(target, point, viewport)
     return
   }
-  autoScrollRichText(target, point.x, point.y)
+  autoScrollRichText(target, point, frame)
   richTextDrop.value = resolveRichTextDrop(target, point, viewport)
 }
 
-const applyCustomDrag = () => {
+const applyCustomDrag = (frame: number) => {
   customDragRafId = 0
   if (!customDrag.active) return
   // 因画布按 zoom 渲染，故鼠标位移需除以 zoom
@@ -1262,7 +1286,7 @@ const applyCustomDrag = () => {
     if (!mobileMode.value) snapLayoutToOthers(target, layout)
   })
   richTextDropTargetId.value = findRichTextDropTarget()
-  updateRichTextDrop()
+  updateRichTextDrop(frame)
 }
 
 // 因自定义拖拽绕过 VDR 的 snap，故手动做边缘/中线对齐吸附
@@ -2107,9 +2131,13 @@ const settingsBarRectOf = (rectOf: ScreenRectFactory, item: CanvasItem): ScreenR
   return rectOf(left, top, SIDE_SETTINGS_WIDTH, HANDLE_HEIGHT)
 }
 
+// 因三个命中判定都只在选中块里找，故先取选中块小集合（原实现每次 pointermove 都遍历全量块、随块数线性劣化）
+const selectedBlockItems = (): CanvasItem[] =>
+  state.selectedIds.size === 0 ? [] : state.items.filter((it) => state.selectedIds.has(it.id))
+
 const hitSettingsBar = (clientX: number, clientY: number): string | null => {
   const rectOf = screenRectFactory()
-  const hit = state.items.find((item) => {
+  const hit = selectedBlockItems().find((item) => {
     if (!isActive(item.id)) return false
     const rect = settingsBarRectOf(rectOf, item)
     return !!rect && insideScreenRect(rect, clientX, clientY)
@@ -2146,12 +2174,11 @@ const makeResizeHandleHitTest = (clientX: number, clientY: number) => {
 
 const hitResizeHandle = (clientX: number, clientY: number): string | null => {
   const test = makeResizeHandleHitTest(clientX, clientY)
-  return state.items.find((item) => isActive(item.id) && test(item))?.id ?? null
+  return selectedBlockItems().find((item) => isActive(item.id) && test(item))?.id ?? null
 }
 
 const hitHandle = (clientX: number, clientY: number): string | null => {
-  for (const item of state.items) {
-    if (!state.selectedIds.has(item.id)) continue
+  for (const item of selectedBlockItems()) {
     const el = document.querySelector<HTMLElement>(`.floating-handle[data-id="${item.id}"]`)
     if (!el) continue
     const rect = el.getBoundingClientRect()
@@ -3042,6 +3069,12 @@ defineExpose({
   background: rgb(var(--v-theme-primary));
   border-color: rgb(var(--v-theme-primary));
   color: rgb(var(--v-theme-on-primary));
+}
+
+/* 因块内（编辑器输入/滚动/RO 改高）的布局变化不该向上传播到 .canvas 重排整画布，故隔离布局与样式作用域；
+   刻意不含 paint：会裁剪 RichTextEditor 用负边距外扩 64/80px 的左右 gutter（hover 命中与 popup 参考依赖它） */
+.drag-wrapper {
+  contain: layout style;
 }
 
 /* 因 VDR 用内联 display 控制手柄，故需 !important 覆盖 */

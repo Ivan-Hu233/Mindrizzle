@@ -51,6 +51,7 @@ import { useDisplay } from 'vuetify'
 
 import { defineExtension } from './extension.ts'
 import { createEditor, NodeJSON } from '@prosekit/core'
+import { layoutToViewportSize, layoutToViewportX, layoutToViewportY, viewportToLayout } from './extensions/blockHandleUtils.ts'
 
 interface Props {
   dir?: 'ltr' | 'rtl'
@@ -96,13 +97,20 @@ const updateScrollMetrics = () => {
   })
 }
 
+// 因 thumb 有 24px 下限、轨道两端各留 2px，故拖动量与 scroll 的换算必须与渲染公式严格互逆（否则越拖越偏）
+const thumbGeometry = (viewport: number, content: number) => {
+  const track = Math.max(viewport - 4, 0)
+  const thumb = Math.max(24, viewport ** 2 / Math.max(content, 1))
+  return { thumb, travel: Math.max(track - thumb, 0), maxScroll: Math.max(content - viewport, 1) }
+}
+
 const verticalThumbStyle = computed(() => ({
-  height: `${Math.max(24, scrollMetrics.clientHeight ** 2 / Math.max(scrollMetrics.scrollHeight, 1))}px`,
+  height: `${thumbGeometry(scrollMetrics.clientHeight, scrollMetrics.scrollHeight).thumb}px`,
   transform: `translateY(${getThumbOffset('vertical')}px)`,
 }))
 
 const horizontalThumbStyle = computed(() => ({
-  width: `${Math.max(24, scrollMetrics.clientWidth ** 2 / Math.max(scrollMetrics.scrollWidth, 1))}px`,
+  width: `${thumbGeometry(scrollMetrics.clientWidth, scrollMetrics.scrollWidth).thumb}px`,
   transform: `translateX(${getThumbOffset('horizontal')}px)`,
 }))
 
@@ -110,10 +118,8 @@ const getThumbOffset = (axis: 'vertical' | 'horizontal') => {
   const viewport = axis === 'vertical' ? scrollMetrics.clientHeight : scrollMetrics.clientWidth
   const content = axis === 'vertical' ? scrollMetrics.scrollHeight : scrollMetrics.scrollWidth
   const current = axis === 'vertical' ? scrollMetrics.scrollTop : scrollMetrics.scrollLeft
-  const track = Math.max(viewport - 4, 0)
-  const thumb = Math.max(24, viewport ** 2 / Math.max(content, 1))
-  const maximumScroll = Math.max(content - viewport, 1)
-  return (current / maximumScroll) * Math.max(track - thumb, 0)
+  const { travel, maxScroll } = thumbGeometry(viewport, content)
+  return (current / maxScroll) * travel
 }
 
 const scrollVertical = (event: WheelEvent) => {
@@ -139,8 +145,10 @@ const startVerticalScrollbar = (event: PointerEvent) => {
   const scroll = scrollRef.value
   if (!scroll) return
   const track = event.currentTarget as HTMLElement
-  const direction = event.clientY < track.getBoundingClientRect().top + getThumbOffset('vertical') ? -1 : 1
-  scroll.scrollTop += direction * scroll.clientHeight
+  // 因 BCR 与 thumb 偏移是布局坐标、event.clientY 是视觉坐标，故统一换算到视觉空间再比
+  const thumbEnd = layoutToViewportY(track, track.getBoundingClientRect().top) +
+    layoutToViewportSize(track, getThumbOffset('vertical'))
+  scroll.scrollTop += (event.clientY < thumbEnd ? -1 : 1) * scroll.clientHeight
 }
 
 const startHorizontalScrollbar = (event: PointerEvent) => {
@@ -148,31 +156,51 @@ const startHorizontalScrollbar = (event: PointerEvent) => {
   const scroll = scrollRef.value
   if (!scroll) return
   const track = event.currentTarget as HTMLElement
-  const direction = event.clientX < track.getBoundingClientRect().left + getThumbOffset('horizontal') ? -1 : 1
-  scroll.scrollLeft += direction * scroll.clientWidth
+  const thumbEnd = layoutToViewportX(track, track.getBoundingClientRect().left) +
+    layoutToViewportSize(track, getThumbOffset('horizontal'))
+  scroll.scrollLeft += (event.clientX < thumbEnd ? -1 : 1) * scroll.clientWidth
 }
 
 let scrollbarDrag: { axis: 'vertical' | 'horizontal'; start: number; scroll: number } | null = null
 const startVerticalThumb = (event: PointerEvent) => startScrollbarDrag('vertical', event)
 const startHorizontalThumb = (event: PointerEvent) => startScrollbarDrag('horizontal', event)
+// 因拖拽滚动条时指针会滑出块行、原生 hover 扩展反复清/置 hover 致 popup 与滚动条闪烁，故通知本块收起 popup
+const notifyScrollbarDrag = (active: boolean) => {
+  const id = blockId()
+  if (id) window.dispatchEvent(new CustomEvent('Mindrizzle:scrollbar-drag', { detail: { active, blockId: id } }))
+}
+
 const startScrollbarDrag = (axis: 'vertical' | 'horizontal', event: PointerEvent) => {
-  scrollbarDrag = { axis, start: axis === 'vertical' ? event.clientY : event.clientX, scroll: axis === 'vertical' ? scrollMetrics.scrollTop : scrollMetrics.scrollLeft }
+  const scroll = scrollRef.value
+  if (!scroll) return
+  // 因 scroll 事件异步、scrollMetrics 可能滞后，故基准取实时 scrollTop/scrollLeft
+  scrollbarDrag = {
+    axis,
+    start: axis === 'vertical' ? event.clientY : event.clientX,
+    scroll: axis === 'vertical' ? scroll.scrollTop : scroll.scrollLeft,
+  }
   // 因 hover 自解析会 stopPropagation，故用捕获阶段
   window.addEventListener('pointermove', moveScrollbarDrag, true)
   window.addEventListener('pointerup', stopScrollbarDrag, { once: true })
+  notifyScrollbarDrag(true)
   event.preventDefault()
 }
 const moveScrollbarDrag = (event: PointerEvent) => {
-  if (!scrollbarDrag || !scrollRef.value) return
+  const session = scrollbarDrag
   const scroll = scrollRef.value
-  const delta = (scrollbarDrag.axis === 'vertical' ? event.clientY : event.clientX) - scrollbarDrag.start
-  const viewport = scrollbarDrag.axis === 'vertical' ? scroll.clientHeight : scroll.clientWidth
-  const content = scrollbarDrag.axis === 'vertical' ? scroll.scrollHeight : scroll.scrollWidth
-  const next = scrollbarDrag.scroll + delta * content / Math.max(viewport, 1)
-  if (scrollbarDrag.axis === 'vertical') scroll.scrollTop = next
+  if (!session || !scroll) return
+  const vertical = session.axis === 'vertical'
+  const viewport = vertical ? scroll.clientHeight : scroll.clientWidth
+  const content = vertical ? scroll.scrollHeight : scroll.scrollWidth
+  const { travel, maxScroll } = thumbGeometry(viewport, content)
+  // 因鼠标位移是视觉像素、而 scrollTop 是布局像素，故先折回布局空间再按 thumb 可移动距离反解
+  const moved = viewportToLayout(scroll, (vertical ? event.clientY : event.clientX) - session.start)
+  const next = session.scroll + (travel > 0 ? (moved * maxScroll) / travel : 0)
+  if (vertical) scroll.scrollTop = next
   else scroll.scrollLeft = next
 }
 const stopScrollbarDrag = () => {
+  if (scrollbarDrag) notifyScrollbarDrag(false)
   scrollbarDrag = null
   window.removeEventListener('pointermove', moveScrollbarDrag, true)
 }
@@ -235,6 +263,12 @@ const scheduleScrollMetrics = () => {
   })
 }
 
+// 因程序化 setContent 后 RO 通知要等一次渲染时机、滚动条会滞后到用户滚动才出现，故此处同步补测（内容入口低频，不需 rAF 合并）
+const applyContent = (json: NodeJSON) => {
+  editor.setContent(json)
+  updateScrollMetrics()
+}
+
 // 编辑时实时跟随块高
 useDocChange(() => {
   syncAutoHeight()
@@ -276,7 +310,7 @@ onMounted(() => {
       setTimeout(() => (editor.view?.dom as HTMLElement | undefined)?.focus({ preventScroll: true }), 100)
     }
     if (props.doc) {
-      editor.setContent(props.doc)
+      applyContent(props.doc)
     }
     // 因需等 mount/setContent 完成，故 rAF 后测一次
     requestAnimationFrame(() => {
@@ -305,11 +339,11 @@ watch(() => props.autoHeight, (v) => {
 })
 
 function importJSON(json: NodeJSON) {
-  editor.setContent(json)
+  applyContent(json)
 }
 
 watch(() => props.doc, (v) => {
-  if (v) editor.setContent(v as NodeJSON)
+  if (v) applyContent(v as NodeJSON)
 })
 
 defineExpose({
@@ -326,7 +360,7 @@ defineExpose({
     return { content: editor.state.doc.toJSON() }
   },
   loadConfig(config: { content?: NodeJSON | null }) {
-    if (config?.content) editor.setContent(config.content as NodeJSON)
+    if (config?.content) applyContent(config.content as NodeJSON)
   },
 })
 </script>
@@ -389,7 +423,8 @@ defineExpose({
   touch-action: none;
 }
 
-.custom-scrollbar:hover {
+.custom-scrollbar:hover,
+.custom-scrollbar.force-hover {
   opacity: 1;
 }
 
