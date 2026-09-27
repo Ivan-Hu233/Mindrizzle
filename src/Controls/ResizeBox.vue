@@ -33,6 +33,7 @@ const props = withDefaults(defineProps<{
   maxHeight?: number | null
   disabled?: boolean
   active?: boolean
+  dragging?: boolean
   zIndex?: number
   handles?: string[]
   zoom?: number
@@ -43,6 +44,7 @@ const props = withDefaults(defineProps<{
   maxHeight: null,
   disabled: false,
   active: false,
+  dragging: false,
   zIndex: 0,
   handles: () => ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br'],
   zoom: 1,
@@ -78,7 +80,8 @@ const boxStyle = computed(() => ({
   height: `${renderRect.value.h}px`,
   zIndex: props.zIndex,
 }))
-const showHandles = computed(() => props.active && !props.disabled)
+// 因块拖拽期间坐标由画布命令式写入、本组件 prop 被冻结，手柄会冻在按下位置，故拖拽期间不渲染
+const showHandles = computed(() => props.active && !props.disabled && !props.dragging)
 
 // .canvas 已应用 pan+origin，故手柄直接用 content 坐标 + 边缘偏移
 const HANDLE_POS: Record<Handle, (r: Rect) => { left: string; top: string }> = {

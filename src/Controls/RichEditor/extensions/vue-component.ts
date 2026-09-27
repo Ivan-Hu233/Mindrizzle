@@ -14,7 +14,7 @@ import {
 } from 'vue'
 import { mdiArrowBottomRight, mdiExportVariant } from '@mdi/js'
 import { DEFAULT_CONSTRAINTS, normalizeConstraints, type ResizeConstraints } from '../../resizeConstraints.ts'
-import { createStoreResolver, findPositionerEl } from './blockHandleUtils.ts'
+import { createStoreResolver, findPositionerEl, viewportToLayout } from './blockHandleUtils.ts'
 
 const resolveBlockHandleStore = createStoreResolver()
 
@@ -194,6 +194,8 @@ const ResizableContainer = defineComponent({
       e.stopPropagation()
       isResizing.value = true
 
+      // 因画布 zoom 下鼠标位移是视觉像素、而组件宽高是编辑器布局像素，故位移须折回布局空间（否则缩放后手柄跟不上鼠标）
+      const scaleEl = e.currentTarget as HTMLElement | null
       const startX = e.clientX
       const startY = e.clientY
       const startWidth = currentWidth.value
@@ -206,8 +208,8 @@ const ResizableContainer = defineComponent({
 
       const onMouseMove = (ev: MouseEvent) => {
         ev.preventDefault()
-        let newWidth = startWidth + (ev.clientX - startX)
-        let newHeight = startHeight + (ev.clientY - startY)
+        let newWidth = startWidth + viewportToLayout(scaleEl, ev.clientX - startX)
+        let newHeight = startHeight + viewportToLayout(scaleEl, ev.clientY - startY)
 
         newWidth = Math.max(minW, Math.min(maxW, newWidth))
         newHeight = Math.max(minH, Math.min(maxH, newHeight))

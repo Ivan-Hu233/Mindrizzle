@@ -3,8 +3,9 @@
     @mousedown="onCanvasMouseDown" @mousemove="onCanvasMousemove" @focusin="handleCanvasFocusin">
     <!-- 因 background-position 平移会每帧重绘整容器，故独立成层用 transform 合成移动 -->
     <div class="canvas-dots" :style="dotsStyle" aria-hidden="true" />
-    <!-- 因 .canvas 平移后不覆盖整容器，故事件挂容器级 -->
-    <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" ref="canvasRef">
+    <!-- 因 .canvas 平移后不覆盖整容器，故事件挂容器级；data-layout-version 仅为订阅 layout 版本号（块已 markRaw） -->
+    <div class="canvas" :class="{ panning: isPanning }" :style="canvasStyle" :data-layout-version="layoutVersion"
+      ref="canvasRef">
       <!-- 因 SVG 在非整数坐标下光栅化易断续，故用 HTML 色条渲染 -->
       <div class="connection-layer" aria-hidden="true">
         <div v-for="line in linkedConnections" :key="line.key" class="connection-segment"
@@ -15,9 +16,9 @@
         :y="layoutOf(item).y" :w="layoutOf(item).w" :h="layoutOf(item).h"
         :min-width="(constraintsOf(item).minWidth ?? 0) + 8" :min-height="(constraintsOf(item).minHeight ?? 0) + 8"
         :max-width="constraintsOf(item).maxWidth ?? null" :max-height="constraintsOf(item).maxHeight ?? null"
-        :handles="resizeHandlesOf(item)" :disabled="!isEditMode" :zoom="zoom"
-        @resizestart="(handle: string) => onResizeStart(item, handle)"
-        @resizing="(x, y, w, h) => onResizing(item, x, y, w, h)" @resizestop="(x, y, w, h) => onResizeStop(item, x, y, w, h)" class="drag-wrapper"
+        :handles="resizeHandlesOf(item)" :disabled="!isEditMode" :dragging="customDrag.draggingIds.has(item.id)" :zoom="zoom"
+        @resizestart="resizeCallbacksOf(item).start" @resizing="resizeCallbacksOf(item).resizing"
+        @resizestop="resizeCallbacksOf(item).resizestop" class="drag-wrapper"
         :class="{ selected: isEditMode && state.selectedIds.has(item.id), 'popup-open': popupBlockId === item.id, 'drag-passthrough': customDrag.draggingIds.has(item.id) }">
         <v-sheet class="block-container" color="surface" elevation="0" rounded :style="cornerStyleOf(item.id)">
           <!-- 因只盖接触段、露出段保留边框，故按段渲染同色遮罩 -->
@@ -26,7 +27,7 @@
           </template>
           <div class="content-area">
             <component :is="componentMap[item.component as keyof typeof componentMap]"
-              :ref="(el) => setComponentRef(item.id, el)" v-bind="getComponentProps(item)"
+              :ref="componentRefOf(item)" v-bind="getComponentProps(item)"
               @update:model-value="(val: string) => updateCode(item.id, val)"
               @update:language="(lang: string) => updateLanguage(item.id, lang)" class="inner-component" />
           </div>
@@ -74,10 +75,10 @@
         </div>
       </Transition>
 
-      <!-- 因描边需在拖拽栏之上保持连贯，故用独立高层 overlay 渲染 -->
+      <!-- 因描边需在拖拽栏之上保持连贯，故用独立高层 overlay 渲染（data-id 供拖拽期命令式跟随） -->
       <template v-for="item in selectedOutlineItems" :key="`outline-${item.id}`">
         <v-fade-transition :duration="120">
-          <div class="selected-outline" :style="selectedOutlineStyle(item)" />
+          <div class="selected-outline" :data-id="item.id" :style="selectedOutlineStyle(item)" />
         </v-fade-transition>
       </template>
 
@@ -118,7 +119,7 @@ export type {
 </script>
 
 <script setup lang="ts">
-import { reactive, ref, shallowRef, nextTick, onMounted, onUnmounted, computed, watch, type CSSProperties } from 'vue'
+import { reactive, ref, shallowRef, nextTick, onMounted, onUnmounted, computed, watch, markRaw, type CSSProperties } from 'vue'
 import ResizeBox from './ResizeBox.vue'
 
 import { mdiDragVariant, mdiPaperclip, mdiCogOutline, mdiArrowUp } from '@mdi/js'
@@ -164,6 +165,10 @@ const state = reactive({
   items: [] as CanvasItem[],
   selectedIds: new Set<string>(),
 })
+
+// 因块对象已 markRaw（拖拽逐帧写 layout 不再触发全表 diff），故纯几何变更须经版本号显式刷新
+const layoutVersion = ref(0)
+const markLayoutDirty = () => { layoutVersion.value++ }
 
 // 因叠加层 z 固定（见 zIndex.ts），故 zCounter 达阈值时按当前顺序重排为 1..N，防普通块盖住叠加层
 const zMap = reactive<Record<string, number>>({})
@@ -293,6 +298,8 @@ watch(
     invalidateCanvasScaleCache()
     // 因 pan 纯平移不影响高度，故仅 zoom 变化需重测
     window.dispatchEvent(new CustomEvent('Mindrizzle:canvas-transform', { detail: { zoom: zoom.value } }))
+    // 因 zoom 变化会让子组件用冻结的 prop 重写 transform，故拖拽中须在渲染落定后补写命令式位置
+    if (customDrag.active) syncDragDom()
   },
   { flush: 'post' },
 )
@@ -434,6 +441,8 @@ const autoPanTick = (frame: number) => {
         layout.y += compY
       })
       richTextDropTargetId.value = findRichTextDropTarget()
+      // 因鼠标可能停住、applyCustomDrag 不跑，故补偿后必须在此同步 DOM
+      flushDragLayout()
     }
     // 因 resize 时被拖块坐标受组件控制，故按基准矩形 + 相对起始 pan 位移重算，使手柄跟随鼠标
     compensateResizeAutoPan()
@@ -572,24 +581,55 @@ const selectionBoxStyle = computed(() => {
 // #endregion 框选状态
 
 // #region 组件数据读写
+// 因逐次渲染返回新 props/回调对象会让子组件判定变更而逐个重渲染，故按块缓存、值全等时复用
+const componentPropCache = new WeakMap<CanvasItem, Record<string, any>>()
+const componentRefHandlers = new WeakMap<CanvasItem, (el: unknown) => void>()
+const autoHeightHandlers = new WeakMap<CanvasItem, (v: boolean) => void>()
+
+const componentRefOf = (item: CanvasItem) => {
+  const cached = componentRefHandlers.get(item)
+  if (cached) return cached
+  const handler = (el: unknown) => setComponentRef(item.id, el)
+  componentRefHandlers.set(item, handler)
+  return handler
+}
+
+const autoHeightHandlerOf = (item: CanvasItem) => {
+  const cached = autoHeightHandlers.get(item)
+  if (cached) return cached
+  const handler = (v: boolean) => setAutoHeight(item, v)
+  autoHeightHandlers.set(item, handler)
+  return handler
+}
+
+const stableProps = (item: CanvasItem, props: Record<string, any>) => {
+  const cached = componentPropCache.get(item)
+  if (cached) {
+    const keys = Object.keys(props)
+    if (keys.length === Object.keys(cached).length && keys.every((key) => cached[key] === props[key])) return cached
+  }
+  componentPropCache.set(item, props)
+  return props
+}
+
 const getComponentProps = (item: CanvasItem) => {
   if (item.component === 'RichTextEditor') {
     const cfg = item.config as RichTextConfig
-    return {
+    return stableProps(item, {
       doc: cfg.content,
       compact: mobileMode.value,
       autoHeight: cfg.autoHeight === true,
       readOnly: !isEditMode.value,
-      'onUpdate:autoHeight': (v: boolean) => { cfg.autoHeight = v },
-    }
+      'onUpdate:autoHeight': autoHeightHandlerOf(item),
+    })
   }
   if (item.component === 'EditableCodeBlock') {
     const cfg = item.config as CodeBlockConfig
-    return {
+    return stableProps(item, {
       modelValue: cfg.code,
       language: cfg.language,
       readOnly: !isEditMode.value,
-    }
+    })
   }
   return {}
 }
@@ -815,7 +855,22 @@ const customDrag = reactive({
 })
 const richTextDropTargetId = ref<string | null>(null)
 // 拖入富文本块的落点线与插入位置，随块内滚动每帧重算
-const richTextDrop = ref<{ id: string; pos: number; left: number; right: number; y: number } | null>(null)
+interface RichTextDrop {
+  id: string
+  pos: number
+  left: number
+  right: number
+  y: number
+}
+const richTextDrop = ref<RichTextDrop | null>(null)
+// 因逐帧赋新对象会让整棵画布重渲染，故 content 坐标全等时不写（画布 pan 不影响该坐标系下的落点）
+const setRichTextDrop = (next: RichTextDrop | null) => {
+  const current = richTextDrop.value
+  if (current === next) return
+  if (current && next && current.id === next.id && current.pos === next.pos
+    && current.left === next.left && current.right === next.right && current.y === next.y) return
+  richTextDrop.value = next
+}
 const richTextDropLineStyle = computed<CSSProperties>(() => {
   const drop = richTextDrop.value
   if (!drop) return { display: 'none' }
@@ -939,7 +994,9 @@ const toConnection = (seg: ConnSegment): LinkedConnection => {
   return { key, start: { x: seg.axis, y: seg.from }, end: { x: seg.axis, y: seg.to } }
 }
 
+// 因 layout 已非响应式，故显式订阅版本号，使块移动后联结线重算
 const linkedConnections = computed<LinkedConnection[]>(() => {
+  void layoutVersion.value
   const itemMap = new Map(state.items.map((item) => [item.id, item]))
   const segments: ConnSegment[] = []
   linkedPairs.value.forEach((key) => {
@@ -1011,6 +1068,72 @@ const hideAllBlockHandles = () => {
   })
 }
 
+// 因拖拽期 layout 不触发渲染，故块本体与跟随浮层（描边环/拖拽栏/设置栏）必须命令式搬位置
+interface DragDomEntry {
+  wrapper: HTMLElement | null
+  outline: HTMLElement | null
+}
+let dragDom = new Map<string, DragDomEntry>()
+let dragHandleEl: HTMLElement | null = null
+let dragSettingsEl: HTMLElement | null = null
+// 因联结线等由 layout 推导的浮层只走响应式路径，故存在链接时退回逐帧重渲染
+let dragNeedsRender = false
+
+const applyElStyle = (el: HTMLElement, style: CSSProperties) => { Object.assign(el.style, style) }
+
+// 因需与 ResizeBox.boxStyle 的圆整规则一致，否则松手瞬间会跳位
+const translateOf = (layout: Rect) => `translate(${roundToPx(layout.x)}px, ${roundToPx(layout.y)}px)`
+
+const indexByDataId = (root: HTMLElement, selector: string) => {
+  const map = new Map<string, HTMLElement>()
+  root.querySelectorAll<HTMLElement>(selector).forEach((el) => {
+    const id = el.dataset.id
+    if (id) map.set(id, el)
+  })
+  return map
+}
+
+const cacheDragDom = () => {
+  const canvas = canvasRef.value
+  dragDom = new Map()
+  dragHandleEl = null
+  dragSettingsEl = null
+  if (!canvas) return
+  const wrappers = indexByDataId(canvas, '.drag-wrapper')
+  const outlines = indexByDataId(canvas, '.selected-outline')
+  const sourceId = customDrag.sourceItemId
+  customDragItems.forEach((_, id) => {
+    dragDom.set(id, { wrapper: wrappers.get(id) ?? null, outline: outlines.get(id) ?? null })
+  })
+  dragHandleEl = sourceId ? indexByDataId(canvas, '.floating-handle').get(sourceId) ?? null : null
+  dragSettingsEl = sourceId ? indexByDataId(canvas, '.side-settings').get(sourceId) ?? null : null
+}
+
+const syncDragDom = () => {
+  customDragItems.forEach((item, id) => {
+    const dom = dragDom.get(id)
+    if (!dom) return
+    if (dom.wrapper) dom.wrapper.style.transform = translateOf(layoutOf(item))
+    if (dom.outline) applyElStyle(dom.outline, selectedOutlineStyle(item))
+  })
+  const source = customDrag.sourceItemId ? customDragItems.get(customDrag.sourceItemId) : null
+  if (!source) return
+  if (dragHandleEl) applyElStyle(dragHandleEl, handleBarStyle(source))
+  if (dragSettingsEl) applyElStyle(dragSettingsEl, sideSettingsStyle(source))
+}
+
+const clearDragDom = () => {
+  dragDom = new Map()
+  dragHandleEl = null
+  dragSettingsEl = null
+}
+
+// 因拖拽中不递增版本号（靠命令式写 DOM），故 layout 变更后必须显式同步一次
+const flushDragLayout = () => {
+  if (dragNeedsRender) markLayoutDirty()
+  syncDragDom()
+}
+
 const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   if (e.button !== 0) return
   if (!isEditMode.value) return
@@ -1048,6 +1171,9 @@ const startCustomDrag = (item: CanvasItem, e: MouseEvent) => {
   // 因编辑器 hover 自解析在 zoom≠1 时会 stopPropagation，故用捕获阶段监听
   window.addEventListener('pointermove', onCustomDragMove, true)
   window.addEventListener('pointerup', onCustomDragUp)
+  // 因拖拽期间 layout 不触发重渲染，故块本体与跟随浮层靠命令式写 DOM，链接线等派生浮层退回逐帧重渲染
+  dragNeedsRender = linkedPairs.value.size > 0
+  cacheDragDom()
   window.addEventListener('mousemove', onCustomDragMove, true)
   window.addEventListener('mouseup', onCustomDragUp)
   customDrag.draggingIds = new Set(Object.keys(customDragGroup))
@@ -1256,17 +1382,14 @@ const updateRichTextDrop = (frame = 0) => {
   const targetId = richTextDropTargetId.value
   const target = viewport && targetId ? richTextTargetForFrame(targetId, frame) : null
   if (!viewport || !target) {
-    richTextDrop.value = null
+    setRichTextDrop(null)
     return
   }
   const point = screenToContent(canvasTransform(), viewport, customDragLastX, customDragLastY)
   // 因两者同时进行会让落点乱跳，故块未完全显示时不滚块内内容
-  if (!isPointerInsideRichText(target, point) || !isTargetVisibleForFrame(target.pmEl, frame)) {
-    richTextDrop.value = resolveRichTextDrop(target, point, viewport)
-    return
-  }
-  autoScrollRichText(target, point, frame)
-  richTextDrop.value = resolveRichTextDrop(target, point, viewport)
+  const canScrollInside = isPointerInsideRichText(target, point) && isTargetVisibleForFrame(target.pmEl, frame)
+  if (canScrollInside) autoScrollRichText(target, point, frame)
+  setRichTextDrop(resolveRichTextDrop(target, point, viewport))
 }
 
 const applyCustomDrag = (frame: number) => {
@@ -1287,6 +1410,7 @@ const applyCustomDrag = (frame: number) => {
   })
   richTextDropTargetId.value = findRichTextDropTarget()
   updateRichTextDrop(frame)
+  flushDragLayout()
 }
 
 // 因自定义拖拽绕过 VDR 的 snap，故手动做边缘/中线对齐吸附
@@ -1358,14 +1482,41 @@ const isAutoHeight = (item: CanvasItem): boolean =>
 const setAutoHeight = (item: CanvasItem, v: boolean) => {
   if (item.component !== 'RichTextEditor') return
   ;(item.config as RichTextConfig).autoHeight = v
+  // 因 config 已非响应式，而手柄集合与子组件 props 依赖它，故显式刷新
+  markLayoutDirty()
 }
+
+// 因每次渲染返回新数组会让 ResizeBox 判定 props 变更而重渲染，故复用常量数组
+const HANDLES_SIDE_ONLY = ['ml', 'mr']
+const HANDLES_MOBILE = ['tm', 'bm']
+const HANDLES_NO_TOP_MIDDLE = ['tl', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
+const HANDLES_ALL = ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
 
 // 因手柄已 Teleport 脱离 .drag-wrapper（CSS 隐藏规则失效），故按 popup 显隐过滤 tm 手柄
 const resizeHandlesOf = (item: CanvasItem): string[] => {
-  if (isAutoHeight(item)) return ['ml', 'mr']
-  if (mobileMode.value) return ['tm', 'bm']
-  if (popupBlockId.value === item.id) return ['tl', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
-  return ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br']
+  if (isAutoHeight(item)) return HANDLES_SIDE_ONLY
+  if (mobileMode.value) return HANDLES_MOBILE
+  if (popupBlockId.value === item.id) return HANDLES_NO_TOP_MIDDLE
+  return HANDLES_ALL
+}
+
+// 因内联箭头回调逐次渲染都是新引用、会迫使 ResizeBox 重渲染，故按块缓存稳定回调
+interface ResizeCallbacks {
+  start: (handle: string) => void
+  resizing: (x: number, y: number, w: number, h: number) => void
+  resizestop: (x: number, y: number, w: number, h: number) => void
+}
+const resizeCallbackCache = new WeakMap<CanvasItem, ResizeCallbacks>()
+const resizeCallbacksOf = (item: CanvasItem): ResizeCallbacks => {
+  const cached = resizeCallbackCache.get(item)
+  if (cached) return cached
+  const callbacks: ResizeCallbacks = {
+    start: (handle) => onResizeStart(item, handle),
+    resizing: (x, y, w, h) => onResizing(item, x, y, w, h),
+    resizestop: (x, y, w, h) => onResizeStop(item, x, y, w, h),
+  }
+  resizeCallbackCache.set(item, callbacks)
+  return callbacks
 }
 
 // 因候选需两两判定相邻（O(N²)），故与遮罩一致改为显式缓存，只在布局落定时刷新
@@ -1479,11 +1630,14 @@ const onCustomDragUp = (e?: MouseEvent) => {
   const drop = targetId ? resolveDropForTarget(targetId, e) : null
   const inserted = targetId && sourceId ? insertDraggedComponent(targetId, sourceId, drop?.pos ?? null) : false
   richTextDropTargetId.value = null
-  richTextDrop.value = null
-  customDrag.active = false
-  customDrag.sourceItemId = null
+  setRichTextDrop(null)
   // 因清空后 draggedIds 为空集，故冲突检测须在清空 customDragGroup 前执行
   if (!inserted) resolveDragConflict()
+  // 因 props 未变时 Vue 会跳过 patch，故回退/取整后的最终位置必须显式落回 DOM
+  flushDragLayout()
+  clearDragDom()
+  customDrag.active = false
+  customDrag.sourceItemId = null
   // 因残留块会被框选自动滚动误补偿，故结束即清空拖拽组
   customDragGroup = {}
   customDragItems = new Map()
@@ -1502,6 +1656,7 @@ const onCustomDragUp = (e?: MouseEvent) => {
   document.body.style.overflow = ''
   maybeRebaseOrigin()
   recomputeMasks()
+  markLayoutDirty()
 }
 // #endregion 自定义拖拽与联结
 
@@ -1620,6 +1775,8 @@ const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
   layout.w = Math.round(snapped.w)
   layout.h = Math.round(snapped.h)
   if (propagate) syncLinkedEdges(item, snapped.x, snapped.y, snapped.w, snapped.h)
+  // 因 resize 全走纯 layout 写入，而块内尺寸必须即时重排，故每帧显式刷新
+  markLayoutDirty()
 }
 
 // 因 autoPan 时鼠标可能停住，故在 rAF 循环内补偿被拖块并冻结联结传播
@@ -1771,6 +1928,7 @@ const onResizeStop = (item: CanvasItem, x: number, y: number, w: number, h: numb
     layout.y = Math.round(y)
     layout.w = Math.round(w)
     layout.h = Math.round(h)
+    markLayoutDirty()
   }
   resizeSession = null
   recomputeMasks()
@@ -1823,6 +1981,8 @@ const onAutoHeight = (e: Event) => {
       if (h > prevH) pushOverlapped(item)
     }
     scheduleGeometryRefresh()
+    // 因块高变化只写 layout（非响应式），故必须显式刷新渲染
+    markLayoutDirty()
   }
   // 因用户手动平移时不应被光标跟随拉回，故拖拽中跳过
   if (typeof detail.cursorY === 'number' && !isPanning.value) followCursor(item, detail.cursorY)
@@ -2499,6 +2659,8 @@ const autoArrangeDesktop = () => {
 const autoArrange = (mode: 'desktop' | 'mobile') => {
   if (mode === 'mobile') autoArrangeMobile()
   else autoArrangeDesktop()
+  // 因排列只写 layout（非响应式），故须显式刷新
+  markLayoutDirty()
 }
 
 // 桌面端取各已放块底部作候选顶边、视口内从左到右找空位（贴底候选比固定网格更紧凑）；移动端追加到末尾
@@ -2559,6 +2721,8 @@ const isRectVisibleInViewport = (rect: Rect): boolean => {
 
 // 因每帧 O(N) 检测重叠开销大，故用块群包围盒粗筛
 const itemsBounds = computed(() => {
+  // 因 layout 已非响应式，故显式订阅版本号
+  void layoutVersion.value
   if (state.items.length === 0) return null
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   state.items.forEach((it) => {
@@ -2601,7 +2765,8 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
   const id = generateId()
   const { spot } = resolveAddSpot(key, at)
   const { x, y } = spot
-  const newItem: CanvasItem = {
+  // 因块对象须保持原始对象（拖拽逐帧写 layout 不该触发重渲染），故 markRaw
+  const newItem: CanvasItem = markRaw({
     id,
     component: key,
     config: config ?? meta.defaultConfig(),
@@ -2610,7 +2775,7 @@ const addComponent = (key: CanvasItem['component'], at?: { x: number; y: number 
       mobile: { x: 0, y, ...meta.defaultSize },
     },
     arranged: { desktop: !mobileMode.value, mobile: mobileMode.value },
-  }
+  })
   state.items.push(newItem)
   if (mobileMode.value && canvasWidth.value > 0) {
     stretchMobileWidth(newItem)
@@ -2727,13 +2892,14 @@ const normalizeLoadedItem = (it: any): CanvasItem => {
     const mobileIsCopy = !savedMobile || (savedMobile.y === desktop.y && savedMobile.h === desktop.h)
     arranged = { desktop: true, mobile: !mobileIsCopy }
   }
-  return {
+  // 因块对象须保持原始对象（拖拽逐帧写 layout 不该触发重渲染），故 markRaw
+  return markRaw({
     id: typeof it.id === 'string' && it.id ? it.id : generateId(),
     component,
     config: (it.config ?? componentMetaOf(component)?.defaultConfig() ?? {}) as WidgetConfig,
     layout: { desktop, mobile },
     arranged,
-  }
+  })
 }
 
 const load = async (raw: string) => {
