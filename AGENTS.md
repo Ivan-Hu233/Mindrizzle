@@ -24,7 +24,6 @@ cd src-tauri && cargo test   # 含模块文档里的 no_run doctest
 
 - `bun run build` 内置 `vue-tsc --noEmit`，会被既存类型错挡住；验证构建请直接 `bunx vite build`。
 - 本机 bun 环境下 `vue-tsc` 报 `ERR_PACKAGE_PATH_NOT_EXPORTED`，类型检查统一用 `bunx tsc --noEmit`。
-- 既存类型错（非新改动引入）：`src/Controls/RichEditor/extensions/row-drop-indicator.ts` 第 43、86 行。
 
 ## 注释规范（最高优先级）
 
@@ -128,6 +127,8 @@ const SELECTED_Z_BASE = Z_LAYER.selectedBlock
 ## 构建与调试环境
 
 - bun 的依赖经 `~/.bun/install/cache` 符号链接暴露，realpath 落在 workspace 外；`vite.config.ts` 的 `server.fs.allow` 必须包含该目录（并带上 `'.'`）。
+- 依赖树里 `prosemirror-view` 曾被解析出两份（1.42.1/1.42.3），prosekit 的 `pm/view` 与 `pm/state` 各用一份，会让 `EditorView` 类型互不兼容；`package.json` 的 `overrides` 已锁死 1.42.3，勿删。
+- `bun.lock` 一旦与 `package.json` 不同步，`bun install` 会重解析整棵树（曾一次改动 261 条解析），故改依赖后要确认 diff 范围。
 - 路由用 `createMemoryHistory`，浏览器里改 URL 不会切页；验证页面需点击导航。
 - 编辑器链路（ProseKit + highlight.js + KaTeX）保持懒加载：新增路由沿用 `() => import()`，新增重型依赖同步 `canvasComponents.ts` 的 `defineAsyncComponent`。
 - `optimizeDeps.entries` 已覆盖 `index.html` 与 `src/**/*.{vue,ts}`，勿删；否则 dev 首次进 `/editor` 会触发依赖重优化整页 reload。
@@ -135,7 +136,7 @@ const SELECTED_Z_BASE = Z_LAYER.selectedBlock
 
 ## 验证清单
 
-1. `bunx tsc --noEmit`：除既存的 `row-drop-indicator.ts` 两处外不应有新报错。
+1. `bunx tsc --noEmit`：应零报错。
 2. 改动画布/编辑器交互后，用内置浏览器实操一遍：拖块、拖组件入富文本、缩放手柄、框选、右键平移、切换缩放（0.5 / 1 / 2 / 3）、切移动端模拟。
 3. 改动 Rust 侧跑 `cargo check`；改动打包逻辑跑 `cargo test`（`mdr_file_tar` / `mdr_file_cache` 的模块文档里有 `no_run` doctest，精简文档时不要删掉示例代码块）。
 4. 浏览器自动化注意：`page.mouse` 在此内置浏览器里坐标不可靠（事件根本送不进页面），用 `elementFromPoint` / `dispatchEvent` 合成事件；`onCustomDragMove` 有 `isTrusted` 过滤，**块拖拽无法用合成事件验证**（框选/缩放/选中可以）。更关键：该页面里 **rAF 与 ResizeObserver 完全不派发**（`visibilityState` 仍为 `visible`），凡依赖 rAF/RO 的行为（滚动条补测、autoHeight 报高、Vue transition）都观测不到，**别把它当成 bug**——只能用同步路径或 `getBoundingClientRect` 强制布局验证。
