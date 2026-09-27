@@ -23,6 +23,7 @@ export interface NoteMeta {
 interface NoteRecord {
   meta: NoteMeta
   content: string
+  updatedAt: number
 }
 
 type NoteCommandArgs = Record<string, unknown>
@@ -82,7 +83,11 @@ const fetchFileList = (): string[] => readFileIndex()
 // 后端只比对磁盘占用，故此处同样只看索引里是否已存在
 const isFileNameValid = (fileName: string): boolean => !readFileIndex().includes(fileName)
 
-const getFileMeta = (fileName: string): NoteMeta => requireNote(fileName).note.meta
+const getFileMeta = (fileName: string): NoteMeta & { updatedAt: number } => {
+  const { note } = requireNote(fileName)
+  // 旧存档无 updatedAt，故容忍缺失
+  return { ...note.meta, updatedAt: note.updatedAt ?? 0 }
+}
 
 const getFileBody = (fileName: string): { content: string } => ({
   content: requireNote(fileName).note.content,
@@ -90,13 +95,13 @@ const getFileBody = (fileName: string): { content: string } => ({
 
 const setFileBody = (fileName: string, content: string): void => {
   const { resolved, note } = requireNote(fileName)
-  writeNote(resolved, { ...note, content })
+  writeNote(resolved, { ...note, content, updatedAt: Date.now() })
 }
 
 const createFile = (meta: NoteMeta, fileName: string): string => {
   const resolved = resolveFileName(fileName)
   if (readNote(resolved)) throw new Error('同名文件已存在')
-  writeNote(resolved, { meta, content: '' })
+  writeNote(resolved, { meta, content: '', updatedAt: Date.now() })
   writeFileIndex([...readFileIndex(), resolved])
   return resolved
 }

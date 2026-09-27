@@ -1,5 +1,6 @@
 use std::fs::{self, File};
 use std::path::Path;
+use std::time::UNIX_EPOCH;
 use chrono::Local;
 use quick_xml::de::from_str;
 use quick_xml::se::to_string;
@@ -8,7 +9,7 @@ use log::{info, warn};
 
 use crate::mdr_file_cache::MindrizzleFileCache;
 use crate::{mdr_file_dir, tauri_cmd};
-use crate::mdr_file_struct::{MindrizzleFileBody, MindrizzleFileMeta};
+use crate::mdr_file_struct::{MindrizzleFileBody, MindrizzleFileMeta, MindrizzleFileMetaView};
 use crate::mdr_file_tar::{extract_meta, extract_to_cache, is_mdrf_compressed, pack_cache};
 
 // 文件名校验规则须与前端 NewFileDialog 保持一致，集中为常量避免两处漂移
@@ -20,7 +21,7 @@ const MINDRIZZLE_FILE_RESERVED_NAMES: [&str; 22] = [
 const MINDRIZZLE_FILE_MAX_NAME_LEN: usize = 50;
 
 tauri_cmd!{
-    pub fn get_mdr_file_meta(file_name: String) -> anyhow::Result<MindrizzleFileMeta> {
+    pub fn get_mdr_file_meta(file_name: String) -> anyhow::Result<MindrizzleFileMetaView> {
         let resolved_name = resolve_mdrf_file_name(&file_name).context("校验笔记文件名")?;
         let path = mdr_file_dir::get_mdr_file_dir(resolved_name.clone());
         if !path.is_file() {
@@ -30,7 +31,9 @@ tauri_cmd!{
         let file = File::open(&path).with_context(|| format!("打开笔记文件：{}", resolved_name))?;
         let data = extract_meta(file, compressed).context("读取笔记元信息")?;
         let xml = String::from_utf8(data).context("转换笔记元信息编码")?;
-        deserialize_mdr_file_meta_xml(&xml).context("解码笔记元信息")
+        let meta = deserialize_mdr_file_meta_xml(&xml).context("解码笔记元信息")?;
+        let updated_at = read_file_modified_millis(&path)?;
+        Ok(MindrizzleFileMetaView { meta, updated_at })
     }
 
     pub fn get_mdr_file_body(file_name: String) -> anyhow::Result<MindrizzleFileBody> {
@@ -122,6 +125,16 @@ fn resolve_mdrf_file_name(file_name: &str) -> anyhow::Result<String> {
         return Err(anyhow::anyhow!("文件名不能是系统保留设备名"));
     }
     Ok(resolved)
+}
+
+/// 保存正文时整包重写，故 .mdrf 的修改时间即上次编辑时间
+fn read_file_modified_millis(path: &Path) -> anyhow::Result<i64> {
+    let modified = fs::metadata(path)
+        .with_context(|| format!("读取笔记文件属性：{}", path.display()))?
+        .modified()
+        .context("读取笔记文件修改时间")?;
+    let elapsed = modified.duration_since(UNIX_EPOCH).context("笔记修改时间早于 UNIX 纪元")?;
+    i64::try_from(elapsed.as_millis()).context("笔记修改时间超出可表示范围")
 }
 
 /// 直接截断原文件再打包失败会损坏 .mdrf，所以先写同目录临时文件再 rename 原子替换
