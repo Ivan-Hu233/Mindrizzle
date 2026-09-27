@@ -52,7 +52,7 @@
     
     <MdrCanvas class="editor-wrapper" ref="MdrCRef"/>
 
-    <!-- 因格式操作需确认，故弹 overlay：左键应用、右键取消（全屏捕获层接管事件） -->
+    <!-- 格式操作需确认，所以弹 overlay：左键应用、右键取消（全屏捕获层接管事件） -->
     <v-overlay v-model="pendingApply" persistent scroll-strategy="none">
       <div class="apply-layer" @click.left="confirmApply" @mousedown.right="cancelApply" @contextmenu.prevent="cancelApply">
         <v-card class="apply-card" min-width="240" :class="{ 'place-below': overlayPos.below }"
@@ -182,7 +182,7 @@ const selectionInBlock = (): boolean => {
     !!sel.anchorNode && !!sel.focusNode && block.contains(sel.anchorNode) && block.contains(sel.focusNode)
 }
 
-// 因 selectionchange 途中会误触发，故改在 mouseup 校验选区，并弹 overlay 询问（左键应用、右键取消）
+// selectionchange 途中会误触发，所以改在 mouseup 校验选区，并弹 overlay 询问（左键应用、右键取消）
 let applyLockUntil = 0
 const pendingApply = ref(false)
 const pendingActionIndex = ref(0)
@@ -209,7 +209,7 @@ let mouseDownX = 0
 let mouseDownY = 0
 // 已有选中时本次点击语义为取消选中，添加逻辑须跳过
 let isDeselectClick = false
-// 因点击已有块时选中集可能为空，故记录按下是否落在块/浮层内，落在其上走选中而非添加
+// 点击已有块时选中集可能为空，所以记录按下是否落在块/浮层内，落在其上走选中而非添加
 let isBlockPress = false
 const trackMouseDown = (e: MouseEvent) => {
   mouseDownX = e.clientX
@@ -222,7 +222,7 @@ const onMouseUp = (e: MouseEvent) => {
   if (pendingApply.value) return
   // 无选中块：处于"添加块"状态，画布内左键在鼠标位置直接添加当前滚轮选中的类型（工具栏点击/只读态不触发）
   if (!hasSelection.value) {
-    // 因取消多选的点击已在 mouseup 前清空选中，故此处拦截避免误入添加分支
+    // 取消多选的点击已在 mouseup 前清空选中，所以此处拦截避免误入添加分支
     if (isDeselectClick || isBlockPress) return
     if (!MdrCRef.value?.isEditMode || e.button !== 0) return
     if (!(e.target as HTMLElement).closest('.canvas-container')) return
@@ -270,14 +270,14 @@ const onMouseUp = (e: MouseEvent) => {
 const confirmApply = () => {
   pendingApply.value = false
   OPTIONS[pendingActionIndex.value]?.action()
-  // 因选区保留会经 mouseup 再次询问，故应用后同样清除选区并失焦
+  // 选区保留会经 mouseup 再次询问，所以应用后同样清除选区并失焦
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
 }
 
 const cancelApply = () => {
   pendingApply.value = false
-  // 因 ProseMirror 失焦前会恢复内部选区，故须先 blur 再清选区，否则右键 mouseup 会重开询问
+  // ProseMirror 失焦前会恢复内部选区，所以须先 blur 再清选区，否则右键 mouseup 会重开询问
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
 }
@@ -312,14 +312,14 @@ const setZoom = (v: number | null) => {
 }
 
 const route = useRoute()
-// 因 route.params 可能是数组，故统一取首项
+// route.params 可能是数组，所以统一取首项
 const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0] : route.params.fileName
 
 const save = async () => {
   try {
     await invokeCommand("set_mdr_file_body", { fileName, content: MdrCRef.value?.save() ?? '' })
   } catch (error) {
-    // 因浏览器调试环境无 Tauri IPC，故仅在 Tauri 内上报
+    // 浏览器调试环境无 Tauri IPC，所以仅在 Tauri 内上报
     if (isTauri()) logError(error instanceof Error ? error.message : String(error))
   }
 }
@@ -370,7 +370,7 @@ onMounted(() => {
   load().catch(() => undefined)
   // 挂 window 级并显式非 passive（否则 preventDefault 无效）
   window.addEventListener('wheel', cycleOption, { passive: false })
-  // 因选字可能跨出编辑器，故挂 window 级 mouseup
+  // 选字可能跨出编辑器，所以挂 window 级 mouseup
   window.addEventListener('mouseup', onMouseUp)
   // 挂 window 级 mousedown 记录按下位置
   window.addEventListener('mousedown', trackMouseDown)
@@ -408,12 +408,12 @@ defineExpose({ save })
   margin: 0 8px;
 }
 
-/* 因未选中按钮背景与工具栏同色、看不出边界，故补半透明底色 */
+/* 未选中按钮背景与工具栏同色、看不出边界，所以补半透明底色 */
 .v-btn-toggle :deep(.v-btn:not(.v-btn--selected)) {
   background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
-/* 因 v-overlay__content 尺寸为 0（inset 失效），故用 vw/vh 显式铺满并置 z 高于 scrim */
+/* v-overlay__content 尺寸为 0（inset 失效），所以用 vw/vh 显式铺满并置 z 高于 scrim */
 .apply-layer {
   position: fixed;
   left: 0;

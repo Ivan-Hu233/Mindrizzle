@@ -1,4 +1,4 @@
-// 因编辑器未挂载时访问 view 会抛错，故统一 try/catch 返回 null
+// 编辑器未挂载时访问 view 会抛错，所以统一 try/catch 返回 null
 
 import type { Editor } from '@prosekit/core'
 
@@ -12,7 +12,7 @@ export function getView(editor?: Editor | null): any {
 
 export function getBlockEl(view: any, pos: number): HTMLElement | null {
   try {
-    // 因 nodeDOM 可能返回文本节点，故仅接受元素节点
+    // nodeDOM 可能返回文本节点，所以仅接受元素节点
     const el = view.nodeDOM(pos)
     return el instanceof HTMLElement ? el : null
   } catch {
@@ -20,7 +20,7 @@ export function getBlockEl(view: any, pos: number): HTMLElement | null {
   }
 }
 
-// 因 Vue 节点视图外层 display:contents、BCR 恒为 0×0，故块矩形需下探到有尺寸的后代
+// Vue 节点视图外层 display:contents、BCR 恒为 0×0，所以块矩形需下探到有尺寸的后代
 export function getVisibleBlockRect(el: HTMLElement | null): DOMRect | null {
   if (!el?.isConnected) return null
   const rect = el.getBoundingClientRect()
@@ -51,14 +51,14 @@ export function dispatchBlockHover(view: any, pos: number): void {
   )
 }
 
-// 因多处需按最近真实指针位置复核，故模块级记录一次，忽略自身伪事件
+// 多处需按最近真实指针位置复核，所以模块级记录一次，忽略自身伪事件
 const realPointer = { x: Number.NaN, y: Number.NaN }
 let pointerTracked = false
 
 export function getRealPointer(): { x: number; y: number } {
   if (!pointerTracked) {
     pointerTracked = true
-    // 因 hover 自解析会 stopPropagation，故用捕获阶段
+    // hover 自解析会 stopPropagation，所以用捕获阶段
     window.addEventListener(
       'pointermove',
       (event) => {
@@ -109,11 +109,11 @@ interface CanvasScaleEntry {
   value: number
 }
 
-// 因逐帧路径反复调用且 getComputedStyle 会触发强制样式重算，故按 .canvas 元素缓存系数
+// 逐帧路径反复调用且 getComputedStyle 会触发强制样式重算，所以按 .canvas 元素缓存系数
 const canvasScaleCache = new WeakMap<HTMLElement, CanvasScaleEntry>()
 let canvasScaleEpoch = 0
 
-// 因 pan/zoom 或容器尺寸变化会改变系数，故变换落定后须失效缓存
+// pan/zoom 或容器尺寸变化会改变系数，所以变换落定后须失效缓存
 export function invalidateCanvasScaleCache(): void {
   canvasScaleEpoch += 1
 }
@@ -162,7 +162,7 @@ function popupElOf(view: any): HTMLElement | null {
   return (findPositionerEl(view)?.querySelector('.block-handle-popup') as HTMLElement | null) ?? null
 }
 
-// 因关闭时 popup 为 display:none 无法量高，故临时显示同步测量后还原
+// 关闭时 popup 为 display:none 无法量高，所以临时显示同步测量后还原
 export function getPopupHeight(view: any): number {
   const popup = popupElOf(view)
   if (!popup) return 35
@@ -178,7 +178,7 @@ export function getPopupHeight(view: any): number {
   return h > 0 ? h : 35
 }
 
-// 因关闭时 popup 为 display:none 无法量宽，故临时显示同步测量后还原
+// 关闭时 popup 为 display:none 无法量宽，所以临时显示同步测量后还原
 export function getPopupWidth(view: any): number {
   const popup = popupElOf(view)
   if (!popup) return 64
@@ -198,7 +198,7 @@ export function isCompactView(view: any): boolean {
   return !!view?.dom?.closest('.editor-wrapper.compact')
 }
 
-// 因 positioner 被 Teleport 到 .canvas（不在 .editor-wrapper 内），故按 data-owner 在 .canvas 里找回对应实例
+// positioner 被 Teleport 到 .canvas（不在 .editor-wrapper 内），所以按 data-owner 在 .canvas 里找回对应实例
 export function findPositionerEl(view: any): HTMLElement | null {
   const wrapper = view?.dom?.closest?.('.editor-wrapper') as HTMLElement | null
   const inWrapper = wrapper?.querySelector('.block-handle-positioner') as HTMLElement | null
@@ -208,7 +208,7 @@ export function findPositionerEl(view: any): HTMLElement | null {
   return document.querySelector<HTMLElement>(`.block-handle-positioner[data-owner="${id}"]`)
 }
 
-// ProseKit 未公开 BlockHandleStore API，故经 aria-ui context 冒泡事件取 provider 回调；每实例缓存
+// ProseKit 未公开 BlockHandleStore API，所以经 aria-ui context 冒泡事件取 provider 回调；每实例缓存
 function createContextResolver(key: string) {
   let cached: any = null
   return (el?: Element | null): any => {

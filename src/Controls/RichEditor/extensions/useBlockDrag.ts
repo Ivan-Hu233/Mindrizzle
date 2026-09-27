@@ -1,4 +1,4 @@
-// 因 Tauri Linux 的 WebKitGTK 不派发 HTML5 DnD 的 dragover/drop，故改用 pointerdown + window 级指针事件实现拖拽
+// Tauri Linux 的 WebKitGTK 不派发 HTML5 DnD 的 dragover/drop，所以改用 pointerdown + window 级指针事件实现拖拽
 
 import { onUnmounted, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
@@ -36,13 +36,13 @@ export function useBlockDrag(options: {
   const { editor, hoveredBlock, suppressUI } = options
   const view = () => getView(editor)
 
-  // 因行高亮会与 NodeSelection 选区框重叠，故拖拽期间隐藏
+  // 行高亮会与 NodeSelection 选区框重叠，所以拖拽期间隐藏
   const isDragging = ref(false)
   let active = false
   let source: DragSource | null = null
   let ghostEl: HTMLElement | null = null
   let indicatorEl: HTMLElement | null = null
-  // 因落点/指示器计算较重，故用 rAF 合并到每帧一次
+  // 落点/指示器计算较重，所以用 rAF 合并到每帧一次
   let rafId = 0
   let lastX = 0
   let lastY = 0
@@ -61,7 +61,7 @@ export function useBlockDrag(options: {
 
   const clampTo = (min: number, max: number, value: number) => Math.min(Math.max(value, min), max)
 
-  // 因 gutter 是 pointer-events:none 的留白、手柄正落在其中，故未直接命中时按 wrapper 盒子兜底并夹回落点
+  // gutter 是 pointer-events:none 的留白、手柄正落在其中，所以未直接命中时按 wrapper 盒子兜底并夹回落点
   // （布局坐标与视口坐标需先经 layoutToViewport* 换算）
   function resolveEditorHit(x: number, y: number): EditorHit | null {
     const direct = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.('.ProseMirror') as HTMLElement | null
@@ -94,7 +94,7 @@ export function useBlockDrag(options: {
     const el = document.elementFromPoint(x, y)
     const scrollEl = (el?.closest?.('.editor-scroll') as HTMLElement | null) ?? ((hit?.pm.closest('.editor-scroll') as HTMLElement | null) ?? null)
     if (!scrollEl) return false
-    // 因 gutter 内同样命不中滚动容器，故经编辑器归属兜底
+    // gutter 内同样命不中滚动容器，所以经编辑器归属兜底
     const r = scrollEl.getBoundingClientRect()
     const top = hit ? layoutToViewportY(hit.pm, r.top) : r.top
     const bottom = hit ? layoutToViewportY(hit.pm, r.top + r.height) : r.bottom
@@ -132,7 +132,7 @@ export function useBlockDrag(options: {
     return true
   }
 
-  // 因每帧重算会卡顿，故自动滚动/平移每帧检查，落点/指示器仅在鼠标移动或内容滚动时重算
+  // 每帧重算会卡顿，所以自动滚动/平移每帧检查，落点/指示器仅在鼠标移动或内容滚动时重算
   function ensureDragLoop() {
     if (rafId) return
     rafId = requestAnimationFrame(dragLoop)
@@ -177,7 +177,7 @@ export function useBlockDrag(options: {
     lastX = e.clientX
     lastY = e.clientY
     ensureDragLoop()
-    // 因部分环境 mouse.down 后不派发 mousemove，故同时监听 pointermove；又因 hover 自解析会 stopPropagation，故用捕获阶段
+    // 部分环境 mouse.down 后不派发 mousemove，所以同时监听 pointermove；hover 自解析会 stopPropagation，所以用捕获阶段
     window.addEventListener('pointermove', onDragMove, true)
     window.addEventListener('mousemove', onDragMove, true)
     window.addEventListener('mouseup', onDragUp)
@@ -186,7 +186,7 @@ export function useBlockDrag(options: {
 
   function onDragMove(e: MouseEvent) {
     if (!active || !source) return
-    // 因伪 pointermove 坐标是 -9999，故不能当作指针位置
+    // 伪 pointermove 坐标是 -9999，所以不能当作指针位置
     if (!e.isTrusted) return
     if (ghostEl) {
       ghostEl.style.left = `${e.clientX + 10}px`
@@ -223,7 +223,7 @@ export function useBlockDrag(options: {
     const rect = getVisibleBlockRect(el)
     const mid = rect ? layoutToViewportY(v, rect.top) + layoutToViewportSize(v, rect.height) / 2 : y
     const before = y < mid
-    // 因原子块的 $pos.depth 为 0，故需按 nodeSize 取前后
+    // 原子块的 $pos.depth 为 0，所以需按 nodeSize 取前后
     if ($pos.depth === 0) {
       const node = v.state.doc.nodeAt(at)
       return { pos: before ? at : at + (node?.nodeSize ?? 0), el, before }
@@ -239,7 +239,7 @@ export function useBlockDrag(options: {
     return { from: start, to: end }
   }
 
-  // 因删除源块后插入位置会偏移，故经 tr.mapping 修正
+  // 删除源块后插入位置会偏移，所以经 tr.mapping 修正
   function moveInSameEditor(s: DragSource, hit: EditorHit) {
     const v = hit.editor.view
     const anchor = resolveDropAnchor(hit.pm, v, hit.x, hit.y)
@@ -265,7 +265,7 @@ export function useBlockDrag(options: {
     const delTr = srcView.state.tr
     delTr.delete(srcRange.from, srcRange.to)
     srcView.dispatch(delTr)
-    // 因各 editor 的 schema 独立，故经 nodeFromJSON 转换后插入
+    // 各 editor 的 schema 独立，所以经 nodeFromJSON 转换后插入
     const targetNode = tgtView.state.schema.nodeFromJSON(s.node.toJSON())
     const insTr = tgtView.state.tr
     const insertPos = clampTo(0, tgtView.state.doc.content.size, anchor.pos)
@@ -316,7 +316,7 @@ export function useBlockDrag(options: {
     ghostEl = null
   }
 
-  // 因 coordsAtPos 在 zoom 下拿的是布局坐标会偏移，故按块元素视觉矩形取上/下边缘
+  // coordsAtPos 在 zoom 下拿的是布局坐标会偏移，所以按块元素视觉矩形取上/下边缘
   function updateIndicator(v: any, anchor: DropAnchor) {
     if (!indicatorEl) {
       indicatorEl = document.createElement('div')

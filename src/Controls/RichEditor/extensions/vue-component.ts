@@ -162,7 +162,7 @@ const ResizableContainer = defineComponent({
     minHeight: { type: Number as PropType<number | null>, default: null },
     maxHeight: { type: Number as PropType<number | null>, default: null },
     readOnly: { type: Boolean, default: false },
-    // 因 NodeView 渲染上下文外调用 slot 会触发 Vue 警告，故内容经 prop 传入
+    // NodeView 渲染上下文外调用 slot 会触发 Vue 警告，所以内容经 prop 传入
     content: { type: Object as PropType<any>, required: true },
   },
   emits: ['resize', 'extract'],
@@ -194,7 +194,7 @@ const ResizableContainer = defineComponent({
       e.stopPropagation()
       isResizing.value = true
 
-      // 因画布 zoom 下鼠标位移是视觉像素、而组件宽高是编辑器布局像素，故位移须折回布局空间（否则缩放后手柄跟不上鼠标）
+      // 画布 zoom 下鼠标位移是视觉像素、而组件宽高是编辑器布局像素，所以位移须折回布局空间（否则缩放后手柄跟不上鼠标）
       const scaleEl = e.currentTarget as HTMLElement | null
       const startX = e.clientX
       const startY = e.clientY
@@ -233,7 +233,7 @@ const ResizableContainer = defineComponent({
         document.removeEventListener('mouseup', onMouseUp)
       }
 
-      // 因 hover 自解析会 stopPropagation，故用捕获阶段
+      // hover 自解析会 stopPropagation，所以用捕获阶段
       document.addEventListener('mousemove', onMouseMove, true)
       document.addEventListener('mouseup', onMouseUp)
     }
@@ -259,7 +259,7 @@ const ResizableContainer = defineComponent({
         emit('extract', { clientX: ev.clientX, clientY: ev.clientY })
       }
       placeGhost(event)
-      // 因 hover 自解析会 stopPropagation，故用捕获阶段
+      // hover 自解析会 stopPropagation，所以用捕获阶段
       document.addEventListener('mousemove', onMouseMove, true)
       document.addEventListener('mouseup', onMouseUp)
     }
@@ -379,7 +379,7 @@ export const vueComponentNodeView = defineVueNodeView({
         }
       )
 
-      // 因首次 clientWidth 可能为 0，故以 10000 后备避免宽度塌缩
+      // 首次 clientWidth 可能为 0，所以以 10000 后备避免宽度塌缩
       const containerWidth = ref<number>(view.dom.clientWidth || 10000)
       let resizeObserver: ResizeObserver | null = null
       const readOnly = ref(!view.editable)
@@ -449,7 +449,7 @@ export const vueComponentNodeView = defineVueNodeView({
         if (readOnly.value) return
         const pos = getPos()
         if (typeof pos !== 'number') return
-        // 因 doc 需 block+，仅剩该节点时抽出会留下非法空文档，故不响应
+        // doc 需 block+，仅剩该节点时抽出会留下非法空文档，所以不响应
         if (view.state.doc.childCount <= 1) return
         const payload = {
           componentName: node.value.attrs.componentName as string,

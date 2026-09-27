@@ -191,7 +191,7 @@ const onInput = () => {
   renderHighlight();
 };
 
-// 需在浏览器重排后同步滚动位置，用 requestAnimationFrame 延后一拍
+// 滚动位置要在浏览器重排后同步，所以用 requestAnimationFrame 延后一拍
 const syncScroll = () => {
   const textarea = textareaRef.value;
   const pre = highlightRef.value?.parentElement;
@@ -310,8 +310,8 @@ watch(
 
 const resizeObserver = ref<ResizeObserver | null>(null);
 onMounted(() => {
-  // 因挂载即聚焦会让"插入块/打开便签"时焦点被 textarea 抢走（含插入富文本的组件），
-  // 故挂载只渲染高亮与滚动同步，聚焦交给用户点击
+  // 挂载即聚焦会让"插入块/打开便签"时焦点被 textarea 抢走（含插入富文本的组件），
+  // 所以挂载时只渲染高亮与滚动同步，聚焦交给用户点击
   nextTick(() => {
     renderHighlight();
     syncScroll();

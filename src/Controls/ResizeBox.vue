@@ -59,13 +59,13 @@ const emit = defineEmits<{
 let session: ResizeSession | null = null
 
 const rootEl = ref<HTMLElement | null>(null)
-// 因手柄在块边缘会被紧贴邻块盖住而点不到，故 Teleport 到 .canvas 顶层（Z_LAYER.resizeHandle）
+// 手柄在块边缘会被紧贴邻块盖住而点不到，所以 Teleport 到 .canvas 顶层（Z_LAYER.resizeHandle）
 const canvasEl = ref<HTMLElement | null>(null)
 onMounted(() => {
   canvasEl.value = rootEl.value?.closest('.canvas') ?? null
 })
 
-// 因 .canvas 用 CSS zoom，故渲染层圆整到视觉像素，逻辑仍用 content 坐标
+// .canvas 用 CSS zoom，所以渲染层圆整到视觉像素，逻辑仍用 content 坐标
 const roundToPx = (v: number) => Math.round(v * props.zoom) / props.zoom
 const renderRect = computed(() => ({
   x: roundToPx(props.x),
@@ -73,17 +73,17 @@ const renderRect = computed(() => ({
   w: roundToPx(props.w),
   h: roundToPx(props.h),
 }))
-// 因 translate3d 会把块缓存为位图纹理、放大会上采样致文字发虚，故用普通 translate
+// translate3d 会把块缓存为位图纹理、放大会上采样致文字发虚，所以用普通 translate
 const boxStyle = computed(() => ({
   transform: `translate(${renderRect.value.x}px, ${renderRect.value.y}px)`,
   width: `${renderRect.value.w}px`,
   height: `${renderRect.value.h}px`,
   zIndex: props.zIndex,
 }))
-// 因块拖拽期间坐标由画布命令式写入、本组件 prop 被冻结，手柄会冻在按下位置，故拖拽期间不渲染
+// 块拖拽期间坐标由画布命令式写入、本组件 prop 被冻结，手柄会冻在按下位置，所以拖拽期间不渲染
 const showHandles = computed(() => props.active && !props.disabled && !props.dragging)
 
-// .canvas 已应用 pan+origin，故手柄直接用 content 坐标 + 边缘偏移
+// .canvas 已应用 pan+origin，所以手柄直接用 content 坐标 + 边缘偏移
 const HANDLE_POS: Record<Handle, (r: Rect) => { left: string; top: string }> = {
   tl: (r) => ({ left: `${r.x - 5}px`, top: `${r.y - 5}px` }),
   tm: (r) => ({ left: `${r.x + r.w / 2 - 4}px`, top: `${r.y - 5}px` }),
@@ -102,7 +102,7 @@ const CURSOR: Record<Handle, string> = {
 const handleStyle = (h: string) => {
   const pos = HANDLE_POS[h as Handle](renderRect.value)
   return {
-    // 因手柄随 zoom 缩放，故尺寸与定位圆整到整数视觉像素
+    // 手柄随 zoom 缩放，所以尺寸与定位圆整到整数视觉像素
     width: `${roundToPx(8)}px`,
     height: `${roundToPx(8)}px`,
     zIndex: Z_LAYER.resizeHandle,
@@ -137,7 +137,7 @@ const computeRect = (s: ResizeSession, dx: number, dy: number): Rect => {
 
 const onMove = (e: MouseEvent) => {
   if (!session) return
-  // 因 .canvas 用 zoom，故鼠标位移需除以 zoom
+  // .canvas 用 zoom，所以鼠标位移需除以 zoom
   const rect = computeRect(session, (e.clientX - session.startClientX) / props.zoom, (e.clientY - session.startClientY) / props.zoom)
   session.lastRect = rect
   emit('resizing', rect.x, rect.y, rect.w, rect.h)
@@ -151,7 +151,7 @@ const onUp = () => {
   session = null
 }
 
-// 因会话以按下瞬间矩形 + 鼠标位移为基准，故 autoPan 补偿改动 prop 不会进入反馈环
+// 会话以按下瞬间矩形 + 鼠标位移为基准，所以 autoPan 补偿改动 prop 不会进入反馈环
 const onHandleDown = (handle: string, e: MouseEvent) => {
   if (props.disabled || e.button !== 0) return
   session = {
@@ -161,7 +161,7 @@ const onHandleDown = (handle: string, e: MouseEvent) => {
     startRect: { x: props.x, y: props.y, w: props.w, h: props.h },
     lastRect: { x: props.x, y: props.y, w: props.w, h: props.h },
   }
-  // 因 hover 自解析会 stopPropagation，故用捕获阶段
+  // hover 自解析会 stopPropagation，所以用捕获阶段
   window.addEventListener('mousemove', onMove, true)
   window.addEventListener('mouseup', onUp)
   emit('resizestart', handle)
@@ -180,7 +180,7 @@ onUnmounted(cleanup)
     <!-- 块无边框背景，用虚线框常驻标注内容区范围 -->
     <div class="content-guide" aria-hidden="true" />
     <slot />
-    <!-- 因手柄需固定视觉尺寸且不被邻块盖住，故 Teleport 到 .canvas 顶层 -->
+    <!-- 手柄需固定视觉尺寸且不被邻块盖住，所以 Teleport 到 .canvas 顶层 -->
     <Teleport :to="canvasEl" :disabled="!canvasEl">
       <template v-if="showHandles">
         <div v-for="h in handles" :key="h" class="handle" :class="`handle-${h}`" :data-id="itemId"
@@ -199,7 +199,7 @@ onUnmounted(cleanup)
 .content-guide {
   position: absolute;
   inset: 0;
-  /* 需可见但不挡操作，故低对比度 + 穿透点击，层级高于块背景低于手柄 */
+  /* 要可见又不挡操作，所以低对比度 + 穿透点击，层级高于块背景低于手柄 */
   opacity: 0.35;
   pointer-events: none;
   z-index: 10;
@@ -208,7 +208,7 @@ onUnmounted(cleanup)
 .handle {
   box-sizing: border-box;
   position: absolute;
-  /* 因需在明暗主题下都与块背景有对比，故用高对比边框 */
+  /* 明暗主题下都要与块背景有对比，所以用高对比边框 */
   background: rgb(var(--v-theme-background));
   border: 1px solid rgb(var(--v-theme-on-surface));
   box-shadow: 0 0 2px rgba(var(--v-theme-on-surface), 0.4);

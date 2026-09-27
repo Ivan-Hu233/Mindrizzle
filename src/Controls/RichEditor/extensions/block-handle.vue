@@ -54,12 +54,12 @@ const { isDragging, onDragPointerDown } = useBlockDrag({
   suppressUI,
 })
 
-// 因拖滚动条时指针会滑出块行，原生 hover 扩展反复清/置 hover 会让 popup 与滚动条闪烁（force-hover 被反复加/清），
-// 故拖拽期间收起 popup，松开后由 hover 自然恢复
+// 拖滚动条时指针会滑出块行，原生 hover 扩展反复清/置 hover 会让 popup 与滚动条闪烁（force-hover 被反复加/清），
+// 拖拽期间收起 popup，松开后由 hover 自然恢复
 const scrollbarDragging = ref(false)
 const showPopup = computed(() => handleVisible.value && !scrollbarDragging.value)
 
-// 因 setup 阶段 editor 尚未挂载、closest('.drag-wrapper') 为空，故监听 editor 变化后再赋值
+// setup 阶段 editor 尚未挂载、closest('.drag-wrapper') 为空，所以监听 editor 变化后再赋值
 const blockId = ref<string | null>(null)
 watch(
   () => props.editor,
@@ -71,7 +71,7 @@ watch(
   { immediate: true },
 )
 
-// 因 computed 会因 editor 引用不变而取到过期的 null，故用函数实时查 DOM
+// computed 会因 editor 引用不变而取到过期的 null，所以用函数实时查 DOM
 const currentBlockId = () => getView(props.editor)?.dom?.closest('.drag-wrapper')?.dataset.id ?? null
 
 // 任一实例改 owner 时其余实例立即收到更新并收起自己，保证只显示最后激活的块
@@ -98,7 +98,7 @@ onUnmounted(() => {
   }
 })
 
-// 因 popup 移到非首行时不盖 tm，故经双 rAF 量取实际矩形判断遮挡后再派发
+// popup 移到非首行时不盖 tm，所以经双 rAF 量取实际矩形判断遮挡后再派发
 function popupOverlapsTm(): boolean {
   const dom = getView(props.editor)?.dom as HTMLElement | null
   const wrapper = dom?.closest('.drag-wrapper') as HTMLElement | null
@@ -116,7 +116,7 @@ function popupOverlapsTm(): boolean {
 let tmSyncRaf = 0
 function syncTmOverlap() {
   cancelAnimationFrame(tmSyncRaf)
-  // 因 popup 位置由 floating-ui 异步更新，故双 rAF 确保量到最新位置
+  // popup 位置由 floating-ui 异步更新，所以双 rAF 确保量到最新位置
   tmSyncRaf = requestAnimationFrame(() => {
     tmSyncRaf = requestAnimationFrame(() => {
       const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
@@ -127,26 +127,26 @@ function syncTmOverlap() {
   })
 }
 
-// 因桥接区必须恰好跨过 popup 与块之间的空隙：过宽会盖住紧贴文本右缘的滚动条（其 hover/拖拽全被 popup 吞掉），
-// 故按实测空隙自适应；量不到时退回 CSS 的 48px 保守值（宁可闪灭也不能漏掉桥接）
+// 桥接区必须恰好跨过 popup 与块之间的空隙：过宽会盖住紧贴文本右缘的滚动条（其 hover/拖拽全被 popup 吞掉），
+// 按实测空隙自适应；量不到时退回 CSS 的 48px 保守值（宁可闪灭也不能漏掉桥接）
 let bridgeRaf = 0
 function syncBridgeGap() {
   const measure = () => {
     const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
-    // 因多块各自都渲染 popup，故必须按块 id 精确取，否则会量到别的隐藏 popup
+    // 多块各自都渲染 popup，所以必须按块 id 精确取，否则会量到别的隐藏 popup
     const id = wrapper?.dataset.id
     const popup = id ? document.querySelector<HTMLElement>(`.block-handle-popup[data-block-id="${id}"]`) : null
     if (!wrapper || !popup) return
     const pr = popup.getBoundingClientRect()
     if (pr.width <= 0 || pr.height <= 0) return
-    // 因两者同为布局坐标（Chrome 下 BCR 不含 zoom），相减与画布缩放无关；
-    // 加 2px 余量后桥接区左缘 = 块右缘 − 2px，与空隙大小无关，故只会压住滚动条最右侧 2px 而不夺其交互
+    // 两者同为布局坐标（Chrome 下 BCR 不含 zoom），相减与画布缩放无关；
+    // 加 2px 余量后桥接区左缘 = 块右缘 − 2px，与空隙大小无关，所以只会压住滚动条最右侧 2px 而不夺其交互
     const gap = pr.left - wrapper.getBoundingClientRect().right
     popup.style.setProperty('--block-handle-bridge', `${Math.max(Math.ceil(gap) + 2, 1)}px`)
   }
   cancelAnimationFrame(bridgeRaf)
   bridgeRaf = requestAnimationFrame(measure)
-  // 因后台标签页 rAF 不派发，故用定时器兜底（重复测量幂等）
+  // 后台标签页 rAF 不派发，所以用定时器兜底（重复测量幂等）
   setTimeout(measure, 0)
 }
 
@@ -156,28 +156,28 @@ watch([showPopup, activeHover, popupKeep, handlePlacement], () => {
   syncBridgeGap()
 })
 
-// 因 popup 上侧开启会盖住连接点曲别针，故派发事件通知画布隐藏
+// popup 上侧开启会盖住连接点曲别针，所以派发事件通知画布隐藏
 watch([showPopup, handlePlacement], () => {
   const topOpen = !!showPopup.value && handlePlacement.value === 'top'
   window.dispatchEvent(new CustomEvent('Mindrizzle:block-popup-top', { detail: { open: topOpen } }))
 })
 
-// 因鼠标移向 popup 会经过上方组件、焦点被切走会让 popup 消失，故派发"该块 popup 激活"让画布暂停 hover 聚焦
+// 鼠标移向 popup 会经过上方组件、焦点被切走会让 popup 消失，所以派发"该块 popup 激活"让画布暂停 hover 聚焦
 watch(showPopup, (visible) => {
   const wrapper = getView(props.editor)?.dom?.closest('.drag-wrapper') as HTMLElement | null
   const blockId = wrapper?.dataset.id ?? null
-  // 因 popup 关闭后桥接区消失，故手动补上的滚动条 hover 必须一并撤回
+  // popup 关闭后桥接区消失，所以手动补上的滚动条 hover 必须一并撤回
   if (!visible) clearScrollbarHover()
   window.dispatchEvent(new CustomEvent('Mindrizzle:block-handle-active', { detail: { active: !!visible, blockId } }))
 })
 
-// 因滚动条是 overlay（原生已隐藏，offsetWidth-clientWidth 恒为 0），popup 压住滚动条时 wheel 滚不动，
-// 故按滚动条元素矩形判定并手动转发 delta
+// 滚动条是 overlay（原生已隐藏，offsetWidth-clientWidth 恒为 0），popup 压住滚动条时 wheel 滚不动，
+// 按滚动条元素矩形判定并手动转发 delta
 const LINE_HEIGHT = 16
 const barAt = (shell: Element, clientX: number, clientY: number): HTMLElement | null => {
   for (const bar of shell.querySelectorAll<HTMLElement>('.custom-scrollbar')) {
     const r = bar.getBoundingClientRect()
-    // 因 CSS zoom 下 BCR 是布局坐标、而 clientX/Y 是视觉坐标，故矩形须换算到视觉空间再比较
+    // CSS zoom 下 BCR 是布局坐标、而 clientX/Y 是视觉坐标，所以矩形须换算到视觉空间再比较
     const left = layoutToViewportX(bar, r.left), right = layoutToViewportX(bar, r.right)
     const top = layoutToViewportY(bar, r.top), bottom = layoutToViewportY(bar, r.bottom)
     if (clientX >= left && clientX <= right && clientY >= top && clientY <= bottom) return bar
@@ -200,8 +200,8 @@ const onPopupWheel = (e: WheelEvent) => {
   e.stopPropagation()
 }
 
-// 因 popup 向块方向伸 48px 的透明桥接区会盖住紧贴文本右缘的滚动条，CSS :hover 收不到，
-// 故指针在 popup（含桥接区）上时按矩形判定并手动补 hover
+// popup 向块方向伸 48px 的透明桥接区会盖住紧贴文本右缘的滚动条，CSS :hover 收不到，
+// 指针在 popup（含桥接区）上时按矩形判定并手动补 hover
 let hoveredBar: HTMLElement | null = null
 const clearScrollbarHover = () => {
   hoveredBar?.classList.remove('force-hover')
@@ -218,7 +218,7 @@ const syncScrollbarHover = (clientX: number, clientY: number) => {
 }
 
 const onPopupPointerMove = (e: PointerEvent) => {
-  // 坐标落在滚动条外（含清 hover 的 -9999 伪事件）时同样会清掉 class，故无需 isTrusted 过滤
+  // 坐标落在滚动条外（含清 hover 的 -9999 伪事件）时同样会清掉 class，所以无需 isTrusted 过滤
   syncScrollbarHover(e.clientX, e.clientY)
 }
 
@@ -233,7 +233,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
 </script>
 
 <template>
-  <!-- 因 popup 在编辑器内受块层叠上下文限制，故把含 provider 的 Root 整体 Teleport 到 .canvas：store context 不丢、
+  <!-- popup 在编辑器内受块层叠上下文限制，所以把含 provider 的 Root 整体 Teleport 到 .canvas：store context 不丢、
        且 reference 与 floating-ui 同处布局坐标空间（放 .canvas-container 会随缩放偏移） -->
   <Teleport v-if="!props.readOnly" to=".canvas">
     <BlockHandleRoot @state-change="onBlockStateChange">
@@ -269,7 +269,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
     </BlockHandleRoot>
   </Teleport>
 
-  <!-- 因 .vdr 的 transform/overflow 会裁剪 fixed 高亮，故 Teleport 到 body -->
+  <!-- .vdr 的 transform/overflow 会裁剪 fixed 高亮，所以 Teleport 到 body -->
   <Teleport to="body">
     <div v-if="highlightRect && !isDragging" class="block-handle-line-highlight" :class="`placement-${handlePlacement}`" :style="highlightStyle" />
   </Teleport>
@@ -281,13 +281,13 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   overflow: visible;
   width: min-content;
   height: min-content;
-  /* 因 z-index 仅对定位元素生效，故显式 absolute；置 Z_LAYER.popup 保证在曲别针之上 */
+  /* z-index 仅对定位元素生效，所以显式 absolute；置 Z_LAYER.popup 保证在曲别针之上 */
   position: absolute;
   z-index: 1005;
   transition: transform 0.1s ease-out;
   pointer-events: none;
   inset: auto;
-  /* 因 floating-ui 默认 -8px 会左移，故以 8px 抵消 */
+  /* floating-ui 默认 -8px 会左移，所以以 8px 抵消 */
   margin-left: 8px;
 }
 
@@ -303,7 +303,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   margin-top: 16px;
 }
 
-/* 因 floating-ui 在 bottom 时下移，故以负 margin-top 抵消使顶边紧贴行底 */
+/* floating-ui 在 bottom 时下移，所以以负 margin-top 抵消使顶边紧贴行底 */
 .block-handle-positioner.placement-bottom {
   margin-left: 0;
   margin-top: -4px;
@@ -332,7 +332,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   z-index: 1;
 }
 
-/* 因 popup 与块间有空隙、鼠标经过会先触发失效清理，故用伪元素向块方向扩展透明桥接区。
+/* popup 与块间有空隙、鼠标经过会先触发失效清理，所以用伪元素向块方向扩展透明桥接区。
    右侧桥接区**必须恰好跨过空隙**：48px 会越界盖住紧贴文本右缘的 8px 滚动条，使其 hover/拖拽/点轨道全被 popup 吞掉。
    故下方默认值只是「未量到空隙前」的保守兜底，真实宽度由 syncBridgeGap() 实测 popup 左缘 − 块右缘后写入 CSS 变量。 */
 .block-handle-popup::before {
@@ -365,7 +365,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   width: 48px;
 }
 
-/* 因滚动条使文本右缘左移、右侧 popup 偏移不对称，故按滚动条宽度推回 */
+/* 滚动条使文本右缘左移、右侧 popup 偏移不对称，所以按滚动条宽度推回 */
 .block-handle-positioner.placement-right .block-handle-popup {
   margin-right: 0;
   margin-left: -6px;
@@ -397,7 +397,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   transition-duration: 0.15s;
 }
 
-/* 因 hoverState 失效时 ProseKit 会隐藏 popup，故强制保持显示以可点击 ADD/拖拽 */
+/* hoverState 失效时 ProseKit 会隐藏 popup，所以强制保持显示以可点击 ADD/拖拽 */
 .block-handle-popup.popup-keep {
   opacity: 1 !important;
   scale: 1 !important;
@@ -405,7 +405,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   visibility: visible !important;
 }
 
-/* 因行在容器外时 ProseKit 会置 data-state=closed，故 handleVisible 时强制显示，位置由 popupShiftPx 贴回 */
+/* 行在容器外时 ProseKit 会置 data-state=closed，所以 handleVisible 时强制显示，位置由 popupShiftPx 贴回 */
 .block-handle-popup.forced-open {
   opacity: 1 !important;
   scale: 1 !important;
@@ -413,7 +413,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   visibility: visible !important;
 }
 
-/* 因 display:none 会让尺寸变 0、floating-ui 在 0 与真实尺寸间跳变导致乱飞，故用 visibility/opacity 隐藏 */
+/* display:none 会让尺寸变 0、floating-ui 在 0 与真实尺寸间跳变导致乱飞，所以用 visibility/opacity 隐藏 */
 .block-handle-popup.ui-hidden {
   visibility: hidden !important;
   opacity: 0 !important;
@@ -443,7 +443,7 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
   color: rgba(var(--v-theme-on-surface), 0.38);
 }
 
-/* 因 ProseKit 注入 44×44 ::before 会扩大热区致点击位置不符，故禁用 */
+/* ProseKit 注入 44×44 ::before 会扩大热区致点击位置不符，所以禁用 */
 .block-handle-btn::before,
 .block-handle-btn::after {
   content: none !important;

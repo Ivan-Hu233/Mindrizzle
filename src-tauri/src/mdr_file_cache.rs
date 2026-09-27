@@ -27,7 +27,7 @@ pub struct MindrizzleFileCache {
 
 impl MindrizzleFileCache {
     pub fn new() -> io::Result<Self> {
-        // 因需避免并发冲突，故用进程号+纳秒时间戳生成唯一目录
+        // 要避免并发冲突，所以用进程号+纳秒时间戳生成唯一目录
         let unique_name = format!(
             "Mindrizzle_{:x}_{}",
             std::process::id(),
@@ -72,7 +72,7 @@ impl MindrizzleFileCache {
 
     /// 手动清理缓存目录，可对已 disable_cleanup 的实例主动调用以提前释放磁盘
     pub fn cleanup(&mut self) {
-        // 因目录已删除，故置位阻止 Drop 重复清理
+        // 目录已删除，所以置位阻止 Drop 重复清理
         self.cleanup_on_drop = false;
         remove_cache_dir(&self.root);
     }
@@ -104,7 +104,7 @@ fn remove_cache_dir(root: &Path) {
     }
 }
 
-/// 因进程异常退出或只读不存会残留孤儿目录，故启动早期清扫一次（此刻本进程尚未建目录，删除安全）
+/// 进程异常退出或只读不存会残留孤儿目录，所以启动早期清扫一次（此刻本进程尚未建目录，删除安全）
 pub fn cleanup_orphan_caches() {
     let Some(cache_base) = AppDirs::new(Some("Mindrizzle"), false).map(|dirs| dirs.cache_dir) else {
         return;
@@ -123,7 +123,7 @@ pub fn cleanup_orphan_caches() {
     }
 }
 
-/// 因缓存键会拼进目录路径，故替换其中的文件系统非法字符与路径分隔符
+/// 缓存键会拼进目录路径，所以替换其中的文件系统非法字符与路径分隔符
 fn sanitize_cache_key(key: &str) -> String {
     key.chars()
         .map(|c| match c {

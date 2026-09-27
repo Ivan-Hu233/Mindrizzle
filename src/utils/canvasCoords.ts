@@ -18,7 +18,7 @@ export interface Point {
   y: number
 }
 
-// 因亚像素会模糊，故对齐到整数视觉像素（返回 content 值）
+// 亚像素会模糊，所以对齐到整数视觉像素（返回 content 值）
 export const roundToVisual = (zoom: number, v: number): number => Math.round(v * zoom) / zoom
 
 export const contentToScreen = (t: CanvasTransform, vp: ViewportOrigin, x: number, y: number): Point => ({

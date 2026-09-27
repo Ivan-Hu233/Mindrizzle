@@ -13,11 +13,11 @@ export function useHoverState(
   getStore: (el?: Element | null) => any,
   getOverlayStore?: (el?: Element | null) => any,
 ) {
-  // 因拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，故 hover 离开时不清空
+  // 拖拽/keepAlive 需拿最后一次 hover 的块作拖拽源，所以 hover 离开时不清空
   const hoveredBlock = ref<HoveredBlock | null>(null)
   const activeHover = ref<HoveredBlock | null>(null)
 
-  // 因 ProseKit 只认布局坐标、而真实指针是视口坐标，故 zoom≠1 时拦下真实事件，改喂换算后的合成 pointermove
+  // ProseKit 只认布局坐标、而真实指针是视口坐标，所以 zoom≠1 时拦下真实事件，改喂换算后的合成 pointermove
   const canvasZoom = ref(1)
 
   function zoomFromStyle(): number {
@@ -26,7 +26,7 @@ export function useHoverState(
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
   }
 
-  // 因逐帧读 computed style 会带来 N 次强制样式重算，故优先取事件 detail 的 zoom，值未变则早返回
+  // 逐帧读 computed style 会带来 N 次强制样式重算，所以优先取事件 detail 的 zoom，值未变则早返回
   const readCanvasZoom = (event?: Event) => {
     const detailZoom = (event as CustomEvent<{ zoom?: number }> | undefined)?.detail?.zoom
     const next = typeof detailZoom === 'number' && detailZoom > 0 ? detailZoom : zoomFromStyle()
@@ -36,7 +36,7 @@ export function useHoverState(
     else if (activeHover.value) startKeepAlive()
   }
 
-  // 因 ProseKit 只给 pointermove 套了 throttle(200)，故 pointermove/pointerenter 都发（后者另发 document 一份），否则 popup 位置滞后 200ms
+  // ProseKit 只给 pointermove 套了 throttle(200)，所以 pointermove/pointerenter 都发（后者另发 document 一份），否则 popup 位置滞后 200ms
   function forwardPointerMove(clientX: number, clientY: number, jitter = 0) {
     const view = getView(editor)
     const dom = view?.dom as HTMLElement | null
@@ -57,8 +57,8 @@ export function useHoverState(
     document.dispatchEvent(new PointerEvent('pointerenter', enterInit))
   }
 
-  // 因 stateChange 在缩放环境偶发滞后，故用事件目标 + posAtDOM 自解析；
-  // 又因调 elementFromPoint 会变成每块×每事件的强制布局，故复用事件目标做 O(1) 判定
+  // stateChange 在缩放环境偶发滞后，所以用事件目标 + posAtDOM 自解析；
+  // 调 elementFromPoint 会变成每块×每事件的强制布局，所以复用事件目标做 O(1) 判定
   function rowAtElement(hit: HTMLElement): { row: HoveredBlock; el: HTMLElement } | null {
     const view = getView(editor)
     const dom = view?.dom as HTMLElement | null
@@ -94,7 +94,7 @@ export function useHoverState(
     }, 150)
   }
 
-  // 因 autoUpdate 会自行重算矩形，故无需每个 pointermove 重设 hover 状态
+  // autoUpdate 会自行重算矩形，所以无需每个 pointermove 重设 hover 状态
   function makeRowAnchor(el: HTMLElement) {
     return {
       contextElement: el,
@@ -102,7 +102,7 @@ export function useHoverState(
     }
   }
 
-  // 因 stateChange 不可靠，故独立按指针位置自解析并直接写 store（同步派发 stateChange，拖拽源稳定）
+  // stateChange 不可靠，所以独立按指针位置自解析并直接写 store（同步派发 stateChange，拖拽源稳定）
   const HOVER_CLEAR_DELAY = 150
   let hoverClearTimer: ReturnType<typeof setTimeout> | null = null
   const cancelHoverClear = () => {
@@ -131,7 +131,7 @@ export function useHoverState(
       cancelHoverClear()
       return
     }
-    // 因立即清会让 popup 变 pointer-events:none、鼠标扫到空隙就上不去，故延迟清空
+    // 立即清会让 popup 变 pointer-events:none、鼠标扫到空隙就上不去，所以延迟清空
     if (hoverClearTimer) return
     hoverClearTimer = setTimeout(() => {
       hoverClearTimer = null
@@ -141,11 +141,11 @@ export function useHoverState(
   }
 
   const onZoomPointerMove = (event: PointerEvent) => {
-    // 因伪 pointermove 坐标是 -9999，故不能当作指针位置
+    // 伪 pointermove 坐标是 -9999，所以不能当作指针位置
     if (!event.isTrusted || canvasZoom.value === 1) return
     const view = getView(editor)
     if (!view?.dom) return
-    // 因真实事件带视口坐标、且处理在合成事件之后会覆盖 popup 位置，故须 stopPropagation（拖拽监听同节点捕获阶段，不受影响）
+    // 真实事件带视口坐标、且处理在合成事件之后会覆盖 popup 位置，所以须 stopPropagation（拖拽监听同节点捕获阶段，不受影响）
     event.stopPropagation()
     forwardPointerMove(event.clientX, event.clientY)
   }
@@ -173,7 +173,7 @@ export function useHoverState(
       stopKeepAlive()
       return
     }
-    // 因指针可能正停在 popup/手柄上，故空 hover 不直接清空，显隐交给 onPointerResolve 管理
+    // 指针可能正停在 popup/手柄上，所以空 hover 不直接清空，显隐交给 onPointerResolve 管理
     if (!detail) {
       stopKeepAlive()
       return
@@ -193,7 +193,7 @@ export function useHoverState(
 
     const view = getView(editor)
     if (isCompactView(view)) {
-      // 因行矩形是布局坐标、裁剪边界是视觉坐标，故需统一换算
+      // 行矩形是布局坐标、裁剪边界是视觉坐标，所以需统一换算
       const br = getBlockRect(view, hoveredBlock.value.pos)
       if (br) {
         const need = layoutToViewportSize(view, getPopupHeight(view)) + COMPACT_POPUP_GAP
@@ -208,10 +208,10 @@ export function useHoverState(
 
     const editorDom = view?.dom as HTMLElement | null
     const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
-    // 因世界层远大于视口、按它判断内外恒为同一侧，故改用 .canvas-container
+    // 世界层远大于视口、按它判断内外恒为同一侧，所以改用 .canvas-container
     const container = editorDom?.closest('.canvas-container') as HTMLElement | null
     if (!widget || !container) return fallback
-    // 因块矩形是布局坐标、容器是视觉坐标，故统一换算到视觉坐标后再比
+    // 块矩形是布局坐标、容器是视觉坐标，所以统一换算到视觉坐标后再比
     const w = widget.getBoundingClientRect()
     const c = container.getBoundingClientRect()
     const wLeft = layoutToViewportX(view, w.left)
@@ -220,7 +220,7 @@ export function useHoverState(
     const wBottom = layoutToViewportY(view, w.top + w.height)
     const preferred: 'left' | 'right' = wLeft + (wRight - wLeft) / 2 < c.left + c.width / 2 ? 'right' : 'left'
 
-    // 因 nodeDOM(pos) 部分情况取不到元素，故左右空间用整块边界；空间不足时退化为上下放置
+    // nodeDOM(pos) 部分情况取不到元素，所以左右空间用整块边界；空间不足时退化为上下放置
     const needX = layoutToViewportSize(view, getPopupWidth(view)) + COMPACT_POPUP_GAP
     const spaceLeft = wLeft - c.left
     const spaceRight = c.right - wRight

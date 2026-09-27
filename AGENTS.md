@@ -38,16 +38,15 @@ cd src-tauri && cargo test   # 含模块文档里的 no_run doctest
 6. 禁止 `// ====================` 之类装饰性分隔线；`// #region` / `// #endregion` 是编辑器折叠标记，**保留**。
 7. 版权声明每文件仅一行 `// SPDX-License-Identifier: MIT`，不写作者与日期。
 8. 多行 why 注释要压到一行；只有真正复杂的坐标系/时序陷阱才允许两三行。
-9. 可忽略的错误必须显式注明，如 `// 忽略，不影响主流程`。
-10. 删代码时同时删除其专属注释；改行为时同步更新相关 why 注释——注释说谎比没有注释更糟。
+9.  删代码时同时删除其专属注释；改行为时同步更新相关 why 注释——注释说谎比没有注释更糟。
 
 示例：
 
 ```ts
-// 因浏览器 BCR 是否含 zoom 不一致，故用实测比例反推
+// 浏览器 BCR 是否含 zoom 不一致，所以用实测比例反推
 domScale: blockRect.width / blockLayout.w
 
-// 因邻块会盖住块边缘内侧的缩放手柄，故选中块 z 取 Z_LAYER.selectedBlock 提层
+// 邻块会盖住块边缘内侧的缩放手柄，所以选中块 z 取 Z_LAYER.selectedBlock 提层
 const SELECTED_Z_BASE = Z_LAYER.selectedBlock
 ```
 

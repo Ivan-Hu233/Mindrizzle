@@ -6,7 +6,7 @@ import vuetify from './Vuetify.ts'
 
 import NoteSet from './Views/NoteSets.vue'
 
-// 因首页只依赖 vue 与 Tauri IPC，静态引入可让首屏零等待；
+// 首页只依赖 vue 与 Tauri IPC，静态引入可让首屏零等待；
 // 其余页面（含整条 ProseKit + highlight.js + KaTeX 编辑器链路）按路由懒加载
 const routes = [
   { path: '/', redirect: '/set' },

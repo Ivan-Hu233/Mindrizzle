@@ -37,7 +37,7 @@ import { defineSuperscript } from 'prosekit/extensions/superscript'
 import { defineGapCursor } from 'prosekit/extensions/gap-cursor'
 import { NodeSelection } from 'prosekit/pm/state'
 
-// 因父组件统一经 editor.commands 调用，故在此注册自定义命令；
+// 父组件统一经 editor.commands 调用，所以在此注册自定义命令；
 // 标题切换复用 defineHeading() 内置的 toggleHeading，避免同名命令被合并成交叉类型
 const customCommands = defineCommands({
   insertVueComponent(componentName: string, props: Record<string, any> = {}) {
@@ -56,7 +56,7 @@ const customCommands = defineCommands({
   insertVueComponentAt(pos: number, componentName: string, props: Record<string, any> = {}) {
     return (state, dispatch, view) => {
       if (!view) return false
-      // 因落点来自画布帧缓存可能越界，故直接失败让调用方回退，避免 tr.insert 抛错
+      // 落点来自画布帧缓存可能越界，所以直接失败让调用方回退，避免 tr.insert 抛错
       if (pos < 0 || pos > state.doc.content.size) return false
       const node = state.schema.nodes.vueComponent?.create({
         componentName,
