@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { mdiNoteOffOutline } from '@mdi/js';
+import { isTauri } from '@tauri-apps/api/core';
 import { info } from '@tauri-apps/plugin-log';
 import { invokeCommand } from '../utils/invoke'
 
@@ -28,7 +29,8 @@ async function loadNoteSets() {
         tag: fileInfo.tag,
       });
     }
-    info(`读取笔记元信息成功，共 ${noteSets.value.length} 条`)
+    // 网页端无 IPC，日志插件的 invoke 会抛错
+    if (isTauri()) info(`读取笔记元信息成功，共 ${noteSets.value.length} 条`)
   } catch (error) {
     isError = true;
   }
