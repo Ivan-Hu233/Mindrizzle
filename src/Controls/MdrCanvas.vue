@@ -26,10 +26,12 @@
             <div class="edge-mask" :style="maskStyle(m)" />
           </template>
           <div class="content-area">
-            <component :is="componentMap[item.component as keyof typeof componentMap]"
+            <!-- 视口外的块只留静态快照，省掉 ProseMirror 的插件 state、RO 与逐块 window 捕获监听 -->
+            <component v-if="!isVirtualized(item.id)" :is="componentMap[item.component as keyof typeof componentMap]"
               :ref="componentRefOf(item)" v-bind="getComponentProps(item)"
               @update:model-value="(val: string) => updateCode(item.id, val)"
               @update:language="(lang: string) => updateLanguage(item.id, lang)" class="inner-component" />
+            <div v-else class="virtual-snapshot" v-html="virtualSnapshots[item.id]" />
           </div>
         </v-sheet>
       </ResizeBox>
@@ -300,6 +302,8 @@ watch(
     window.dispatchEvent(new CustomEvent('Mindrizzle:canvas-transform', { detail: { zoom: zoom.value } }))
     // zoom 变化会让子组件用冻结的 prop 重写 transform，所以拖拽中须在渲染落定后补写命令式位置
     if (customDrag.active) syncDragDom()
+    // 可见集随平移/缩放变化，所以此处同步重算（延到 rAF 会让快照多留一帧）
+    reconcileVirtualBlocks()
   },
   { flush: 'post' },
 )
@@ -2579,7 +2583,11 @@ watch(mobileMode, () => {
   pan.y = 0
   autoArrange(mobileMode.value ? 'mobile' : 'desktop')
   recomputeMasks()
-  nextTick(refreshLayout)
+  nextTick(() => {
+    refreshLayout()
+    // 换布局会整体改变可见性，所以要按新视口重算虚拟集
+    reconcileVirtualBlocks()
+  })
 }, { flush: 'pre' })
 
 // 块删除后其曲别针链接失效，随 items 变化自动清理
@@ -2590,6 +2598,9 @@ watch(
     linkedPairs.value = new Set(
       Array.from(linkedPairs.value).filter((k) => k.split('|').every((id) => idSet.has(id)))
     )
+    // 块删除后其滚动记录也失效，所以一并清理
+    Array.from(virtualScrolls.keys()).forEach((id) => { if (!idSet.has(id)) virtualScrolls.delete(id) })
+    scheduleVirtualReconcile()
   }
 )
 
@@ -2604,6 +2615,7 @@ const onResize = () => {
   refreshLayout()
   invalidateCanvasScaleCache()
   recomputeMasks()
+  scheduleVirtualReconcile()
 }
 // #endregion 数据同步与布局刷新
 
@@ -2827,6 +2839,144 @@ const onExtractComponent = (event: Event) => {
 }
 // #endregion 插入组件拖出成块
 
+// #region 编辑器虚拟化
+// ProseMirror 实例带着插件 state、ResizeObserver 与逐块 window 捕获监听，所以视口外的块销毁实例、只留静态快照
+const VIRTUAL_MARGIN = 400
+
+// 快照表既是"已虚拟化"的标记也是占位内容：从未渲染过的块存空串，回视口时按 config 重建
+const virtualSnapshots = shallowRef<Record<string, string>>({})
+const isVirtualized = (id: string): boolean => virtualSnapshots.value[id] !== undefined
+
+interface ScrollRecord {
+  selector: string
+  index: number
+  top: number
+  left: number
+}
+// 块内滚动量随实例一起销毁，所以画布侧留一份：快照克隆与重建后的实例都要还原
+const virtualScrolls = new Map<string, ScrollRecord[]>()
+
+// 判定纯走换算公式（不读 DOM 矩形），否则每帧要为 N 个块触发强制布局
+const isBlockNearViewport = (item: CanvasItem): boolean => {
+  const viewport = viewRect.value
+  if (!viewport) return true
+  const layout = layoutOf(item)
+  const topLeft = contentToScreen(canvasTransform(), viewport, layout.x, layout.y)
+  const bottomRight = contentToScreen(canvasTransform(), viewport, layout.x + layout.w, layout.y + layout.h)
+  return topLeft.x < viewport.right + VIRTUAL_MARGIN && bottomRight.x > viewport.left - VIRTUAL_MARGIN &&
+    topLeft.y < viewport.bottom + VIRTUAL_MARGIN && bottomRight.y > viewport.top - VIRTUAL_MARGIN
+}
+
+// 焦点在块内时销毁实例会丢光标与未提交输入，所以按 activeElement 反查（整轮只查一次）
+const focusedBlockId = (): string | null =>
+  (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.drag-wrapper')?.dataset.id ?? null
+
+// 选中/拖拽/resize/popup/联结落点都依赖活实例，所以在可见性之外额外固定
+const isBlockPinned = (item: CanvasItem): boolean =>
+  state.selectedIds.has(item.id) ||
+  customDrag.draggingIds.has(item.id) ||
+  resizeSession?.itemId === item.id ||
+  popupBlockId.value === item.id ||
+  popupActiveBlockId.value === item.id ||
+  richTextDropTargetId.value === item.id
+
+// 克隆里残留的 contenteditable/tabindex 会让快照仍可聚焦与输入，所以要剔除
+const sanitizeSnapshot = (html: string): string => {
+  const holder = document.createElement('template')
+  holder.innerHTML = html
+  holder.content.querySelectorAll('[contenteditable], [tabindex]').forEach((el) => {
+    el.removeAttribute('contenteditable')
+    el.removeAttribute('tabindex')
+  })
+  return holder.innerHTML
+}
+
+// 可滚动层的类名在两种组件里都稳定（.editor-scroll / .edit-layer / .highlight-layer），所以按类名 + 序号定位
+const scrollRecordsOf = (root: HTMLElement): ScrollRecord[] => {
+  const records: ScrollRecord[] = []
+  Array.from(root.querySelectorAll<HTMLElement>('*')).forEach((el) => {
+    if (el.scrollTop <= 0 && el.scrollLeft <= 0) return
+    const selector = Array.from(el.classList).map((name) => `.${name}`).join('')
+    if (!selector) return
+    const peers = Array.from(root.querySelectorAll<HTMLElement>(selector))
+    records.push({ selector, index: peers.indexOf(el), top: el.scrollTop, left: el.scrollLeft })
+  })
+  return records
+}
+
+// 销毁前必须先把内容与视觉搬走——实例一去，doc 与 DOM 都取不到
+const virtualizeBlock = (item: CanvasItem): string => {
+  const root = canvasRef.value?.querySelector<HTMLElement>(`.drag-wrapper[data-id="${item.id}"] .inner-component`)
+  if (!root) return ''
+  const config = componentRefs.value[item.id]?.saveConfig?.()
+  if (config) item.config = { ...item.config, ...config } as WidgetConfig
+  const records = scrollRecordsOf(root)
+  if (records.length) virtualScrolls.set(item.id, records)
+  return sanitizeSnapshot(root.outerHTML)
+}
+
+const applyScrollRecords = (root: HTMLElement | null, records: ScrollRecord[]): void => {
+  if (!root) return
+  records.forEach((record) => {
+    const target = root.querySelectorAll<HTMLElement>(record.selector)[record.index]
+    if (!target) return
+    target.scrollTop = record.top
+    target.scrollLeft = record.left
+  })
+}
+
+// 快照克隆与重建后的实例同为 .inner-component，所以还原入口只需块 id
+const applyBlockScrolls = (id: string): void => {
+  const records = virtualScrolls.get(id)
+  if (!records) return
+  const root = canvasRef.value?.querySelector<HTMLElement>(`.drag-wrapper[data-id="${id}"] .inner-component`) ?? null
+  applyScrollRecords(root, records)
+}
+
+// 克隆内容与代码块（异步组件）都可能晚一帧才撑开滚动区，所以 tick 后再补一帧
+const restoreScrollsSoon = (ids: string[]): void => {
+  nextTick(() => ids.forEach(applyBlockScrolls))
+  requestAnimationFrame(() => ids.forEach(applyBlockScrolls))
+}
+
+const sameBlockIds = (first: Record<string, unknown>, second: Record<string, unknown>): boolean => {
+  const keys = Object.keys(first)
+  if (keys.length !== Object.keys(second).length) return false
+  return keys.every((key) => key in second)
+}
+
+const reconcileVirtualBlocks = () => {
+  const focused = focusedBlockId()
+  const nextSnapshots: Record<string, string> = {}
+  const touchedIds: string[] = []
+  state.items.forEach((item) => {
+    if (focused === item.id || isBlockPinned(item) || isBlockNearViewport(item)) {
+      if (isVirtualized(item.id)) touchedIds.push(item.id)
+      return
+    }
+    if (isVirtualized(item.id)) {
+      nextSnapshots[item.id] = virtualSnapshots.value[item.id]
+      return
+    }
+    nextSnapshots[item.id] = virtualizeBlock(item)
+    touchedIds.push(item.id)
+  })
+  if (sameBlockIds(nextSnapshots, virtualSnapshots.value)) return
+  virtualSnapshots.value = nextSnapshots
+  // 换手两边的 DOM 都是新渲染的，所以都要把块内滚动还原
+  if (touchedIds.length) restoreScrollsSoon(touchedIds)
+}
+
+let virtualRafId = 0
+const scheduleVirtualReconcile = () => {
+  if (virtualRafId) return
+  virtualRafId = requestAnimationFrame(() => {
+    virtualRafId = 0
+    reconcileVirtualBlocks()
+  })
+}
+// #endregion 编辑器虚拟化
+
 // #region 保存与加载
 const save = () => {
   syncComponentData()
@@ -2924,6 +3074,10 @@ const load = async (raw: string) => {
   // 保存坐标相对 origin 归一化，加载后归零平移、从原点查看内容
   pan.x = 0
   pan.y = 0
+  // 旧文档的快照全部失效，且要在首次渲染前定好虚拟集（否则 N 块先建实例再逐个销毁）
+  virtualSnapshots.value = {}
+  virtualScrolls.clear()
+  reconcileVirtualBlocks()
   // 曲别针链接随文档持久化（watcher 会过滤失效链接）
   linkedPairs.value = new Set(
     Array.isArray(parsed.links) ? parsed.links.filter((k: unknown) => typeof k === 'string') : []
@@ -2940,6 +3094,8 @@ const load = async (raw: string) => {
     applyMobileLayout()
   }
   autoArrange(mobileMode.value ? 'mobile' : 'desktop')
+  // 排列改了 layout，所以要按落定后的位置再定一次虚拟集（首次渲染那次用的是文件里的旧坐标）
+  reconcileVirtualBlocks()
   state.items.forEach((item) => {
     componentRefs.value[item.id]?.loadConfig?.(item.config)
   })
@@ -2974,6 +3130,7 @@ const abortSessions = () => {
 onMounted(() => {
   refreshViewRect()
   nextTick(refreshLayout)
+  scheduleVirtualReconcile()
   canvasContainerRef.value?.addEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.addEventListener('mousedown', onGlobalMouseDownCapture, true)
   window.addEventListener('mousedown', trackLeftButtonDown, true)
@@ -2999,6 +3156,7 @@ onMounted(() => {
 onUnmounted(() => {
   cancelPreviewFrame()
   if (geometryRafId) cancelAnimationFrame(geometryRafId)
+  if (virtualRafId) cancelAnimationFrame(virtualRafId)
   canvasContainerRef.value?.removeEventListener('mousedown', handleCanvasMouseDownCapture, true)
   window.removeEventListener('mousedown', onGlobalMouseDownCapture, true)
   window.removeEventListener('mousedown', trackLeftButtonDown, true)
@@ -3034,6 +3192,8 @@ defineExpose({
   isEditMode,
   forceMobile,
   componentRefs,
+  virtualSnapshots,
+  reconcileVirtualBlocks,
   nextForceMobile,
   syncComponentData,
   layoutOf,
@@ -3381,6 +3541,15 @@ body.block-handle-dragging .floating-handle {
   min-height: 0;
   height: 100%;
   width: 100%;
+}
+
+/* 快照是克隆的组件 DOM，用 display:contents 让它像原来一样直接充当 .content-area 的 flex 子项 */
+.virtual-snapshot {
+  display: contents;
+}
+/* 克隆里残留的 pointer-events:auto 会把指针事件吞进死 DOM，所以整棵子树穿透 */
+.virtual-snapshot :deep(*) {
+  pointer-events: none !important;
 }
 
 .pop-up-enter-active,

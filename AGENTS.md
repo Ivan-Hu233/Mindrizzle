@@ -103,6 +103,7 @@ const SELECTED_Z_BASE = Z_LAYER.selectedBlock
 - block-handle popup 的 `Root` 必须 Teleport 到 `.canvas`（**不是** `.canvas-container`），否则 store context 会丢、reference 与定位不处于同一布局坐标空间。
 - 贴合遮罩、圆角、曲别针候选都是 `layout` 推导的 O(N²) 结果，统一由 `recomputeMasks()` 刷新；交互期间冻结，收尾再刷新。增删块、布局落定后不要忘记调用。
 - 浮层渲染走小集合（`floatingOwnerId` / `sideSettingsItem` / `selectedOutlineItems`），禁止整表 `v-for` + 逐块 `v-if`。
+- 视口外的块会被虚拟化（`MdrCanvas` 的 `virtualSnapshots` / `reconcileVirtualBlocks`）：实例被销毁、只留静态快照，故 `componentRefs[id]` 只保证「可见 ∪ 选中 ∪ 拖拽/resize/popup ∪ 焦点所在」的块存在——跨层批量操作不得假设所有块都有活实例。
 - 命中测试禁止逐 mousemove 读 DOM 矩形，用 `screenRectFactory()` 按公式计算；几何常量必须与 `ResizeBox.vue` 的 `HANDLE_POS` / `HANDLE_SIZE` / 手柄样式同步。
 - 命中测试先取 `selectedBlockItems()`（选中块小集合），不要遍历 `state.items` 再逐个过滤——后者让每次 pointermove 随块数线性劣化。
 - `.drag-wrapper` 只允许 `contain: layout style`。**禁止加 `paint`**（会裁掉 RichTextEditor 用负边距外扩 64/80px 的 gutter）；**禁止加 `content-visibility`**（视口外块被跳过布局会让块内 RO 报 0，`onAutoHeight` 随即把块高压到 minH）。
