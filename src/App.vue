@@ -19,6 +19,8 @@ import { attachConsole } from '@tauri-apps/plugin-log';
 import { useRouter } from 'vue-router';
 import { error as logError } from '@tauri-apps/plugin-log';
 
+import { getErrorMessage } from  "./utils/getErrorMessage"
+
 if (isTauri()) {
   attachConsole();
 }
@@ -29,10 +31,6 @@ if (isTauri()) {
 }
 
 const router = useRouter();
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error) return error.message;
-  return String(error);
-};
 
 onMounted(async () => {
   await router.isReady()

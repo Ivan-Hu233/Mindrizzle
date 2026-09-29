@@ -120,7 +120,7 @@ const COMMAND_HANDLERS: Record<string, (args: NoteCommandArgs) => unknown> = {
   get_mdr_file_meta: (args) => getFileMeta(String(args.fileName)),
   get_mdr_file_body: (args) => getFileBody(String(args.fileName)),
   set_mdr_file_body: (args) => setFileBody(String(args.fileName), String(args.content)),
-  create_mdr_file: (args) => createFile(args.MindrizzleFileInfo as NoteMeta, String(args.fileName)),
+  create_mdr_file: (args) => createFile(args.mdrFileInfo as NoteMeta, String(args.fileName)),
 }
 
 export async function invokeLocalNoteCommand<T>(command: string, args?: InvokeArgs): Promise<T> {

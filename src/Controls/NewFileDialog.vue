@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router';
 import { invokeCommand } from '../utils/invoke'
+import { error as LogError } from '@tauri-apps/plugin-log';
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ 'update:close': [value: { status: boolean }] }>()
@@ -58,7 +59,7 @@ const debouncedCheck = (name: string) => {
       return
     }
     if (!isValidFileName(name)) {
-      fileNameAsyncError.value = '文件名必须非空、长度≤50、不含 \ / : * ? " < > |，不以空格开头或空格/点结尾，且不能是 Windows 保留设备名（如 CON、NUL 等，不区分大小写）。'
+      fileNameAsyncError.value = '文件名必须长度≤50、不含 \ / : * ? " < > |，不以空格开头或空格/点结尾，且不能是 Windows 保留设备名（如 CON、NUL 等，不区分大小写）。'
       return
     }
     try {
@@ -79,13 +80,15 @@ const fileRules = [
 const infoForm = ref()
 const router = useRouter();
 
+import { getErrorMessage } from  "../utils/getErrorMessage"
+
 async function submit() {
   const { valid } = await infoForm.value.validate();
   if (!valid) return;
 
   try {
     const createdFileName = await invokeCommand<string>('create_mdr_file', {
-      MindrizzleFileInfo: {
+      mdrFileInfo: {
         title: title.value,
         description: description.value,
         tag: ["新笔记"],
@@ -94,7 +97,9 @@ async function submit() {
     });
     dialog.value = false;
     router.push(`/editor/${createdFileName}`)
-  } catch {}
+  } catch(e) {
+    LogError(getErrorMessage(e))
+  }
 }
 </script>
 <template>
