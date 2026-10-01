@@ -1,5 +1,8 @@
 <template>
   <v-sheet class="editor-wrapper">
+    <Teleport to="#toolbar-actions" defer>
+      <v-btn :icon="mdiContentSave" variant="text" @click="save" />
+    </Teleport>
     <v-container class="toolbar" style="height: 133px;">
       <!-- <v-btn @click="save">保存</v-btn> -->
       <!-- <v-btn @click="load">加载</v-btn> -->
@@ -72,7 +75,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces } from '@mdi/js'
+import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave } from '@mdi/js'
 import { isTauri } from '@tauri-apps/api/core'
 import { error as logError } from '@tauri-apps/plugin-log'
 import MdrCanvas, { type ComponentController } from '../Controls/MdrCanvas.vue'
@@ -381,9 +384,6 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('mousedown', trackMouseDown)
 })
-
-// 供 App.vue 工具栏跨层触发保存
-defineExpose({ save })
 </script>
 
 <style scoped>

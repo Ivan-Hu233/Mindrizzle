@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { mdiNoteOffOutline, mdiPencil } from '@mdi/js';
+import { mdiNoteOffOutline, mdiPencil, mdiPlus } from '@mdi/js';
 import { isTauri } from '@tauri-apps/api/core';
 import { info } from '@tauri-apps/plugin-log';
+
+import NewFileDialog from '../Controls/NewFileDialog.vue';
 import { invokeCommand } from '../utils/invoke'
+
+const isCreateDialogOpen = ref(false)
 
 loadNoteSets();
 
@@ -64,7 +68,7 @@ async function loadNoteSets() {
     <v-empty-state v-if="noteSets.length === 0"
     :icon="mdiNoteOffOutline"
     title = "还没有便签……"
-    text = "点击右上角的 + 按钮创建新的便签集" />
+    text = "点击右下角的 + 按钮创建新的便签集" />
     <v-list v-else class="overflow-visible">
       <v-card v-for="(noteSet, index) in noteSets" :key="index" class="mb-4">
         <v-card-title>
@@ -88,5 +92,13 @@ async function loadNoteSets() {
         :title="noteSet.name" @click="$router.push('/editor/' + fileListRef[index])"
         :subtitle="noteSet.description" /> -->
     </v-list>
+    <v-fab
+      :icon="mdiPlus"
+      color="primary"
+      location="bottom end"
+      app
+      @click="isCreateDialogOpen = true"
+    />
+    <NewFileDialog :is-open="isCreateDialogOpen" @update:close="isCreateDialogOpen = $event.status" />
   </v-sheet>
 </template>

@@ -4,17 +4,14 @@ import {
   mdiWindowMinimize,
   mdiWindowMaximize,
   mdiWindowClose,
-  mdiContentSave,
   mdiFormatListBulleted,
   mdiCalendarBlankOutline,
-  mdiCogOutline,
-  mdiPlus
+  mdiCogOutline
 } from '@mdi/js'
 import { computed, onMounted, shallowRef, type Component } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '@tauri-apps/api/core';
 
-import NewFileDialog from './Controls/NewFileDialog.vue';
 import { attachConsole } from '@tauri-apps/plugin-log';
 import { useRouter } from 'vue-router';
 import { error as logError } from '@tauri-apps/plugin-log';
@@ -58,15 +55,7 @@ const resolveTransition = (): Component => transitionMap[routeTransition.value]
 
 const isDev = computed(() => import.meta.env.DEV);
 
-// 保存依赖编辑器内部画布状态，所以只能由路由组件自己暴露
-const routeComponentRef = shallowRef<{ save?: () => Promise<void> } | null>(null)
-
-const saveCurrentFile = () => {
-  void routeComponentRef.value?.save?.()
-}
-
 const menuRef = shallowRef(false)
-const newFileRef = shallowRef(false)
 type ResizeDirection = 'East' | 'North' | 'NorthEast' | 'NorthWest' | 'South' | 'SouthEast' | 'SouthWest' | 'West'
 
 const resizeEdges: Array<{ direction: ResizeDirection; cursor: string }> = [
@@ -112,14 +101,12 @@ const startResize = (direction: ResizeDirection) => {
         <span data-tauri-drag-region class="text-white" style="flex: 1; font-size: 1.25rem; margin-left: 5px;">
           Mindrizzle
         </span>
-        <v-btn :icon="mdiPlus" @click="newFileRef = !newFileRef" v-if="$route.path=='/set'"/>
-        <v-btn :icon="mdiContentSave" @click="saveCurrentFile" v-if="$route.path.startsWith('/editor')" />
-        <!-- <v-btn :icon="mdiMagnify" />
-        <v-btn :icon="mdiViewModule" /> -->
+        <!-- 路由页面用 <Teleport to="#toolbar-actions" defer> 往这里塞自己的按钮；
+             VToolbar 的 VBtn 默认值走组件树，teleport 进来的按钮拿不到，需自己写 variant="text" -->
+        <div id="toolbar-actions" class="toolbar-actions" />
       </div>
     </v-toolbar>
 
-    <NewFileDialog :is-open="newFileRef" @update:close="newFileRef = $event.status"/>
 
     <v-navigation-drawer v-model="menuRef" :location="$vuetify.display.mobile ? 'bottom' : undefined" temporary>
       <v-list :lines="false" density="compact" nav>
@@ -142,7 +129,7 @@ const startResize = (direction: ResizeDirection) => {
     <v-main class="no-scrollbar">
       <router-view style="height: 100%;" v-slot="{ Component, route }">
         <component :is="resolveTransition()" hide-on-leave>
-          <component :is="Component" :key="route.path" ref="routeComponentRef" />
+          <component :is="Component" :key="route.path" />
         </component>
       </router-view>
     </v-main>
@@ -194,6 +181,11 @@ textarea {
 .container {
   box-sizing: border-box;
   position: relative;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
 }
 
 /* border 会撑高 2px 被 #app 裁掉、outline 会被定位子元素盖住，所以用最高层级绝对定位覆盖层画描边 */
