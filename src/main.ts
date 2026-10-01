@@ -1,9 +1,9 @@
-import { ref } from 'vue'
 import { createApp } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import App from './App.vue'
 import vuetify from './Vuetify.ts'
 import NoteSet from './Views/NoteSets.vue'
+import { routeTransition } from './utils/routeTransition.ts'
 
 const routes = [
   { path: '/', redirect: '/set' },
@@ -18,14 +18,6 @@ const router = createRouter({
   history: createMemoryHistory(),
   routes,
 })
-
-export type TransitionName =
-  | 'VSlideXTransition'
-  | 'VSlideXReverseTransition'
-  | 'VFadeTransition'
-
-// 独立的响应式状态，专门给 App.vue 用
-export const routeTransition = ref<TransitionName>('VFadeTransition')
 
 router.beforeEach((to, from) => {
   const toLevel = (to.meta.level as number) ?? 0

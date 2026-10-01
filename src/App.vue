@@ -46,7 +46,7 @@ onMounted(async () => {
   }
 });
 
-import { routeTransition } from './main'
+import { routeTransition } from './utils/routeTransition'
 import { VSlideXTransition, VSlideXReverseTransition, VFadeTransition } from 'vuetify/components';
 const transitionMap = {
   VSlideXTransition,
@@ -142,7 +142,7 @@ const startResize = (direction: ResizeDirection) => {
     <v-main class="no-scrollbar">
       <router-view style="height: 100%;" v-slot="{ Component, route }">
         <component :is="resolveTransition()" hide-on-leave>
-          <component :is="Component" :key="route.path" />
+          <component :is="Component" :key="route.path" ref="routeComponentRef" />
         </component>
       </router-view>
     </v-main>
