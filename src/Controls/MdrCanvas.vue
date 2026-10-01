@@ -1772,6 +1772,11 @@ const applyResizeLayout = (item: CanvasItem, propagate: boolean) => {
     (pan.x - rs.panStartX) / zoom.value,
     (pan.y - rs.panStartY) / zoom.value,
   )
+  // autoHeight 块高度由内容定，所以纵向不参与自动滚动补偿
+  if (isAutoHeight(item)) {
+    final.y = rs.lastBase.y
+    final.h = rs.lastBase.h
+  }
   const snapped = snapResizeEdges(rs.handle, final, constraintsOf(item))
   const layout = layoutOf(item)
   layout.x = Math.round(snapped.x)
@@ -1829,7 +1834,10 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
       if (!nStart || !target) return
       const c = constraintsOf(target)
       const minW = (c.minWidth ?? 0) + 8, maxW = c.maxWidth ?? null
-      const minH = (c.minHeight ?? 0) + 8, maxH = c.maxHeight ?? null
+      // autoHeight 块高度由内容定，所以只跟随平移，不参与高度重算
+      const fixedH = isAutoHeight(target) ? (positions[nid]?.h ?? nStart.h) : null
+      const minH = fixedH ?? (c.minHeight ?? 0) + 8
+      const maxH = fixedH ?? c.maxHeight ?? null
       let enqueue = false
       // 交叉轴也贴合时会被另一轴拉走，所以只按主方向传播
       const xTouching = Math.abs(pStart.x + pStart.w - nStart.x) <= SNAP_TOLERANCE ||
@@ -1949,21 +1957,91 @@ const shiftBlocksBelow = (item: CanvasItem, delta: number) => {
     .forEach((it) => { it.layout.mobile.y += delta })
 }
 
-// 高度减小不应移动别的块，所以仅单向下推：横向重叠块按上缘排序，压到推动线才贴线并连锁
-const pushOverlapped = (item: CanvasItem) => {
-  const layout = layoutOf(item)
-  const isOverlappingX = (o: Rect) => layout.x < o.x + o.w && layout.x + layout.w > o.x
+// 联结链上的位移判定必须基于变化前的相对关系，否则逐级改高后贴合判定会失效
+interface LinkedShift {
+  starts: Map<string, Rect>
+  itemMap: Map<string, CanvasItem>
+  moved: Set<string>
+}
+
+const buildShiftContext = (): LinkedShift => ({
+  starts: new Map(state.items.map((it) => [it.id, { ...layoutOf(it) }])),
+  itemMap: new Map(state.items.map((it) => [it.id, it])),
+  moved: new Set(),
+})
+
+const isOverlappingX = (a: Rect, b: Rect) => a.x < b.x + b.w && a.x + a.w > b.x
+
+// 与位移块保持横向贴合的邻居分两类：正下方贴合、以及上缘齐的同行块（后者不跟则下方横跨块会脱开）
+const touchesVertically = (from: Rect, to: Rect): boolean => {
+  const belowAttached = isOverlappingX(from, to) && Math.abs(to.y - (from.y + from.h)) <= SNAP_TOLERANCE
+  const sameRowAttached = Math.abs(to.y - from.y) <= SNAP_TOLERANCE &&
+    (Math.abs(to.x - (from.x + from.w)) <= SNAP_TOLERANCE || Math.abs(from.x - (to.x + to.w)) <= SNAP_TOLERANCE)
+  return belowAttached || sameRowAttached
+}
+
+// 纵向改高时整片联结群一起搬运，链才会一直闭合
+const shiftLinkedGroup = (rootId: string, delta: number, shift: LinkedShift) => {
+  const queue = [rootId]
+  while (queue.length) {
+    const id = queue.shift()!
+    const source = shift.starts.get(id)
+    if (!source) continue
+    ;(linkedNeighborMap.value.get(id) ?? []).forEach((neighborId) => {
+      if (shift.moved.has(neighborId)) return
+      const neighborStart = shift.starts.get(neighborId)
+      const neighbor = shift.itemMap.get(neighborId)
+      if (!neighborStart || !neighbor) return
+      if (!touchesVertically(source, neighborStart)) return
+      layoutOf(neighbor).y = neighborStart.y + delta
+      shift.moved.add(neighborId)
+      queue.push(neighborId)
+    })
+  }
+}
+
+// 把某块下方的重叠块整体下推，被推块的下方联结链一并带走，避免推挤撕开贴合
+const pushColumnBelow = (root: CanvasItem, shift: LinkedShift) => {
+  const rootLayout = layoutOf(root)
   const column = state.items
-    .filter((other) => other.id !== item.id && isOverlappingX(layoutOf(other)))
+    .filter((other) => other.id !== root.id && isOverlappingX(rootLayout, layoutOf(other)))
     .sort((a, b) => layoutOf(a).y - layoutOf(b).y)
-  let cursor = layout.y + layout.h
+  let cursor = rootLayout.y + rootLayout.h
   column.forEach((other) => {
-    const o = layoutOf(other)
-    if (o.y < cursor) {
-      o.y = cursor
-      cursor = o.y + o.h
+    const layout = layoutOf(other)
+    // 已随联结链就位的块不再推，但要推进推动线，否则其下方块会漏推
+    if (shift.moved.has(other.id)) {
+      cursor = Math.max(cursor, layout.y + layout.h)
+      return
     }
+    if (layout.y >= cursor) return
+    const delta = cursor - layout.y
+    layout.y = cursor
+    shift.moved.add(other.id)
+    shiftLinkedGroup(other.id, delta, shift)
+    cursor = layout.y + layout.h
   })
+}
+
+// 联结群整体位移后，逐块消解与未联结块的重叠
+const pushOverlapped = (shift: LinkedShift) => {
+  Array.from(shift.moved)
+    .map((id) => shift.itemMap.get(id))
+    .filter((item): item is CanvasItem => !!item)
+    .sort((a, b) => layoutOf(a).y - layoutOf(b).y)
+    .forEach((seed) => pushColumnBelow(seed, shift))
+}
+
+// 改高先快照再落位：联结群按旧贴合关系整体平移，未联结块才走推挤
+const applyDesktopHeight = (item: CanvasItem, height: number) => {
+  const layout = layoutOf(item)
+  const dy = height - layout.h
+  if (dy === 0) return
+  const shift = buildShiftContext()
+  shift.moved.add(item.id)
+  layout.h = height
+  if (linkedPairs.value.size > 0) shiftLinkedGroup(item.id, dy, shift)
+  if (dy > 0) pushOverlapped(shift)
 }
 
 const onAutoHeight = (e: Event) => {
@@ -1980,9 +2058,7 @@ const onAutoHeight = (e: Event) => {
       shiftBlocksBelow(item, h - layout.h)
       layout.h = h
     } else {
-      const prevH = layout.h
-      layout.h = h
-      if (h > prevH) pushOverlapped(item)
+      applyDesktopHeight(item, h)
     }
     scheduleGeometryRefresh()
     // 块高变化只写 layout（非响应式），所以必须显式刷新渲染
