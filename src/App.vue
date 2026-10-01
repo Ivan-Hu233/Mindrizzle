@@ -10,7 +10,7 @@ import {
   mdiCogOutline,
   mdiPlus
 } from '@mdi/js'
-import { computed, onMounted, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef, type Component } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '@tauri-apps/api/core';
 
@@ -45,6 +45,16 @@ onMounted(async () => {
     logError(getErrorMessage(error))
   }
 });
+
+import { routeTransition } from './main'
+import { VSlideXTransition, VSlideXReverseTransition, VFadeTransition } from 'vuetify/components';
+const transitionMap = {
+  VSlideXTransition,
+  VSlideXReverseTransition,
+  VFadeTransition,
+} as const
+
+const resolveTransition = (): Component => transitionMap[routeTransition.value]
 
 const isDev = computed(() => import.meta.env.DEV);
 
@@ -130,11 +140,11 @@ const startResize = (direction: ResizeDirection) => {
     </v-navigation-drawer>
 
     <v-main class="no-scrollbar">
-      <RouterView style="height: 100%;" v-slot="{ Component }">
-        <v-fade-transition hide-on-leave>
-          <component :is="Component" ref="routeComponentRef" />
-        </v-fade-transition>
-      </RouterView>
+      <router-view style="height: 100%;" v-slot="{ Component, route }">
+        <component :is="resolveTransition()" hide-on-leave>
+          <component :is="Component" :key="route.path" />
+        </component>
+      </router-view>
     </v-main>
   </v-app>
 </template>

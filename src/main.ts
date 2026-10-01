@@ -1,25 +1,43 @@
+import { ref } from 'vue'
 import { createApp } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import App from './App.vue'
-
 import vuetify from './Vuetify.ts'
-
 import NoteSet from './Views/NoteSets.vue'
 
-// 首页只依赖 vue 与 Tauri IPC，静态引入可让首屏零等待；
-// 其余页面（含整条 ProseKit + highlight.js + KaTeX 编辑器链路）按路由懒加载
 const routes = [
   { path: '/', redirect: '/set' },
-  { path: '/set', component: NoteSet },
-  { path: '/board', component: () => import('./Views/NoteBoard.vue') },
-  { path: '/debug', component: () => import('./Views/Debug.vue') },
-  { path: '/editor/:fileName', component: () => import('./Views/Editor.vue') },
-  { path: '/settings/:tab', component: () => import('./Views/Settings.vue') },
+  { path: '/set', component: NoteSet, meta: { level: 1 } },
+  { path: '/board', component: () => import('./Views/NoteBoard.vue'), meta: { level: 2 } },
+  { path: '/editor/:fileName', component: () => import('./Views/Editor.vue'), meta: { level: 1 } },
+  { path: '/settings/:tab', component: () => import('./Views/Settings.vue'), meta: { level: 3 } },
+  { path: '/debug', component: () => import('./Views/Debug.vue'), meta: { level: 4 } },
 ]
 
 const router = createRouter({
   history: createMemoryHistory(),
   routes,
+})
+
+export type TransitionName =
+  | 'VSlideXTransition'
+  | 'VSlideXReverseTransition'
+  | 'VFadeTransition'
+
+// 独立的响应式状态，专门给 App.vue 用
+export const routeTransition = ref<TransitionName>('VFadeTransition')
+
+router.beforeEach((to, from) => {
+  const toLevel = (to.meta.level as number) ?? 0
+  const fromLevel = (from.meta.level as number) ?? 0
+
+  if (toLevel > fromLevel) {
+    routeTransition.value = 'VSlideXReverseTransition'
+  } else if (toLevel < fromLevel) {
+    routeTransition.value = 'VSlideXTransition'
+  } else {
+    routeTransition.value = 'VFadeTransition'
+  }
 })
 
 createApp(App).use(vuetify).use(router).mount('#app')
