@@ -3,8 +3,8 @@
     <Teleport to="#toolbar-actions" defer>
       <v-btn :loading="isSaving" :icon="mdiContentSave" variant="text" @click="save" />
     </Teleport>
-    <Teleport to="#title-actions" defer>
-      <v-btn :icon="mdiArrowLeft" variant="text" @click="$router.push('/set')" />
+    <Teleport to="#title-left-actions" defer>
+      <v-btn :icon="mdiExitToApp" variant="text" @click="$router.push('/set')" />
     </Teleport>
     <v-container class="toolbar" style="height: 133px;">
       <!-- <v-btn @click="save">保存</v-btn> -->
@@ -81,7 +81,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, inject } from 'vue'
-import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave, mdiArrowLeft, mdiCheck } from '@mdi/js'
+import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave, mdiExitToApp, mdiCheck } from '@mdi/js'
 import { isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { error as logError } from '@tauri-apps/plugin-log'

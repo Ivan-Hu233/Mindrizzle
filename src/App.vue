@@ -216,8 +216,9 @@ const startResize = (direction: ResizeDirection) => {
           margin-left: 5px;
           margin-right: 5px;
         ">
+        <div id="title-left-actions" class="toolbar-actions" />
         <v-app-bar-nav-icon @click.stop="menuRef = !menuRef" />
-        <div id="title-actions" class="toolbar-actions" />
+        <div id="title-right-actions" class="toolbar-actions" />
         <span data-tauri-drag-region class="text-white" style="flex: 1; font-size: 1.25rem; margin-left: 5px;">
           Mindrizzle
         </span>
