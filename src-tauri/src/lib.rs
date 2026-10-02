@@ -48,6 +48,11 @@ async fn is_file_name_valid(file_name: String) -> bool {
     result
 }
 
+#[tauri::command]
+fn get_git_commit() -> &'static str {
+    env!("GIT_COMMIT")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 清扫历史退出残留的孤儿缓存目录；启动早期本进程尚未创建缓存，删除安全
@@ -87,6 +92,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             fetch_file_list,
             is_file_name_valid,
+            get_git_commit,
             mdr_file_op::get_mdr_file_meta,
             mdr_file_op::get_mdr_file_body,
             mdr_file_op::set_mdr_file_body,
