@@ -5,6 +5,7 @@
     "": {
       "name": "Mindrizzle",
       "dependencies": {
+        "@material/material-color-utilities": "^0.4.0",
         "@mdi/js": "^7.4.47",
         "@prosekit/core": "^0.13.3",
         "@prosekit/extensions": "^0.18.3",
@@ -70,6 +71,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@lit-labs/ssr-dom-shim": ["@lit-labs/ssr-dom-shim@1.6.0", "https://registry.npmmirror.com/@lit-labs/ssr-dom-shim/-/ssr-dom-shim-1.6.0.tgz", {}, "sha512-VHb0ALPMTlgKjM6yIxxoQNnpKyUKLD04VzeQdsiXkMqkvYlAHxq9glGLmgbb889/1GsohSOAjvQYoiBppXFqrQ=="],
+
+    "@material/material-color-utilities": ["@material/material-color-utilities@0.4.0", "https://registry.npmmirror.com/@material/material-color-utilities/-/material-color-utilities-0.4.0.tgz", {}, "sha512-dlq6VExJReb8dhjj3a/yTigr3ncNwoFmL5Iy2ENtbDX03EmNeOEdZ+vsaGrj7RTuO+mB7L58II4LCsl4NpM8uw=="],
 
     "@mdi/js": ["@mdi/js@7.4.47", "https://registry.npmmirror.com/@mdi/js/-/js-7.4.47.tgz", {}, "sha512-KPnNOtm5i2pMabqZxpUz7iQf+mfrYZyKCZ8QNz85czgEt7cuHcGorWfdzUMWYA0SD+a6Hn4FmJ+YhzzzjkTZrQ=="],
 

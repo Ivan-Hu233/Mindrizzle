@@ -453,7 +453,7 @@ textarea {
 }
 
 .loading-curtain__layer--back {
-  background: linear-gradient(115deg, rgb(var(--v-theme-primary)) 0%, #1867c0 55%, #48a9f8 100%);
+  background: linear-gradient(115deg, rgb(var(--v-theme-primary)) 0%, rgba(var(--v-theme-primary), 0.84) 55%, rgba(var(--v-theme-primary), 0.68) 100%);
 }
 
 .loading-curtain__layer--front {
