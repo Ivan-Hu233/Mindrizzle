@@ -2,10 +2,14 @@
 import { argbFromHex, hexFromArgb, themeFromSourceColor } from '@material/material-color-utilities'
 import { computed, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import { mdiCheckCircle, mdiPaletteOutline } from '@mdi/js'
+import { mdiCheckCircle, mdiImageFilterHdr, mdiPaletteOutline, mdiRestore } from '@mdi/js'
+import { isTauri } from '@tauri-apps/api/core'
+import { invokeCommand } from '../../utils/invoke'
 
 type MaterialScheme = ReturnType<typeof themeFromSourceColor>['schemes']['light']
 type MaterialSchemeColors = ReturnType<MaterialScheme['toJSON']>
+type MaterialThemeName = 'light' | 'dark'
+type ThemeColorMode = 'default' | 'wallpaper' | 'custom'
 
 const MATERIAL_COLOR_ROLES = [
   ['primary', 'primary'],
@@ -36,13 +40,20 @@ const themeOptions = [
   { name: '浅色', themeName: 'light', style: 'theme-light' },
   { name: '深色', themeName: 'dark', style: 'theme-dark' },
   { name: '跟随系统', themeName: 'system', style: 'theme-system' },
-  { name: '主题色生成', themeName: 'generated', style: 'theme-generated' },
 ] as const
 const selectedTheme = computed(() => theme.isSystem.value ? 'system' : theme.name.value)
 const selectedThemeLabel = computed(() =>
   themeOptions.find((option) => option.themeName === selectedTheme.value)?.name ?? '跟随系统',
 )
-const primaryColor = ref(String(theme.global.current.value.colors.primary))
+const defaultThemes = {
+  light: { ...theme.themes.value.light, colors: { ...theme.themes.value.light.colors } },
+  dark: { ...theme.themes.value.dark, colors: { ...theme.themes.value.dark.colors } },
+}
+const defaultPrimaryColor = String(defaultThemes.light.colors.primary)
+const selectedColorMode = ref<ThemeColorMode>('default')
+const primaryColor = ref(defaultPrimaryColor)
+const wallpaperError = ref('')
+const isLoadingWallpaper = ref(false)
 const canvasColor = ref<string | null>(null)
 const currentCanvasColor = computed(() =>
   canvasColor.value ?? String(theme.global.current.value.colors.background),
@@ -50,27 +61,74 @@ const currentCanvasColor = computed(() =>
 
 function changeTheme(event: Event, themeName: string) {
   const target = event.currentTarget
-  if (themeName === 'generated') createGeneratedTheme(primaryColor.value, theme.global.current.value.dark)
+  if (themeName === 'light' || themeName === 'dark') applySelectedColor(themeName)
   theme.setTransitionOrigin(target instanceof Element ? target : null)
   void theme.change(themeName, true)
+}
+
+function selectColorMode(mode: ThemeColorMode | null) {
+  if (!mode) return
+  wallpaperError.value = ''
+  if (mode === 'wallpaper') {
+    void applyWallpaperColor()
+    return
+  }
+  selectedColorMode.value = mode
+  if (mode === 'default') {
+    primaryColor.value = defaultPrimaryColor
+    restoreDefaultThemes()
+    return
+  }
+  applyPrimaryColor(primaryColor.value)
+}
+
+async function applyWallpaperColor() {
+  if (!isTauri()) return
+  isLoadingWallpaper.value = true
+  try {
+    const color = await invokeCommand<string>('get_wallpaper_primary_color')
+    if (!HEX_COLOR_PATTERN.test(color)) throw new Error('系统壁纸没有返回有效颜色')
+    primaryColor.value = color
+    selectedColorMode.value = 'wallpaper'
+    applyPrimaryColor(color)
+  } catch (error) {
+    wallpaperError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    isLoadingWallpaper.value = false
+  }
 }
 
 function updatePrimaryColor(color: unknown) {
   if (typeof color !== 'string' || !HEX_COLOR_PATTERN.test(color)) return
   primaryColor.value = color
-  theme.themes.value.light.colors.primary = color
-  theme.themes.value.dark.colors.primary = color
-  if (theme.name.value === 'generated') {
-    createGeneratedTheme(color, theme.themes.value.generated.dark)
-  }
+  selectedColorMode.value = 'custom'
+  applyPrimaryColor(color)
 }
 
-function createGeneratedTheme(sourceColor: string, isDark: boolean) {
+function applyPrimaryColor(color: string) {
+  applyMaterialTheme(color, 'light', false)
+  applyMaterialTheme(color, 'dark', true)
+}
+
+function applySelectedColor(themeName: MaterialThemeName) {
+  if (selectedColorMode.value === 'default') {
+    restoreDefaultThemes()
+    return
+  }
+  applyMaterialTheme(primaryColor.value, themeName, themeName === 'dark')
+}
+
+function restoreDefaultThemes() {
+  theme.themes.value.light = defaultThemes.light
+  theme.themes.value.dark = defaultThemes.dark
+}
+
+function applyMaterialTheme(sourceColor: string, themeName: MaterialThemeName, isDark: boolean) {
   const materialTheme = themeFromSourceColor(argbFromHex(sourceColor))
   const scheme = (isDark ? materialTheme.schemes.dark : materialTheme.schemes.light).toJSON()
-  const baseTheme = theme.themes.value[isDark ? 'dark' : 'light']
+  const baseTheme = theme.themes.value[themeName]
 
-  theme.themes.value.generated = {
+  theme.themes.value[themeName] = {
     ...baseTheme,
     dark: isDark,
     colors: createGeneratedColors(scheme, baseTheme.colors),
@@ -110,7 +168,7 @@ function createGeneratedColors(scheme: MaterialSchemeColors, baseColors: typeof 
           <v-chip size="small" color="primary" variant="tonal">{{ selectedThemeLabel }}</v-chip>
         </div>
         <v-row density="compact">
-          <v-col v-for="option in themeOptions" :key="option.themeName" cols="6">
+          <v-col v-for="option in themeOptions" :key="option.themeName" cols="4">
             <v-card
               :aria-pressed="selectedTheme === option.themeName"
               variant="flat"
@@ -135,7 +193,39 @@ function createGeneratedColors(scheme: MaterialSchemeColors, baseColors: typeof 
             </v-card>
           </v-col>
         </v-row>
-        <v-row density="compact" class="mt-2">
+      </section>
+
+      <v-divider class="my-6" />
+
+      <section>
+        <div class="d-flex align-center justify-space-between mb-4">
+          <div>
+            <v-card-title class="text-subtitle-1 pa-0">主题色</v-card-title>
+            <v-card-subtitle class="text-body-2 pa-0">默认、系统壁纸取色或自定义</v-card-subtitle>
+          </div>
+          <v-chip size="small" color="primary" variant="tonal">{{ primaryColor }}</v-chip>
+        </div>
+        <v-btn-toggle
+          :model-value="selectedColorMode"
+          color="primary"
+          divided
+          mandatory
+          density="comfortable"
+          @update:model-value="selectColorMode"
+        >
+          <v-btn value="default" :prepend-icon="mdiRestore">默认</v-btn>
+          <v-btn value="wallpaper" :prepend-icon="mdiImageFilterHdr" :loading="isLoadingWallpaper" :disabled="!isTauri()">
+            壁纸取色
+          </v-btn>
+          <v-btn value="custom" :prepend-icon="mdiPaletteOutline">自定义</v-btn>
+        </v-btn-toggle>
+        <v-alert v-if="!isTauri()" class="mt-3" density="compact" type="info" variant="tonal">
+          浏览器无法读取系统壁纸，请在桌面应用中使用此选项。
+        </v-alert>
+        <v-alert v-if="wallpaperError" class="mt-3" density="compact" type="warning" variant="tonal">
+          {{ wallpaperError }}
+        </v-alert>
+        <v-row v-if="selectedColorMode === 'custom'" density="compact" class="mt-2">
           <v-col cols="12" sm="6">
             <v-color-input
               :model-value="primaryColor"
@@ -195,10 +285,6 @@ function createGeneratedColors(scheme: MaterialSchemeColors, baseColors: typeof 
 
 .theme-system {
   background: linear-gradient(110deg, rgba(var(--v-theme-on-surface), 0.12) 0 50%, #282e2c 50%);
-}
-
-.theme-generated {
-  background: rgba(var(--v-theme-primary), 0.14);
 }
 
 .preview-sidebar {

@@ -3,6 +3,7 @@ mod mdr_file_dir;
 mod mdr_file_op;
 mod mdr_file_struct;
 mod mdr_file_tar;
+mod system_theme;
 mod utils;
 
 use tauri_plugin_log::{
@@ -89,7 +90,8 @@ pub fn run() {
             mdr_file_op::get_mdr_file_meta,
             mdr_file_op::get_mdr_file_body,
             mdr_file_op::set_mdr_file_body,
-            mdr_file_op::create_mdr_file
+            mdr_file_op::create_mdr_file,
+            system_theme::get_wallpaper_primary_color
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
