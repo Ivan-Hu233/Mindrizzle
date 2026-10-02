@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // 网页端没有 Tauri IPC，笔记文件层退化为 localStorage：正文与元信息原样存 JSON，不做 tar/压缩
 import type { InvokeArgs } from '@tauri-apps/api/core'
 

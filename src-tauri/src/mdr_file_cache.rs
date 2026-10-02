@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 //! Mindrizzle 打包前的文件暂存缓存（Windows: %LOCALAPPDATA%\Mindrizzle\cache，macOS: ~/Library/Caches/Mindrizzle，Linux: $XDG_CACHE_HOME/Mindrizzle）。
 //! 目录随结构体 Drop 自动清理；需跨调用共享暂存区时用 `new_named(key)`。
 //!

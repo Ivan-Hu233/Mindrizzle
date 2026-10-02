@@ -4,12 +4,13 @@ import App from './App.vue'
 import vuetify from './Vuetify.ts'
 import NoteSet from './Views/NoteSets.vue'
 import { routeTransition } from './utils/routeTransition.ts'
+import { loadEditorComponent } from './utils/editorRoute'
 
 const routes = [
   { path: '/', redirect: '/set' },
   { path: '/set', component: NoteSet, meta: { level: 1 } },
   { path: '/board', component: () => import('./Views/NoteBoard.vue'), meta: { level: 2 } },
-  { path: '/editor/:fileName', component: () => import('./Views/Editor.vue'), meta: { level: 1 } },
+  { path: '/editor/:fileName', name: 'editor', component: loadEditorComponent, meta: { level: 100 } },
   { path: '/settings/:tab', component: () => import('./Views/Settings.vue'), meta: { level: 3 } },
   { path: '/debug', component: () => import('./Views/Debug.vue'), meta: { level: 4 } },
 ]

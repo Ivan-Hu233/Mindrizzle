@@ -8,12 +8,12 @@ import {
   mdiCalendarBlankOutline,
   mdiCogOutline
 } from '@mdi/js'
-import { computed, onMounted, shallowRef, type Component } from 'vue'
+import { computed, nextTick, onMounted, provide, ref, shallowRef, type Component } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '@tauri-apps/api/core';
 
 import { attachConsole } from '@tauri-apps/plugin-log';
-import { useRouter } from 'vue-router';
+import { useRouter, type RouteLocationRaw } from 'vue-router';
 import { error as logError } from '@tauri-apps/plugin-log';
 
 import { getErrorMessage } from  "./utils/getErrorMessage"
@@ -43,7 +43,8 @@ onMounted(async () => {
   }
 });
 
-import { routeTransition } from './utils/routeTransition'
+import { isDebugLoadingEnabled, noteLoadControllerKey, routeTransition, startEditorTransitionKey } from './utils/routeTransition'
+import { Z_LAYER } from './Controls/zIndex'
 import { VSlideXTransition, VSlideXReverseTransition, VFadeTransition } from 'vuetify/components';
 const transitionMap = {
   VSlideXTransition,
@@ -52,6 +53,124 @@ const transitionMap = {
 } as const
 
 const resolveTransition = (): Component => transitionMap[routeTransition.value]
+
+const CURTAIN_DURATION = 560
+const CURTAIN_STAGGER = 110
+const LOADING_THRESHOLD = 300
+const MIN_LOADING_DURATION = 520
+const MAX_PROGRESS = 100
+const PROGRESS_RING_SIZE = 72
+const PROGRESS_RING_WIDTH = 5
+const curtainState = ref<'idle' | 'covering' | 'covered' | 'revealing'>('idle')
+const progress = ref(0)
+const loadingName = ref('')
+const loadingStage = computed(() => {
+  if (progress.value <= 2) return '正在校验笔记文件'
+  if (progress.value <= 5) return '正在识别归档格式'
+  if (progress.value <= 8) return '正在准备本地缓存'
+  if (progress.value <= 12) return '正在准备解包内容'
+  if (progress.value <= 70) return '正在解包笔记内容'
+  if (progress.value <= 75) return '正在读取笔记正文'
+  if (progress.value <= 85) return '正在解析笔记正文'
+  if (progress.value <= 90) return '正在完成笔记读取'
+  return '正在载入画布'
+})
+const curtainStyle = {
+  '--curtain-duration': `${CURTAIN_DURATION}ms`,
+  '--curtain-stagger': `${CURTAIN_STAGGER}ms`,
+  '--loading-curtain-z-index': Z_LAYER.appLoadingCurtain,
+}
+
+let resolveFinish: (() => void) | null = null
+let curtainCoveredAt: number | null = null
+let isEditorNavigationPending = false
+
+const wait = (duration: number) => new Promise<void>((resolve) => setTimeout(resolve, duration))
+
+function createFinishPromise() {
+  let resolveCurrentFinish: () => void = () => undefined
+  const finishPromise = new Promise<void>((resolve) => {
+    resolveCurrentFinish = resolve
+  })
+  resolveFinish = resolveCurrentFinish
+  return finishPromise
+}
+
+provide(noteLoadControllerKey, {
+  setProgress(value) {
+    if (!Number.isFinite(value)) return
+    progress.value = Math.max(progress.value, Math.min(MAX_PROGRESS, value))
+  },
+  setName(name) {
+    loadingName.value = name
+  },
+  finish() {
+    resolveFinish?.()
+    resolveFinish = null
+  },
+})
+
+async function coverCurtain() {
+  curtainState.value = 'covering'
+  await wait(CURTAIN_DURATION + CURTAIN_STAGGER)
+  curtainState.value = 'covered'
+  await nextTick()
+  curtainCoveredAt = performance.now()
+}
+
+async function runEditorTransition(
+  target: RouteLocationRaw,
+  prepare: () => Promise<void>,
+  finishPromise: Promise<void>,
+) {
+  const preparation = prepare()
+  const shouldCover = isDebugLoadingEnabled.value || await Promise.race([
+    preparation.then(() => false),
+    wait(LOADING_THRESHOLD).then(() => true),
+  ])
+  if (shouldCover) await coverCurtain()
+  await preparation
+  await router.push(target)
+  await nextTick()
+  await finishPromise
+}
+
+async function waitForMinimumCurtainDuration() {
+  if (curtainCoveredAt === null) return
+  const elapsed = performance.now() - curtainCoveredAt
+  const remaining = MIN_LOADING_DURATION - elapsed
+  if (remaining > 0) await wait(remaining)
+}
+
+async function resetEditorTransition() {
+  resolveFinish?.()
+  resolveFinish = null
+  if (curtainState.value !== 'idle') {
+    await waitForMinimumCurtainDuration()
+    curtainState.value = 'revealing'
+    await wait(CURTAIN_DURATION + CURTAIN_STAGGER)
+    curtainState.value = 'idle'
+  }
+  curtainCoveredAt = null
+  progress.value = 0
+  loadingName.value = ''
+}
+
+async function startEditorTransition(target: RouteLocationRaw, prepare: () => Promise<void>) {
+  if (isEditorNavigationPending || curtainState.value !== 'idle') return
+  isEditorNavigationPending = true
+  progress.value = 0
+  loadingName.value = ''
+  const finishPromise = createFinishPromise()
+  try {
+    await runEditorTransition(target, prepare, finishPromise)
+  } finally {
+    await resetEditorTransition()
+    isEditorNavigationPending = false
+  }
+}
+
+provide(startEditorTransitionKey, startEditorTransition)
 
 const isDev = computed(() => import.meta.env.DEV);
 
@@ -98,6 +217,7 @@ const startResize = (direction: ResizeDirection) => {
           margin-right: 5px;
         ">
         <v-app-bar-nav-icon @click.stop="menuRef = !menuRef" />
+        <div id="title-actions" class="toolbar-actions" />
         <span data-tauri-drag-region class="text-white" style="flex: 1; font-size: 1.25rem; margin-left: 5px;">
           Mindrizzle
         </span>
@@ -133,6 +253,37 @@ const startResize = (direction: ResizeDirection) => {
         </component>
       </router-view>
     </v-main>
+    <div
+      class="loading-curtain"
+      :class="`is-${curtainState}`"
+      :style="curtainStyle"
+      :aria-hidden="curtainState === 'idle'"
+      aria-live="polite"
+    >
+      <div class="loading-curtain__layer loading-curtain__layer--back" />
+      <div class="loading-curtain__layer loading-curtain__layer--front">
+        <div class="loading-curtain__loader" role="status">
+          <v-progress-circular
+            :model-value="progress"
+            :size="PROGRESS_RING_SIZE"
+            :width="PROGRESS_RING_WIDTH"
+            color="secondary"
+            bg-color="rgba(255,255,255,0.10)"
+          >
+            <span class="text-h6 font-weight-bold">{{ Math.round(progress) }}%</span>
+          </v-progress-circular>
+          <div class="loading-curtain__stage">{{ loadingStage }}</div>
+          <div class="loading-curtain__filename">{{ loadingName || '正在打开笔记' }}</div>
+          <v-progress-linear
+            :model-value="progress"
+            color="secondary"
+            bg-color="rgba(255,255,255,0.12)"
+            height="4"
+            rounded
+          />
+        </div>
+      </div>
+    </div>
   </v-app>
 </template>
 <style>
@@ -259,5 +410,92 @@ textarea {
 .window-resize-southeast {
   right: 0;
   bottom: 0;
+}
+
+.loading-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: var(--loading-curtain-z-index);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.loading-curtain:not(.is-idle) {
+  pointer-events: auto;
+  cursor: wait;
+}
+
+.loading-curtain__layer {
+  position: absolute;
+  inset: 0;
+  transform: translate3d(101%, 0, 0);
+  transition: transform var(--curtain-duration) cubic-bezier(0.76, 0, 0.24, 1);
+  will-change: transform;
+}
+
+.is-idle .loading-curtain__layer {
+  transition: none;
+}
+
+.is-covering .loading-curtain__layer,
+.is-covered .loading-curtain__layer {
+  transform: translate3d(0, 0, 0);
+}
+
+.is-revealing .loading-curtain__layer {
+  transform: translate3d(-101%, 0, 0);
+}
+
+.is-covering .loading-curtain__layer--front,
+.is-revealing .loading-curtain__layer--back {
+  transition-delay: var(--curtain-stagger);
+}
+
+.loading-curtain__layer--back {
+  background: linear-gradient(115deg, rgb(var(--v-theme-primary)) 0%, #1867c0 55%, #48a9f8 100%);
+}
+
+.loading-curtain__layer--front {
+  display: grid;
+  place-items: center;
+  background: rgb(var(--v-theme-background));
+}
+
+.loading-curtain__loader {
+  display: flex;
+  width: min(320px, calc(100vw - 48px));
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  opacity: 0;
+  transform: translateY(12px) scale(0.95);
+  transition: opacity 300ms ease, transform 340ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.is-covered .loading-curtain__loader {
+  opacity: 1;
+  transform: none;
+}
+
+.is-revealing .loading-curtain__loader {
+  opacity: 0;
+  transition-duration: 180ms;
+}
+
+.loading-curtain__filename {
+  max-width: 100%;
+  overflow: hidden;
+  color: rgb(var(--v-theme-on-background));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loading-curtain__stage {
+  color: rgb(var(--v-theme-on-background));
+  font-weight: 600;
+}
+
+.loading-curtain__loader .v-progress-circular__content {
+  color: white;
 }
 </style>

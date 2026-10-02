@@ -1,16 +1,17 @@
 use std::fs::{self, File};
 use std::path::Path;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 use chrono::Local;
 use quick_xml::de::from_str;
 use quick_xml::se::to_string;
 use anyhow::{Context, Result};
 use log::{info, warn};
+use tauri::{Emitter, Window};
 
 use crate::mdr_file_cache::MindrizzleFileCache;
 use crate::{mdr_file_dir, tauri_cmd};
 use crate::mdr_file_struct::{MindrizzleFileBody, MindrizzleFileMeta, MindrizzleFileMetaView};
-use crate::mdr_file_tar::{extract_meta, extract_to_cache, is_mdrf_compressed, pack_cache};
+use crate::mdr_file_tar::{extract_meta, extract_to_cache, extract_to_cache_with_progress, is_mdrf_compressed, pack_cache};
 
 // 文件名校验规则须与前端 NewFileDialog 保持一致，集中为常量避免两处漂移
 const MINDRIZZLE_FILE_FORBIDDEN_CHARS: [char; 9] = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
@@ -19,6 +20,17 @@ const MINDRIZZLE_FILE_RESERVED_NAMES: [&str; 22] = [
     "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 const MINDRIZZLE_FILE_MAX_NAME_LEN: usize = 50;
+const FILE_LOAD_PROGRESS_EVENT: &str = "file-load-progress";
+const PROGRESS_VALIDATE: u32 = 2;
+const PROGRESS_DETECT_FORMAT: u32 = 5;
+const PROGRESS_CREATE_CACHE: u32 = 8;
+const PROGRESS_EXTRACT_START: u32 = 12;
+const PROGRESS_EXTRACT_RANGE: u32 = 58;
+const PROGRESS_READ_BODY: u32 = 75;
+const PROGRESS_PARSE_BODY: u32 = 85;
+const PROGRESS_RETURN_BODY: u32 = 90;
+const PROGRESS_COMPLETE: u32 = 100;
+const DEBUG_PROGRESS_DELAY: Duration = Duration::from_millis(180);
 
 tauri_cmd!{
     pub fn get_mdr_file_meta(file_name: String) -> anyhow::Result<MindrizzleFileMetaView> {
@@ -34,26 +46,6 @@ tauri_cmd!{
         let meta = deserialize_mdr_file_meta_xml(&xml).context("解码笔记元信息")?;
         let updated_at = read_file_modified_millis(&path)?;
         Ok(MindrizzleFileMetaView { meta, updated_at })
-    }
-
-    pub fn get_mdr_file_body(file_name: String) -> anyhow::Result<MindrizzleFileBody> {
-        let resolved_name = resolve_mdrf_file_name(&file_name).context("校验笔记文件名")?;
-        let path = mdr_file_dir::get_mdr_file_dir(resolved_name.clone());
-        if !path.is_file() {
-            return Err(anyhow::anyhow!("文件不存在或者是个目录"));
-        }
-        let compressed = is_mdrf_compressed(&path).context("检测笔记压缩格式")?;
-        let mut cache = MindrizzleFileCache::new_named(&resolved_name)
-            .with_context(|| format!("创建笔记缓存：{}", resolved_name))?;
-        let file = File::open(&path).with_context(|| format!("打开笔记文件：{}", resolved_name))?;
-        extract_to_cache(file, cache.path(), compressed).context("解包笔记正文")?;
-        // 调用方返回后仍会读取解包文件，所以此处不清理缓存
-        cache.disable_cleanup();
-        let body_bytes = cache.read_file("body.json").context("读取笔记正文")?;
-        let body_xml = std::str::from_utf8(&body_bytes).context("转换笔记正文编码")?;
-        let body = deserialize_mdr_file_body_xml(body_xml).context("解码笔记正文")?;
-        info!("读取笔记正文成功：{}", resolved_name);
-        Ok(body)
     }
 
     pub fn set_mdr_file_body(file_name: String, content: String) -> anyhow::Result<()> {
@@ -104,6 +96,92 @@ tauri_cmd!{
         pack_cache_atomic(&file_path, cache.path(), true).context("写入笔记文件")?;
         info!("创建笔记成功：{}", resolved_name);
         Ok(resolved_name)
+    }
+}
+
+#[tauri::command]
+pub async fn get_mdr_file_body(
+    window: Window,
+    file_name: String,
+    debug_progress: Option<bool>,
+) -> Result<MindrizzleFileBody, tauri::ipc::InvokeError> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        read_mdr_file_body(&window, &file_name, debug_progress.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| {
+        log::error!("IPC 命令 get_mdr_file_body 执行失败：读取任务异常：{}", error);
+        tauri::ipc::InvokeError::from(format!("读取笔记任务异常：{error}"))
+    })?;
+    result.map_err(|error| {
+        log::error!("IPC 命令 get_mdr_file_body 执行失败：{:#}", error);
+        tauri::ipc::InvokeError::from(format!("{:#}", error))
+    })
+}
+
+fn read_mdr_file_body(
+    window: &Window,
+    file_name: &str,
+    is_debug_progress: bool,
+) -> anyhow::Result<MindrizzleFileBody> {
+    emit_file_load_progress(window, PROGRESS_VALIDATE, is_debug_progress);
+    let resolved_name = resolve_mdrf_file_name(file_name).context("校验笔记文件名")?;
+    let path = mdr_file_dir::get_mdr_file_dir(resolved_name.clone());
+    if !path.is_file() {
+        return Err(anyhow::anyhow!("文件不存在或者是个目录"));
+    }
+    let compressed = detect_file_compression(window, &path, is_debug_progress)?;
+    let mut cache = create_file_cache(window, &resolved_name, is_debug_progress)?;
+    let file = File::open(&path).with_context(|| format!("打开笔记文件：{}", resolved_name))?;
+    emit_file_load_progress(window, PROGRESS_EXTRACT_START, is_debug_progress);
+    extract_to_cache_with_progress(file, cache.path(), compressed, |value| {
+        let progress = PROGRESS_EXTRACT_START + value * PROGRESS_EXTRACT_RANGE / PROGRESS_COMPLETE;
+        emit_file_load_progress(window, progress, is_debug_progress);
+    })
+    .context("解包笔记正文")?;
+    cache.disable_cleanup();
+    let body = read_cached_mdr_file_body(window, &mut cache, is_debug_progress)?;
+    info!("读取笔记正文成功：{}", resolved_name);
+    Ok(body)
+}
+
+fn detect_file_compression(
+    window: &Window,
+    path: &Path,
+    is_debug_progress: bool,
+) -> anyhow::Result<bool> {
+    emit_file_load_progress(window, PROGRESS_DETECT_FORMAT, is_debug_progress);
+    is_mdrf_compressed(path).context("检测笔记压缩格式")
+}
+
+fn create_file_cache(
+    window: &Window,
+    file_name: &str,
+    is_debug_progress: bool,
+) -> anyhow::Result<MindrizzleFileCache> {
+    emit_file_load_progress(window, PROGRESS_CREATE_CACHE, is_debug_progress);
+    MindrizzleFileCache::new_named(file_name)
+        .with_context(|| format!("创建笔记缓存：{}", file_name))
+}
+
+fn read_cached_mdr_file_body(
+    window: &Window,
+    cache: &mut MindrizzleFileCache,
+    is_debug_progress: bool,
+) -> anyhow::Result<MindrizzleFileBody> {
+    emit_file_load_progress(window, PROGRESS_READ_BODY, is_debug_progress);
+    let body_bytes = cache.read_file("body.json").context("读取笔记正文")?;
+    emit_file_load_progress(window, PROGRESS_PARSE_BODY, is_debug_progress);
+    let body_xml = std::str::from_utf8(&body_bytes).context("转换笔记正文编码")?;
+    let body = deserialize_mdr_file_body_xml(body_xml).context("解码笔记正文")?;
+    emit_file_load_progress(window, PROGRESS_RETURN_BODY, is_debug_progress);
+    Ok(body)
+}
+
+fn emit_file_load_progress(window: &Window, progress: u32, is_debug_progress: bool) {
+    let _ = window.emit(FILE_LOAD_PROGRESS_EVENT, progress);
+    if is_debug_progress {
+        std::thread::sleep(DEBUG_PROGRESS_DELAY);
     }
 }
 

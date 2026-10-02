@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 // content（块存储坐标）↔ 视口屏幕坐标：屏幕位置 = content*zoom + origin + pan + 容器偏移，各处统一经此换算
 
 export interface CanvasTransform {

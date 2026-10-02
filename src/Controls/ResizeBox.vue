@@ -1,5 +1,4 @@
 <script setup lang="ts">
-// SPDX-License-Identifier: MIT
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Z_LAYER } from './zIndex'
 

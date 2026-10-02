@@ -1,11 +1,60 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { inject, ref } from 'vue';
 import { mdiNoteOffOutline, mdiPencil, mdiPlus } from '@mdi/js';
 import { isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { info } from '@tauri-apps/plugin-log';
 
 import NewFileDialog from '../Controls/NewFileDialog.vue';
+import { loadEditorComponent, storePendingEditorBody, type EditorBodyResult } from '../utils/editorRoute'
 import { invokeCommand } from '../utils/invoke'
+import { isDebugLoadingEnabled, noteLoadControllerKey, startEditorTransitionKey } from '../utils/routeTransition'
+
+const startEditorTransition = inject(startEditorTransitionKey)!
+const noteLoadController = inject(noteLoadControllerKey)!
+let editorPreload: Promise<unknown> | undefined
+
+function preloadEditor() {
+  if (editorPreload) return editorPreload
+  // 预加载失败不影响点击时由路由重新加载
+  editorPreload = loadEditorComponent().catch(() => undefined)
+  return editorPreload
+}
+
+async function prepareEditor(fileName: string) {
+  noteLoadController.setName(fileName)
+  let unlisten: (() => void) | undefined
+  if (isTauri()) {
+    unlisten = await listen<number>('file-load-progress', (event) => {
+      noteLoadController.setProgress(event.payload)
+    })
+  }
+  const bodyPromise: Promise<EditorBodyResult> = invokeCommand<{ content: string }>('get_mdr_file_body', {
+    fileName,
+    debugProgress: isDebugLoadingEnabled.value,
+  }).then(
+    (body) => ({ content: body.content ?? '' }),
+    (error: unknown) => ({ error }),
+  )
+  storePendingEditorBody(fileName, bodyPromise)
+  try {
+    await Promise.all([preloadEditor(), bodyPromise])
+  } finally {
+    unlisten?.()
+  }
+}
+
+async function openEditor(index: number) {
+  noteSets.value[index].loading = true
+  try {
+    await startEditorTransition(
+      { name: 'editor', params: { fileName: fileListRef.value[index] } },
+      () => prepareEditor(fileListRef.value[index]),
+    )
+  } finally {
+    noteSets.value[index].loading = false
+  }
+}
 
 const isCreateDialogOpen = ref(false)
 
@@ -13,7 +62,7 @@ loadNoteSets();
 
 let isError = ref(false);
 const noteSets = ref<
-  { name: string; description: string; tag?: string; updatedAt: number }[]
+  { name: string; description: string; tag?: string; updatedAt: number; loading: boolean }[]
 >([]);
 
 const MILLIS_PER_MINUTE = 60_000;
@@ -51,6 +100,7 @@ async function loadNoteSets() {
         description: fileInfo.description,
         tag: fileInfo.tag,
         updatedAt: fileInfo.updatedAt,
+        loading: false,
       });
     }
     // 网页端无 IPC，日志插件的 invoke 会抛错
@@ -81,16 +131,17 @@ async function loadNoteSets() {
           {{ noteSet.description }}
         </v-card-text>
         <v-card-actions>
-          <v-btn @click="$router.push('/editor/' + fileListRef[index])"
+          <v-btn
+            @click="openEditor(index)"
+            @pointerenter="preloadEditor"
+            @focus="preloadEditor"
             :icon="mdiPencil"
+            :loading="noteSet.loading"
             class="ms-2"
             variant="text"
           ></v-btn>
         </v-card-actions>
       </v-card>
-      <!-- <v-list-item v-for="(noteSet, index) in noteSets" :key="index"
-        :title="noteSet.name" @click="$router.push('/editor/' + fileListRef[index])"
-        :subtitle="noteSet.description" /> -->
     </v-list>
     <v-fab
       :icon="mdiPlus"

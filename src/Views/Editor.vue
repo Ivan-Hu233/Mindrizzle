@@ -1,7 +1,10 @@
 <template>
   <v-sheet class="editor-wrapper">
     <Teleport to="#toolbar-actions" defer>
-      <v-btn :icon="mdiContentSave" variant="text" @click="save" />
+      <v-btn :loading="isSaving" :icon="mdiContentSave" variant="text" @click="save" />
+    </Teleport>
+    <Teleport to="#title-actions" defer>
+      <v-btn :icon="mdiHome" variant="text" @click="$router.push('/set')" />
     </Teleport>
     <v-container class="toolbar" style="height: 133px;">
       <!-- <v-btn @click="save">保存</v-btn> -->
@@ -74,14 +77,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave } from '@mdi/js'
+import { ref, onMounted, onUnmounted, computed, watch, inject } from 'vue'
+import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave, mdiHome } from '@mdi/js'
 import { isTauri } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { error as logError } from '@tauri-apps/plugin-log'
 import MdrCanvas, { type ComponentController } from '../Controls/MdrCanvas.vue'
 import { screenToContent } from '../utils/canvasCoords'
 import { useRoute } from 'vue-router'
 import { invokeCommand } from '../utils/invoke'
+import { getErrorMessage } from '../utils/getErrorMessage.ts'
+import { takePendingEditorBody } from '../utils/editorRoute'
+import { isDebugLoadingEnabled, noteLoadControllerKey } from '../utils/routeTransition'
+
+const noteLoadController = inject(noteLoadControllerKey)
 
 const MdrCRef = ref<InstanceType<typeof MdrCanvas> | null>()
 
@@ -317,19 +326,30 @@ const setZoom = (v: number | null) => {
 const route = useRoute()
 // route.params 可能是数组，所以统一取首项
 const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0] : route.params.fileName
+const pendingEditorBody = takePendingEditorBody(String(fileName ?? ''))
 
+const isSaving = ref(false)
 const save = async () => {
+  isSaving.value = true
   try {
     await invokeCommand("set_mdr_file_body", { fileName, content: MdrCRef.value?.save() ?? '' })
   } catch (error) {
-    // 浏览器调试环境无 Tauri IPC，所以仅在 Tauri 内上报
-    if (isTauri()) logError(error instanceof Error ? error.message : String(error))
+    logError(getErrorMessage(error))
+  }
+  finally {
+    isSaving.value = false
   }
 }
 
 const load = async () => {
-  const raw = await invokeCommand<{ content: string }>("get_mdr_file_body", { fileName })
-  MdrCRef.value?.load(raw.content ?? '')
+  const raw = pendingEditorBody
+    ? await pendingEditorBody
+    : await invokeCommand<{ content: string }>("get_mdr_file_body", {
+        fileName,
+        debugProgress: isDebugLoadingEnabled.value,
+      })
+  if ('error' in raw) throw raw.error
+  await MdrCRef.value?.load(raw.content ?? '')
 }
 
 const batchToggleHeading = (level: 1 | 2 | 3 | 4 | 5 | 6) => {
@@ -369,8 +389,28 @@ const deleteSelected = () => {
   ids.forEach(id => { delete refs[id] })
 }
 
+const initializeEditor = async () => {
+  let unlisten: (() => void) | undefined
+  noteLoadController?.setName(String(fileName ?? ''))
+  try {
+    if (isTauri() && !pendingEditorBody) {
+      unlisten = await listen<number>('file-load-progress', (event) => {
+        noteLoadController?.setProgress(event.payload)
+      })
+    }
+    noteLoadController?.setProgress(2)
+    await load()
+    noteLoadController?.setProgress(100)
+  } catch (error) {
+    if (isTauri()) logError(getErrorMessage(error))
+  } finally {
+    unlisten?.()
+    noteLoadController?.finish()
+  }
+}
+
 onMounted(() => {
-  load().catch(() => undefined)
+  void initializeEditor()
   // 挂 window 级并显式非 passive（否则 preventDefault 无效）
   window.addEventListener('wheel', cycleOption, { passive: false })
   // 选字可能跨出编辑器，所以挂 window 级 mouseup

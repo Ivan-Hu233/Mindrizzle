@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { clearLocalNotes } from '../utils/localNoteStore';
+import { isDebugLoadingEnabled } from '../utils/routeTransition';
 
 const router = useRouter()
 const path = ref("")
@@ -25,6 +26,11 @@ const clearWebStorage = () => {
     </v-row>
     <v-row>
       <v-btn @click="clearWebStorage">清除浏览器测试用的网页储存</v-btn>
+    </v-row>
+    <v-row>
+      <v-col>
+        <v-switch v-model="isDebugLoadingEnabled" label="模拟后端慢速加载进度" hide-details />
+      </v-col>
     </v-row>
     <v-snackbar v-model="isCleared" timeout="1500">已清除网页端笔记存档</v-snackbar>
   </v-container>
