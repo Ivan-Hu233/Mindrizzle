@@ -36,6 +36,7 @@
     </div>
 
     <v-snackbar
+      :prepend-icon="mdiCheck"
       v-model="snackbar"
       :timeout="1500"
       color="success"
@@ -51,7 +52,7 @@ export { CODE_BLOCK_CONSTRAINTS as resizeConstraints } from '../componentConstra
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick, computed, onBeforeUnmount } from 'vue';
 import { useTheme } from 'vuetify';
-import { mdiContentCopy } from '@mdi/js';
+import { mdiContentCopy, mdiCheck } from '@mdi/js';
 import hljs from 'highlight.js/lib/core';
 
 import githubCss from 'highlight.js/styles/github.css?raw';

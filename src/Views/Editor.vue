@@ -4,7 +4,7 @@
       <v-btn :loading="isSaving" :icon="mdiContentSave" variant="text" @click="save" />
     </Teleport>
     <Teleport to="#title-actions" defer>
-      <v-btn :icon="mdiHome" variant="text" @click="$router.push('/set')" />
+      <v-btn :icon="mdiArrowLeft" variant="text" @click="$router.push('/set')" />
     </Teleport>
     <v-container class="toolbar" style="height: 133px;">
       <!-- <v-btn @click="save">保存</v-btn> -->
@@ -73,12 +73,15 @@
         </v-card>
       </div>
     </v-overlay>
+    <v-snackbar :prepend-icon="mdiCheck" color="success" location="top" v-model="saved" timeout="1500">
+      保存成功
+    </v-snackbar>
   </v-sheet>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, inject } from 'vue'
-import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave, mdiHome } from '@mdi/js'
+import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave, mdiArrowLeft, mdiCheck } from '@mdi/js'
 import { isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { error as logError } from '@tauri-apps/plugin-log'
@@ -329,6 +332,7 @@ const fileName = Array.isArray(route.params.fileName) ? route.params.fileName[0]
 const pendingEditorBody = takePendingEditorBody(String(fileName ?? ''))
 
 const isSaving = ref(false)
+const saved = ref(false)
 const save = async () => {
   isSaving.value = true
   try {
@@ -338,6 +342,7 @@ const save = async () => {
   }
   finally {
     isSaving.value = false
+    saved.value = true
   }
 }
 
