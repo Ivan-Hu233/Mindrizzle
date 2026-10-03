@@ -2,19 +2,18 @@
 import { argbFromHex, hexFromArgb, themeFromSourceColor } from '@material/material-color-utilities'
 import { computed, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import { mdiCheckCircle, mdiImageFilterHdr, mdiPaletteOutline, mdiRestore } from '@mdi/js'
+import { mdiCheckCircle, mdiImageFilterHdr, mdiPaletteOutline } from '@mdi/js'
 import { isTauri } from '@tauri-apps/api/core'
 import { invokeCommand } from '../../utils/invoke'
 
 type MaterialScheme = ReturnType<typeof themeFromSourceColor>['schemes']['light']
 type MaterialSchemeColors = ReturnType<MaterialScheme['toJSON']>
 type MaterialThemeName = 'light' | 'dark'
-type ThemeColorMode = 'default' | 'wallpaper' | 'custom'
+type ThemeColorMode = 'wallpaper' | 'color'
 
 const MATERIAL_COLOR_ROLES = [
   ['primary', 'primary'],
   ['on-primary', 'onPrimary'],
-  ['secondary', 'secondary'],
   ['on-secondary', 'onSecondary'],
   ['tertiary', 'tertiary'],
   ['on-tertiary', 'onTertiary'],
@@ -50,8 +49,9 @@ const defaultThemes = {
   dark: { ...theme.themes.value.dark, colors: { ...theme.themes.value.dark.colors } },
 }
 const defaultPrimaryColor = String(defaultThemes.light.colors.primary)
-const selectedColorMode = ref<ThemeColorMode>('default')
+const selectedColorMode = ref<ThemeColorMode>('color')
 const primaryColor = ref(defaultPrimaryColor)
+const isDefaultTheme = ref(true)
 const wallpaperError = ref('')
 const isLoadingWallpaper = ref(false)
 const canvasColor = ref<string | null>(null)
@@ -73,9 +73,8 @@ function selectColorMode(mode: ThemeColorMode | null) {
     void applyWallpaperColor()
     return
   }
-  selectedColorMode.value = mode
-  if (mode === 'default') {
-    primaryColor.value = defaultPrimaryColor
+  selectedColorMode.value = 'color'
+  if (isDefaultTheme.value) {
     restoreDefaultThemes()
     return
   }
@@ -89,6 +88,7 @@ async function applyWallpaperColor() {
     const color = await invokeCommand<string>('get_wallpaper_primary_color')
     if (!HEX_COLOR_PATTERN.test(color)) throw new Error('系统壁纸没有返回有效颜色')
     primaryColor.value = color
+    isDefaultTheme.value = false
     selectedColorMode.value = 'wallpaper'
     applyPrimaryColor(color)
   } catch (error) {
@@ -99,10 +99,20 @@ async function applyWallpaperColor() {
 }
 
 function updatePrimaryColor(color: unknown) {
-  if (typeof color !== 'string' || !HEX_COLOR_PATTERN.test(color)) return
+  if (typeof color !== 'string' || !HEX_COLOR_PATTERN.test(color)) {
+    if (color === null || color === '') resetPrimaryColor()
+    return
+  }
   primaryColor.value = color
-  selectedColorMode.value = 'custom'
+  isDefaultTheme.value = false
+  selectedColorMode.value = 'color'
   applyPrimaryColor(color)
+}
+
+function resetPrimaryColor() {
+  primaryColor.value = defaultPrimaryColor
+  isDefaultTheme.value = true
+  restoreDefaultThemes()
 }
 
 function applyPrimaryColor(color: string) {
@@ -111,7 +121,7 @@ function applyPrimaryColor(color: string) {
 }
 
 function applySelectedColor(themeName: MaterialThemeName) {
-  if (selectedColorMode.value === 'default') {
+  if (isDefaultTheme.value) {
     restoreDefaultThemes()
     return
   }
@@ -201,7 +211,7 @@ function createGeneratedColors(scheme: MaterialSchemeColors, baseColors: typeof 
         <div class="d-flex align-center justify-space-between mb-4">
           <div>
             <v-card-title class="text-subtitle-1 pa-0">主题色</v-card-title>
-            <v-card-subtitle class="text-body-2 pa-0">默认、系统壁纸取色或自定义</v-card-subtitle>
+            <v-card-subtitle class="text-body-2 pa-0">清空颜色可恢复 Vuetify 默认蓝色</v-card-subtitle>
           </div>
           <v-chip size="small" color="primary" variant="tonal">{{ primaryColor }}</v-chip>
         </div>
@@ -213,11 +223,10 @@ function createGeneratedColors(scheme: MaterialSchemeColors, baseColors: typeof 
           density="comfortable"
           @update:model-value="selectColorMode"
         >
-          <v-btn value="default" :prepend-icon="mdiRestore">默认</v-btn>
           <v-btn value="wallpaper" :prepend-icon="mdiImageFilterHdr" :loading="isLoadingWallpaper" :disabled="!isTauri()">
             壁纸取色
           </v-btn>
-          <v-btn value="custom" :prepend-icon="mdiPaletteOutline">自定义</v-btn>
+          <v-btn value="color" :prepend-icon="mdiPaletteOutline">颜色</v-btn>
         </v-btn-toggle>
         <v-alert v-if="!isTauri()" class="mt-3" density="compact" type="info" variant="tonal">
           浏览器无法读取系统壁纸，请在桌面应用中使用此选项。
@@ -225,12 +234,13 @@ function createGeneratedColors(scheme: MaterialSchemeColors, baseColors: typeof 
         <v-alert v-if="wallpaperError" class="mt-3" density="compact" type="warning" variant="tonal">
           {{ wallpaperError }}
         </v-alert>
-        <v-row v-if="selectedColorMode === 'custom'" density="compact" class="mt-2">
+        <v-row v-if="selectedColorMode === 'color'" density="compact" class="mt-2">
           <v-col cols="12" sm="6">
             <v-color-input
               :model-value="primaryColor"
               label="主题色"
               mode="hex"
+              clearable
               variant="solo-filled"
               density="compact"
               hide-details

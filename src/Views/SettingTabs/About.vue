@@ -72,9 +72,9 @@ async function copyDiagnostics() {
     <v-container class="about-page py-6 py-sm-8">
       <section class="about-hero">
         <div class="about-hero-main">
-          <div class="about-mark" aria-hidden="true">
+          <v-avatar class="about-mark" rounded="lg" aria-hidden="true">
             <v-icon :icon="mdiCloudOutline" size="34" />
-          </div>
+          </v-avatar>
           <div class="about-copy">
             <div class="about-eyebrow">关于应用 <span>Catch your mind drizzle.</span></div>
             <h1>Mindrizzle</h1>
@@ -86,7 +86,7 @@ async function copyDiagnostics() {
             <span>版本</span>
             <strong>{{ appVersion }}</strong>
           </div>
-          <div class="build-separator" />
+          <v-divider class="build-separator" vertical />
           <div class="build-item">
             <span>Git 提交</span>
             <strong>{{ gitCommit }}</strong>
