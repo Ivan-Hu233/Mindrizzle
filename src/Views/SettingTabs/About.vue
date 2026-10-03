@@ -78,7 +78,7 @@ async function copyDiagnostics() {
           <div class="about-copy">
             <div class="about-eyebrow">关于应用 <span>Catch your mind drizzle.</span></div>
             <h1>Mindrizzle</h1>
-            <p>把笔记放上画布，自由组织内容、连接线索，慢慢整理出自己的思路。</p>
+            <p>让想法有处可落，让笔记自然成形。</p>
           </div>
         </div>
         <div class="about-build">
@@ -97,7 +97,7 @@ async function copyDiagnostics() {
       <div class="about-bottom">
         <div class="about-actions">
           <v-btn
-            href="https://github.com/Ivan-Hu233/Mindrizzle"
+            href="https://github.com/LogicAurora/Mindrizzle"
             target="_blank"
             rel="noopener noreferrer"
             :prepend-icon="mdiGithub"
@@ -127,15 +127,16 @@ async function copyDiagnostics() {
           >{{ project.name }}</a>
         </div>
         <div class="credits-footer">
-          <span>版权所有 © {{ copyrightYear }} Ivan Hu233</span>
           <div class="credits-links">
-            <a href="https://github.com/Ivan-Hu233/Mindrizzle/graphs/contributors" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/LogicAurora/Mindrizzle/graphs/contributors" target="_blank" rel="noopener noreferrer">
               贡献者
             </a>
-            <a href="https://github.com/Ivan-Hu233/Mindrizzle/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/LogicAurora/Mindrizzle/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
               GNU GPL v3.0
             </a>
+          <span>在此，也特别感谢每一位为Mindrizzle做出贡献的开发者！！！</span>
           </div>
+          <span>版权所有 © {{ copyrightYear }} LogicAurora</span>
         </div>
       </section>
     </v-container>
@@ -368,8 +369,10 @@ async function copyDiagnostics() {
 
 @media (max-width: 600px) {
   .about-hero {
-    min-height: 250px;
-    padding: 24px 20px 18px;
+    min-height: 0;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 18px 20px 16px;
   }
 
   .about-hero-main {
