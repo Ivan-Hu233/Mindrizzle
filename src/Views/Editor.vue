@@ -61,8 +61,12 @@
     <!-- 格式操作需确认，所以弹 overlay：左键应用、右键取消（全屏捕获层接管事件） -->
     <v-overlay v-model="pendingApply" persistent scroll-strategy="none">
       <div class="apply-layer" @click.left="confirmApply" @mousedown.right="cancelApply" @contextmenu.prevent="cancelApply">
-        <v-card class="apply-card" min-width="240" :class="{ 'place-below': overlayPos.below }"
-          :style="{ left: `${overlayPos.left}px`, top: `${overlayPos.top}px` }">
+        <v-card :ref="setApplyCardElement" class="apply-card"
+          :style="{
+            left: `${overlayPos.left}px`,
+            top: `${overlayPos.top}px`,
+            visibility: applyPositionReady ? 'visible' : 'hidden',
+          }">
           <v-card-text class="text-center">
             切换「{{ pendingLabel }}」？
           </v-card-text>
@@ -80,13 +84,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, inject } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, inject, nextTick } from 'vue'
 import { mdiFormatHeader1, mdiFormatUnderline, mdiFormatBold, mdiFormatItalic, mdiMouse, mdiNoteText, mdiCodeBraces, mdiContentSave, mdiExitToApp, mdiCheck } from '@mdi/js'
 import { isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { error as logError } from '@tauri-apps/plugin-log'
 import MdrCanvas, { type ComponentController } from '../Controls/MdrCanvas.vue'
 import { screenToContent } from '../utils/canvasCoords'
+import { layoutToViewportSize, layoutToViewportX, layoutToViewportY } from '../Controls/RichEditor/extensions/blockHandleUtils.ts'
 import { useRoute } from 'vue-router'
 import { invokeCommand } from '../utils/invoke'
 import { getErrorMessage } from '../utils/getErrorMessage.ts'
@@ -202,8 +207,73 @@ let applyLockUntil = 0
 const pendingApply = ref(false)
 const pendingActionIndex = ref(0)
 const pendingLabel = computed(() => OPTIONS[pendingActionIndex.value]?.label ?? '更改')
-// 记录选区锚点（上方空间不足时改放下方）
-const overlayPos = ref({ left: 0, top: 0, below: false })
+const overlayPos = ref({ left: 0, top: 0 })
+const applyPositionReady = ref(false)
+const applyCardElement = ref<HTMLElement | null>(null)
+const APPLY_OVERLAY_MARGIN = 8
+
+interface ApplyAnchorRect {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+const setApplyCardElement = (element: unknown) => {
+  applyCardElement.value = (element as { $el?: HTMLElement } | null)?.$el
+    ?? (element as HTMLElement | null)
+}
+
+const applyAnchorRectOf = (rect: DOMRect, element: HTMLElement): ApplyAnchorRect => {
+  const width = layoutToViewportSize(element, rect.width)
+  const height = layoutToViewportSize(element, rect.height)
+  const left = layoutToViewportX(element, rect.left)
+  const top = layoutToViewportY(element, rect.top)
+  return { left, top, right: left + width, bottom: top + height, width, height }
+}
+
+const positionApplyCard = (anchor: ApplyAnchorRect, card: HTMLElement) => {
+  const rect = card.getBoundingClientRect()
+  const maxLeft = Math.max(APPLY_OVERLAY_MARGIN, window.innerWidth - rect.width - APPLY_OVERLAY_MARGIN)
+  const maxTop = Math.max(APPLY_OVERLAY_MARGIN, window.innerHeight - rect.height - APPLY_OVERLAY_MARGIN)
+  const left = Math.min(Math.max(anchor.left + (anchor.width - rect.width) / 2, APPLY_OVERLAY_MARGIN), maxLeft)
+  const above = anchor.top - rect.height - APPLY_OVERLAY_MARGIN
+  const below = anchor.bottom + APPLY_OVERLAY_MARGIN
+  const availableAbove = anchor.top - APPLY_OVERLAY_MARGIN * 2
+  const availableBelow = window.innerHeight - anchor.bottom - APPLY_OVERLAY_MARGIN * 2
+  const preferredTop = above >= APPLY_OVERLAY_MARGIN ? above
+    : below <= maxTop ? below
+      : availableAbove >= availableBelow ? above : below
+  overlayPos.value = {
+    left,
+    top: Math.min(Math.max(preferredTop, APPLY_OVERLAY_MARGIN), maxTop),
+  }
+}
+
+const keepApplyCardInViewport = () => {
+  const card = applyCardElement.value
+  if (!pendingApply.value || !applyPositionReady.value || !card) return
+  const rect = card.getBoundingClientRect()
+  const maxLeft = Math.max(APPLY_OVERLAY_MARGIN, window.innerWidth - rect.width - APPLY_OVERLAY_MARGIN)
+  const maxTop = Math.max(APPLY_OVERLAY_MARGIN, window.innerHeight - rect.height - APPLY_OVERLAY_MARGIN)
+  overlayPos.value = {
+    left: Math.min(Math.max(overlayPos.value.left, APPLY_OVERLAY_MARGIN), maxLeft),
+    top: Math.min(Math.max(overlayPos.value.top, APPLY_OVERLAY_MARGIN), maxTop),
+  }
+}
+
+const openApplyOverlay = async (rect: DOMRect, element: HTMLElement) => {
+  const anchor = applyAnchorRectOf(rect, element)
+  applyPositionReady.value = false
+  pendingApply.value = true
+  await nextTick()
+  const card = applyCardElement.value
+  if (!pendingApply.value || !card) return
+  positionApplyCard(anchor, card)
+  applyPositionReady.value = true
+}
 
 // 把视口鼠标坐标换算为画布 content 坐标
 const canvasPointFromMouse = (e: MouseEvent): { x: number; y: number } | null => {
@@ -251,39 +321,20 @@ const onMouseUp = (e: MouseEvent) => {
   if (opIdx.value === 0) return
   applyLockUntil = Date.now() + 300
   pendingActionIndex.value = opIdx.value
-  // 以选区矩形为锚点并夹紧到视口内：垂直优先放上方，上方不足放下方
-  const rangeRect = window.getSelection()?.getRangeAt(0).getBoundingClientRect()
-  if (rangeRect && rangeRect.width > 0) {
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const CARD_W = 240
-    const CARD_H = 110
-    const M = 8
-    const left = Math.min(Math.max(rangeRect.left + rangeRect.width / 2, CARD_W / 2 + M), vw - CARD_W / 2 - M)
-    const aboveSpace = rangeRect.top - M
-    const belowSpace = vh - rangeRect.bottom - M
-    let top: number
-    let below: boolean
-    if (aboveSpace >= CARD_H) {
-      top = rangeRect.top
-      below = false
-    } else if (belowSpace >= CARD_H) {
-      top = rangeRect.bottom
-      below = true
-    } else if (aboveSpace >= belowSpace) {
-      top = Math.max(rangeRect.top, M)
-      below = false
-    } else {
-      top = Math.min(rangeRect.bottom, vh - M)
-      below = true
-    }
-    overlayPos.value = { left, top, below }
-  }
-  pendingApply.value = true
+  const selection = window.getSelection()
+  const anchorNode = selection?.anchorNode
+  const anchorElement = anchorNode instanceof HTMLElement ? anchorNode : anchorNode?.parentElement
+  if (!anchorElement) return
+  const rangeRect = selection?.getRangeAt(0).getBoundingClientRect()
+  const anchorRect = rangeRect?.width && rangeRect.height
+    ? rangeRect
+    : anchorElement.getBoundingClientRect()
+  void openApplyOverlay(anchorRect, anchorElement)
 }
 
 const confirmApply = () => {
   pendingApply.value = false
+  applyPositionReady.value = false
   OPTIONS[pendingActionIndex.value]?.action()
   // 选区保留会经 mouseup 再次询问，所以应用后同样清除选区并失焦
   ;(document.activeElement as HTMLElement | null)?.blur?.()
@@ -292,6 +343,7 @@ const confirmApply = () => {
 
 const cancelApply = () => {
   pendingApply.value = false
+  applyPositionReady.value = false
   // ProseMirror 失焦前会恢复内部选区，所以须先 blur 再清选区，否则右键 mouseup 会重开询问
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   window.getSelection()?.removeAllRanges()
@@ -416,6 +468,7 @@ const initializeEditor = async () => {
 
 onMounted(() => {
   void initializeEditor()
+  window.addEventListener('resize', keepApplyCardInViewport)
   // 挂 window 级并显式非 passive（否则 preventDefault 无效）
   window.addEventListener('wheel', cycleOption, { passive: false })
   // 选字可能跨出编辑器，所以挂 window 级 mouseup
@@ -425,6 +478,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', keepApplyCardInViewport)
   window.removeEventListener('wheel', cycleOption)
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('mousedown', trackMouseDown)
@@ -467,12 +521,11 @@ onUnmounted(() => {
   height: 100vh;
   z-index: 1;
 }
-/* 绝对定位 + translate 使卡片居中于选区上方；空间不足时由 place-below 改放下方 */
 .apply-card {
   position: absolute;
-  transform: translate(-50%, calc(-100% - 8px));
-}
-.apply-card.place-below {
-  transform: translate(-50%, 8px);
+  min-width: min(240px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
 }
 </style>
