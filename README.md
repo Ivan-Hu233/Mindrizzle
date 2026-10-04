@@ -1,6 +1,6 @@
 <div align="center">
 
-# Mindrizzle
+<h1 align="center"><img src="app-icon.svg" alt="" width="64" valign="middle"> Mindrizzle</h1>
 
 **Catch your mind drizzle.**<br>
 **让想法有处可落，让笔记自然成形。**

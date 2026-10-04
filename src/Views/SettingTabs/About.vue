@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { mdiCheck, mdiClose, mdiCloudOutline, mdiContentCopy, mdiGithub, mdiInformationOutline } from '@mdi/js'
+import { mdiCheck, mdiClose, mdiContentCopy, mdiGithub, mdiInformationOutline } from '@mdi/js'
 import { computed, ref } from 'vue'
 import packageInfo from '../../../package.json'
+import appIconUrl from '../../../app-icon.svg'
 
 const isDiagnosticsOpen = ref(false)
 const isGitCommitLoaded = ref(!isTauri())
@@ -73,7 +74,7 @@ async function copyDiagnostics() {
       <section class="about-hero">
         <div class="about-hero-main">
           <v-avatar class="about-mark" rounded="lg" aria-hidden="true">
-            <v-icon :icon="mdiCloudOutline" size="34" />
+            <img :src="appIconUrl" alt="" width="64" height="64" />
           </v-avatar>
           <div class="about-copy">
             <div class="about-eyebrow">关于应用 <span>Catch your mind drizzle.</span></div>
@@ -134,7 +135,7 @@ async function copyDiagnostics() {
             <a href="https://github.com/LogicAurora/Mindrizzle/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
               GNU GPL v3.0
             </a>
-          <span>在此，也特别感谢每一位为Mindrizzle做出贡献的开发者！！！</span>
+          <span>在此，特别感谢每一位为Mindrizzle做出贡献的开发者！！！</span>
           </div>
           <span>版权所有 © {{ copyrightYear }} LogicAurora</span>
         </div>
@@ -197,13 +198,11 @@ async function copyDiagnostics() {
 
 .about-mark {
   display: grid;
-  width: 58px;
-  height: 58px;
-  flex: 0 0 58px;
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
   place-items: center;
-  border: 1px solid rgba(var(--v-theme-on-primary), 0.28);
-  border-radius: 8px;
-  background: rgba(var(--v-theme-on-primary), 0.1);
+  background: transparent;
 }
 
 .about-copy {
@@ -247,7 +246,7 @@ async function copyDiagnostics() {
   display: flex;
   align-items: center;
   gap: 18px;
-  margin-left: 78px;
+  margin-left: 88px;
   padding-top: 14px;
   border-top: 1px solid rgba(var(--v-theme-on-primary), 0.22);
 }
@@ -380,9 +379,9 @@ async function copyDiagnostics() {
   }
 
   .about-mark {
-    width: 48px;
-    height: 48px;
-    flex-basis: 48px;
+    width: 58px;
+    height: 58px;
+    flex-basis: 58px;
   }
 
   .about-copy h1 {
@@ -395,7 +394,7 @@ async function copyDiagnostics() {
 
   .about-build {
     gap: 10px;
-    margin-left: 62px;
+    margin-left: 72px;
   }
 
   .build-item {
