@@ -1669,7 +1669,7 @@ const onCustomDragUp = (e?: MouseEvent) => {
 interface ResizeSession {
   itemId: string
   handle: string
-  starts: Record<string, Rect>
+  starts: Map<string, Rect>
   lastBase: Rect
   panStartX: number
   panStartY: number
@@ -1809,14 +1809,14 @@ const syncLinkedEdges = (item: CanvasItem, x: number, y: number, w: number, h: n
 }
 
 // 沿链接图 BFS 传播共享边：尺寸按自身 min/max 钳制（与 VDR min=minWidth+8 一致），位置按起始 + 父块总位移重算（不逐帧累加，防错位）
-const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<string, Rect>) => {
+const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Map<string, Rect>): Set<string> => {
   const positions: Record<string, Rect> = {}
   const itemMap = new Map(state.items.map((target) => [target.id, target]))
   const neighborMap = linkedNeighborMap.value
   // autoPan 改变了 layout，所以 positions 用当前布局初始化，方位判定仍基于 starts
-  Object.keys(starts).forEach((id) => {
+  starts.forEach((start, id) => {
     const target = itemMap.get(id)
-    positions[id] = target ? { ...layoutOf(target) } : { ...starts[id] }
+    positions[id] = target ? { ...layoutOf(target) } : { ...start }
   })
   positions[item.id] = { ...rect }
   // 分维 BFS：右/下邻居正向传播（跟右/下缘），左/上邻居反向跟当前块，保持整链贴合
@@ -1826,10 +1826,10 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
   while (queue.length) {
     const pid = queue.shift()!
     const pRect = positions[pid]
-    const pStart = starts[pid]
+    const pStart = starts.get(pid)
     if (!pRect || !pStart) continue
     ;(neighborMap.get(pid) ?? []).forEach((nid) => {
-      const nStart = starts[nid]
+      const nStart = starts.get(nid)
       const target = itemMap.get(nid)
       if (!nStart || !target) return
       const c = constraintsOf(target)
@@ -1884,28 +1884,34 @@ const propagateLinkedEdges = (item: CanvasItem, rect: Rect, starts: Record<strin
     })
   }
   // A 的坐标已由 compensateResizeAutoPan 补偿，所以传播结果直接写回内容坐标即可
+  const changedIds = new Set<string>()
   Object.keys(positions).forEach((id) => {
     if (id === item.id) return
     const target = itemMap.get(id)
     if (!target) return
     const p = positions[id]
     const tl = layoutOf(target)
+    if (p.x !== tl.x || p.y !== tl.y || p.w !== tl.w || p.h !== tl.h) changedIds.add(id)
     tl.x = Math.round(p.x)
     tl.y = Math.round(p.y)
     tl.w = Math.round(p.w)
     tl.h = Math.round(p.h)
   })
+  return changedIds
+}
+
+const captureLinkedStarts = (itemId: string): Map<string, Rect> => {
+  const starts = new Map<string, Rect>()
+  collectLinkedIds(itemId).forEach((id) => {
+    const target = state.items.find((entry) => entry.id === id)
+    if (target) starts.set(id, { ...layoutOf(target) })
+  })
+  return starts
 }
 
 const onResizeStart = (item: CanvasItem, handle: string) => {
-  const starts: Record<string, Rect> = {}
   // 移动端不启用块联结，仅桌面端收集
-  if (!mobileMode.value) {
-    collectLinkedIds(item.id).forEach((id) => {
-      const target = state.items.find((it) => it.id === id)
-      if (target) starts[id] = { ...layoutOf(target) }
-    })
-  }
+  const starts = mobileMode.value ? new Map<string, Rect>() : captureLinkedStarts(item.id)
   resizeSession = {
     itemId: item.id,
     handle,
@@ -2032,7 +2038,7 @@ const pushOverlapped = (shift: LinkedShift) => {
     .forEach((seed) => pushColumnBelow(seed, shift))
 }
 
-// 改高先快照再落位：联结群按旧贴合关系整体平移，未联结块才走推挤
+// 改高复用 resize 的共享边传播，再消解增长造成的重叠
 const applyDesktopHeight = (item: CanvasItem, height: number) => {
   const layout = layoutOf(item)
   const dy = height - layout.h
@@ -2040,7 +2046,9 @@ const applyDesktopHeight = (item: CanvasItem, height: number) => {
   const shift = buildShiftContext()
   shift.moved.add(item.id)
   layout.h = height
-  if (linkedPairs.value.size > 0) shiftLinkedGroup(item.id, dy, shift)
+  if (linkedPairs.value.size > 0) {
+    propagateLinkedEdges(item, layout, shift.starts).forEach((id) => shift.moved.add(id))
+  }
   if (dy > 0) pushOverlapped(shift)
 }
 
