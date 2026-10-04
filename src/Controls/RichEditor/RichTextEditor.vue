@@ -250,7 +250,8 @@ const syncAutoHeight = () => {
     const coords = editor.view!.coordsAtPos(head)
     if (coords) cursorY = Math.min(Math.max(coords.bottom - wrapperRect.top, 0), height)
   }
-  window.dispatchEvent(new CustomEvent('Mindrizzle:auto-height', { detail: { id, height, cursorY } }))
+  const visualCursorY = wrapperRef.value ? layoutToViewportSize(wrapperRef.value, cursorY) : cursorY
+  window.dispatchEvent(new CustomEvent('Mindrizzle:auto-height', { detail: { id, height, cursorY: visualCursorY } }))
 }
 
 // 组件 width/height 走 attr、改 attr 未必改变容器盒子，所以 doc change 后补测（rAF 合并同帧事务）
