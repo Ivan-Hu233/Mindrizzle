@@ -36,6 +36,43 @@ export function getBlockRect(view: any, pos: number): DOMRect | null {
   return getVisibleBlockRect(getBlockEl(view, pos))
 }
 
+export function getCanvasViewportRect(view: any): DOMRect {
+  const container = view?.dom?.closest('.canvas-container') as HTMLElement | null
+  return container?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+}
+
+export function getClipRect(view: any): DOMRect {
+  const containerRect = getCanvasViewportRect(view)
+  const scroll = getScrollEl(view)
+  if (!scroll) return containerRect
+  const scrollRect = scroll.getBoundingClientRect()
+  const left = Math.max(containerRect.left, scrollRect.left)
+  const top = Math.max(containerRect.top, scrollRect.top)
+  const right = Math.min(containerRect.right, scrollRect.right)
+  const bottom = Math.min(containerRect.bottom, scrollRect.bottom)
+  return new DOMRect(left, top, Math.max(right - left, 0), Math.max(bottom - top, 0))
+}
+
+export function getClipTop(view: any): number {
+  return getClipRect(view).top
+}
+
+export function getClipBottom(view: any): number {
+  return getClipRect(view).bottom
+}
+
+export function getVisibleBlockRectInViewport(view: any, el: HTMLElement | null): DOMRect | null {
+  const rect = getVisibleBlockRect(el)
+  if (!rect) return null
+  const clip = getClipRect(view)
+  const left = Math.max(layoutToViewportX(view, rect.left), clip.left)
+  const top = Math.max(layoutToViewportY(view, rect.top), clip.top)
+  const right = Math.min(layoutToViewportX(view, rect.right), clip.right)
+  const bottom = Math.min(layoutToViewportY(view, rect.bottom), clip.bottom)
+  if (right <= left || bottom <= top) return null
+  return new DOMRect(left, top, right - left, bottom - top)
+}
+
 // 向块 DOM 派发伪 pointermove 让扩展重认 hover；坐标须取自真实尺寸矩形（零矩形会落到 (0,0) 反向清 hover）
 export function dispatchBlockHover(view: any, pos: number): void {
   const dom = getBlockEl(view, pos)
@@ -80,11 +117,6 @@ export function isPointerInsideRect(rect: DOMRect | null): boolean {
 
 export function getScrollEl(view: any): HTMLElement | null {
   return view?.dom?.closest('.editor-scroll') ?? null
-}
-
-export function getClipTop(view: any): number {
-  const container = view?.dom?.closest('.canvas-container') as HTMLElement | null
-  return container ? container.getBoundingClientRect().top : 0
 }
 
 // 判据：块完全显示在视口内时贴边拖拽只滚块内内容（画布平移会与内容滚动互相拉扯）；两坐标空间需先换算
@@ -151,11 +183,6 @@ export function layoutToViewportSize(view: any, size: number): number {
 export function viewportToLayout(view: any, value: number): number {
   const k = getCanvasScale(view)
   return k > 0 ? value / k : value
-}
-
-export function getClipBottom(view: any): number {
-  const container = view?.dom?.closest('.canvas-container') as HTMLElement | null
-  return container ? container.getBoundingClientRect().bottom : window.innerHeight
 }
 
 function popupElOf(view: any): HTMLElement | null {

@@ -300,13 +300,13 @@ onUnmounted(() => window.removeEventListener('Mindrizzle:scrollbar-drag', onScro
 }
 .block-handle-positioner.placement-top {
   margin-left: 0;
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
-/* floating-ui 在 bottom 时下移，所以以负 margin-top 抵消使顶边紧贴行底 */
+/* floating-ui 在 bottom 时下移，所以用负 margin-top 抵消并贴齐行底 */
 .block-handle-positioner.placement-bottom {
   margin-left: 0;
-  margin-top: -4px;
+  margin-top: -6px;
 }
 
 @media (prefers-reduced-motion: reduce) {

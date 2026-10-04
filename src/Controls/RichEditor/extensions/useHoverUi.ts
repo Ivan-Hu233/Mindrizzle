@@ -1,7 +1,7 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import type { Editor } from '@prosekit/core'
 import type { Ref } from 'vue'
-import { dispatchBlockHover, getBlockRect, getRealPointer, getScrollEl, getView, isCompactView, isPointerInsideRect, layoutToViewportX, layoutToViewportY, viewportToLayout } from './blockHandleUtils'
+import { dispatchBlockHover, getBlockEl, getBlockRect, getRealPointer, getScrollEl, getView, getVisibleBlockRectInViewport, isCompactView, isPointerInsideRect } from './blockHandleUtils'
 import type { HoveredBlock } from './useHoverState'
 
 export function useHoverUi(options: {
@@ -57,50 +57,19 @@ export function useHoverUi(options: {
     // 拖拽中 popup/高亮已由 body 类全局隐藏，所以不更新
     const dragging = document.body.classList.contains('block-handle-dragging')
     const hover = dragging ? null : (handleVisible.value ? activeHover.value : null)
-    const scrollEl = getScrollEl(view())
+    const editorView = view()
+    const scrollEl = getScrollEl(editorView)
 
     // 桌面端 left/right 放置时 popup 已贴行旁，所以仅 compact 或退化 top/bottom 时显示行高亮
     highlightRect.value = null
     if (hover && (isCompactView(view()) || placement.value === 'top' || placement.value === 'bottom')) {
-      const r = getBlockRect(view(), hover.pos)
+      const r = getVisibleBlockRectInViewport(editorView, getBlockEl(editorView, hover.pos))
       if (r) {
-        // 高亮 fixed 且 z 极高会盖住工具栏，所以 clamp 到画布容器与滚动容器（布局坐标需先换算）
-        const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
-        let hlLeft = layoutToViewportX(view(), r.left), hlRight = layoutToViewportX(view(), r.right)
-        let hlTop = layoutToViewportY(view(), r.top), hlBottom = layoutToViewportY(view(), r.bottom)
-        for (const c of clampEls) {
-          const cr = c.getBoundingClientRect()
-          hlLeft = Math.max(hlLeft, cr.left)
-          hlRight = Math.min(hlRight, cr.right)
-          hlTop = Math.max(hlTop, cr.top)
-          hlBottom = Math.min(hlBottom, cr.bottom)
-        }
-        if (hlRight > hlLeft && hlBottom > hlTop) {
-          highlightRect.value = { left: hlLeft, top: hlTop, width: hlRight - hlLeft, height: hlBottom - hlTop }
-        }
+        highlightRect.value = { left: r.left, top: r.top, width: r.width, height: r.height }
       }
     }
 
-    // popup 会被可见区裁掉，所以按交集贴回可见区（top 下移、bottom 上移）
     popupShiftPx.value = 0
-    const hb = hoveredBlock.value
-    if (hb) {
-      const br = getBlockRect(view(), hb.pos)
-      if (br) {
-        const clampEls = [scrollEl, view()?.dom?.closest?.('.canvas-container')].filter(Boolean) as HTMLElement[]
-        const brTop = layoutToViewportY(view(), br.top)
-        const brBottom = layoutToViewportY(view(), br.bottom)
-        for (const c of clampEls) {
-          const cr = c.getBoundingClientRect()
-          // popup 定位在 .canvas 布局空间，所以偏移量须换算回布局 px（否则被 zoom 二次缩放）
-          if (placement.value === 'top' && brTop < cr.top) {
-            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(viewportToLayout(view(), cr.top - brTop)))
-          } else if (placement.value === 'bottom' && brBottom > cr.bottom) {
-            popupShiftPx.value = Math.max(popupShiftPx.value, Math.round(viewportToLayout(view(), cr.bottom - brBottom)))
-          }
-        }
-      }
-    }
 
     // 仅 placement-right 锚定边受滚动条影响，所以只做水平补偿
     popupHShiftPx.value = placement.value === 'right' && scrollEl

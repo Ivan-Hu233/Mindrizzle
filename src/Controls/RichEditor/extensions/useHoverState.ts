@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Editor } from '@prosekit/core'
-import { getBlockRect, getClipBottom, getClipTop, findPositionerEl, getPopupHeight, getPopupWidth, getView, isCompactView, layoutToViewportSize, layoutToViewportX, layoutToViewportY, getRealPointer, viewportToLayout } from './blockHandleUtils'
+import { getBlockEl, getBlockRect, getCanvasViewportRect, getClipRect, getScrollEl, getVisibleBlockRectInViewport, findPositionerEl, getPopupHeight, getPopupWidth, getView, isCompactView, layoutToViewportSize, layoutToViewportX, layoutToViewportY, getRealPointer, viewportToLayout } from './blockHandleUtils'
 
 export interface HoveredBlock {
   node: unknown
@@ -19,6 +19,12 @@ export function useHoverState(
 
   // ProseKit 只认布局坐标、而真实指针是视口坐标，所以 zoom≠1 时拦下真实事件，改喂换算后的合成 pointermove
   const canvasZoom = ref(1)
+  const placementVersion = ref(0)
+  let placementScrollEl: HTMLElement | null = null
+
+  const refreshPlacement = () => {
+    if (hoveredBlock.value) placementVersion.value += 1
+  }
 
   function zoomFromStyle(): number {
     const dom = getView(editor)?.dom as HTMLElement | undefined
@@ -96,9 +102,20 @@ export function useHoverState(
 
   // autoUpdate 会自行重算矩形，所以无需每个 pointermove 重设 hover 状态
   function makeRowAnchor(el: HTMLElement) {
+    const getVisibleAnchor = () => {
+      const view = getView(editor)
+      const rect = getVisibleBlockRectInViewport(view, el)
+      if (!view || !rect) return new DOMRect(0, 0, 0, 0)
+      return new DOMRect(
+        viewportToLayout(view, rect.left),
+        viewportToLayout(view, rect.top),
+        viewportToLayout(view, rect.width),
+        viewportToLayout(view, rect.height),
+      )
+    }
     return {
       contextElement: el,
-      getBoundingClientRect: () => (el.isConnected ? el.getBoundingClientRect() : new DOMRect(0, 0, 0, 0)),
+      getBoundingClientRect: getVisibleAnchor,
     }
   }
 
@@ -152,12 +169,19 @@ export function useHoverState(
 
   onMounted(() => {
     readCanvasZoom()
+    placementScrollEl = getScrollEl(getView(editor))
+    placementScrollEl?.addEventListener('scroll', refreshPlacement, { passive: true })
+    window.addEventListener('resize', refreshPlacement)
+    window.addEventListener('Mindrizzle:canvas-transform', refreshPlacement)
     window.addEventListener('pointermove', onZoomPointerMove, true)
     window.addEventListener('pointermove', onPointerResolve, true)
     window.addEventListener('Mindrizzle:canvas-transform', readCanvasZoom)
   })
 
   onUnmounted(() => {
+    placementScrollEl?.removeEventListener('scroll', refreshPlacement)
+    window.removeEventListener('resize', refreshPlacement)
+    window.removeEventListener('Mindrizzle:canvas-transform', refreshPlacement)
     window.removeEventListener('pointermove', onZoomPointerMove, true)
     window.removeEventListener('pointermove', onPointerResolve, true)
     window.removeEventListener('Mindrizzle:canvas-transform', readCanvasZoom)
@@ -183,59 +207,91 @@ export function useHoverState(
     startKeepAlive()
   }
 
-  // popup 与行保持 4px 间距，放置判断按 popup 高度 + 该间距
+  // 留出 4px 余量，避免空间判断被边界像素误差影响
   const COMPACT_POPUP_GAP = 4
 
-  // 放置规则：移动端优先上方、桌面端优先朝向画布内侧（块在左半 → 行右），空间不足时退化为另一侧/上下
+  type PopupPlacement = 'left' | 'right' | 'top' | 'bottom'
+  type PlacementSpaces = Record<PopupPlacement, number>
+
+  const horizontalPlacementOf = (view: any, fallback: 'left' | 'right'): 'left' | 'right' => {
+    const editorDom = view?.dom as HTMLElement | null
+    const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
+    const container = editorDom?.closest('.canvas-container') as HTMLElement | null
+    if (!widget || !container) return fallback
+    const widgetRect = widget.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const left = layoutToViewportX(view, widgetRect.left)
+    const right = layoutToViewportX(view, widgetRect.right)
+    return (left + right) / 2 < (containerRect.left + containerRect.right) / 2 ? 'right' : 'left'
+  }
+
+  const placementOrderOf = (view: any, fallback: 'left' | 'right'): PopupPlacement[] => {
+    if (isCompactView(view)) return ['top', 'bottom', 'left', 'right']
+    const preferred = horizontalPlacementOf(view, fallback)
+    const opposite = preferred === 'left' ? 'right' : 'left'
+    return [preferred, opposite, 'top', 'bottom']
+  }
+
+  const prioritizeVisibleEdges = (
+    full: DOMRect | null,
+    clip: DOMRect,
+    order: PopupPlacement[],
+  ): PopupPlacement[] => {
+    if (!full) return order
+    const clipped: PopupPlacement[] = []
+    if (full.top < clip.top) clipped.push('bottom')
+    if (full.bottom > clip.bottom) clipped.push('top')
+    if (full.left < clip.left) clipped.push('right')
+    if (full.right > clip.right) clipped.push('left')
+    return [...new Set([...clipped, ...order])]
+  }
+
+  const choosePlacement = (
+    spaces: PlacementSpaces,
+    needs: PlacementSpaces,
+    order: PopupPlacement[],
+  ): PopupPlacement => {
+    const fitting = order.find((placement) => spaces[placement] >= needs[placement])
+    if (fitting) return fitting
+    return order.reduce((best, placement) =>
+      spaces[placement] / needs[placement] > spaces[best] / needs[best] ? placement : best,
+    )
+  }
+
+  const fullBlockRectInViewport = (view: any, pos: number): DOMRect | null => {
+    const rect = getBlockRect(view, pos)
+    if (!rect) return null
+    const left = layoutToViewportX(view, rect.left)
+    const top = layoutToViewportY(view, rect.top)
+    return new DOMRect(
+      left,
+      top,
+      layoutToViewportSize(view, rect.width),
+      layoutToViewportSize(view, rect.height),
+    )
+  }
+
   const handlePlacement = computed<'left' | 'right' | 'top' | 'bottom'>(() => {
+    void placementVersion.value
     const fallback: 'left' | 'right' = dir === 'rtl' ? 'right' : 'left'
     if (!hoveredBlock.value) return fallback
 
     const view = getView(editor)
-    if (isCompactView(view)) {
-      // 行矩形是布局坐标、裁剪边界是视觉坐标，所以需统一换算
-      const br = getBlockRect(view, hoveredBlock.value.pos)
-      if (br) {
-        const need = layoutToViewportSize(view, getPopupHeight(view)) + COMPACT_POPUP_GAP
-        const spaceAbove = layoutToViewportY(view, br.top) - getClipTop(view)
-        const spaceBelow = getClipBottom(view) - layoutToViewportY(view, br.bottom)
-        if (spaceAbove >= need) return 'top'
-        if (spaceBelow >= need) return 'bottom'
-        return spaceAbove >= spaceBelow ? 'top' : 'bottom'
-      }
-      return 'top'
-    }
-
-    const editorDom = view?.dom as HTMLElement | null
-    const widget = editorDom?.closest('.drag-wrapper') as HTMLElement | null
-    // 世界层远大于视口、按它判断内外恒为同一侧，所以改用 .canvas-container
-    const container = editorDom?.closest('.canvas-container') as HTMLElement | null
-    if (!widget || !container) return fallback
-    // 块矩形是布局坐标、容器是视觉坐标，所以统一换算到视觉坐标后再比
-    const w = widget.getBoundingClientRect()
-    const c = container.getBoundingClientRect()
-    const wLeft = layoutToViewportX(view, w.left)
-    const wRight = layoutToViewportX(view, w.left + w.width)
-    const wTop = layoutToViewportY(view, w.top)
-    const wBottom = layoutToViewportY(view, w.top + w.height)
-    const preferred: 'left' | 'right' = wLeft + (wRight - wLeft) / 2 < c.left + c.width / 2 ? 'right' : 'left'
-
-    // nodeDOM(pos) 部分情况取不到元素，所以左右空间用整块边界；空间不足时退化为上下放置
+    const pos = hoveredBlock.value.pos
+    const row = getVisibleBlockRectInViewport(view, getBlockEl(view, pos))
+    if (!view || !row) return fallback
+    const clip = getClipRect(view)
+    const popupBounds = getCanvasViewportRect(view)
     const needX = layoutToViewportSize(view, getPopupWidth(view)) + COMPACT_POPUP_GAP
-    const spaceLeft = wLeft - c.left
-    const spaceRight = c.right - wRight
-    if (spaceLeft < needX && spaceRight < needX) {
-      const br = getBlockRect(view, hoveredBlock.value.pos)
-      const top = br ? layoutToViewportY(view, br.top) : wTop
-      const bottom = br ? layoutToViewportY(view, br.bottom) : wBottom
-      const needY = layoutToViewportSize(view, getPopupHeight(view)) + COMPACT_POPUP_GAP
-      const spaceAbove = top - getClipTop(view)
-      const spaceBelow = getClipBottom(view) - bottom
-      if (spaceAbove >= needY) return 'top'
-      if (spaceBelow >= needY) return 'bottom'
-      return spaceAbove >= spaceBelow ? 'top' : 'bottom'
+    const needY = layoutToViewportSize(view, getPopupHeight(view)) + COMPACT_POPUP_GAP
+    const spaces: PlacementSpaces = {
+      left: row.left - popupBounds.left,
+      right: popupBounds.right - row.right,
+      top: row.top - popupBounds.top,
+      bottom: popupBounds.bottom - row.bottom,
     }
-    return preferred
+    const needs: PlacementSpaces = { left: needX, right: needX, top: needY, bottom: needY }
+    return choosePlacement(spaces, needs, prioritizeVisibleEdges(fullBlockRectInViewport(view, pos), clip, placementOrderOf(view, fallback)))
   })
 
   return { hoveredBlock, activeHover, handlePlacement, onBlockStateChange }
