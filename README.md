@@ -11,10 +11,10 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6.svg)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-runtime-000000.svg)](https://bun.sh/)
 [![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)](package.json)
-[![Top Language](https://img.shields.io/github/languages/top/Ivan-Hu233/Mindrizzle.svg)](https://github.com/Ivan-Hu233/Mindrizzle)
-[![GitHub Stars](https://img.shields.io/github/stars/Ivan-Hu233/Mindrizzle.svg?style=flat)](https://github.com/Ivan-Hu233/Mindrizzle/stargazers)
-[![Commit Activity](https://img.shields.io/github/commit-activity/y/Ivan-Hu233/Mindrizzle.svg)](https://github.com/Ivan-Hu233/Mindrizzle/commits/main/)
-[![Visitors](https://komarev.com/ghpvc/?username=Ivan-Hu233&repo=Mindrizzle&label=visitors&color=blue)](https://github.com/Ivan-Hu233/Mindrizzle)
+[![Top Language](https://img.shields.io/github/languages/top/LogicAurora/Mindrizzle.svg)](https://github.com/LogicAurora/Mindrizzle)
+[![GitHub Stars](https://img.shields.io/github/stars/LogicAurora/Mindrizzle.svg?style=flat)](https://github.com/LogicAurora/Mindrizzle/stargazers)
+[![Commit Activity](https://img.shields.io/github/commit-activity/y/LogicAurora/Mindrizzle.svg)](https://github.com/LogicAurora/Mindrizzle/commits/main/)
+[![Visitors](https://komarev.com/ghpvc/?username=LogicAurora&repo=Mindrizzle&label=visitors&color=blue)](https://github.com/LogicAurora/Mindrizzle)
 
 </div>
 
@@ -109,13 +109,13 @@ cargo check --manifest-path src-tauri/Cargo.toml
 <h2 align="center">贡献者</h2>
 
 <p align="center">
-	<a href="https://github.com/Ivan-Hu233/Mindrizzle/graphs/contributors">
-		<img src="https://contrib.rocks/image?repo=Ivan-Hu233/Mindrizzle" alt="Mindrizzle contributors" />
+	<a href="https://github.com/LogicAurora/Mindrizzle/graphs/contributors">
+		<img src="https://contrib.rocks/image?repo=LogicAurora/Mindrizzle" alt="Mindrizzle contributors" />
 	</a>
 </p>
 
 <p align="center">
-	<a href="https://github.com/Ivan-Hu233/Mindrizzle">
+	<a href="https://github.com/LogicAurora/Mindrizzle">
 		&#9733; 给 Mindrizzle 点个 Star
 	</a>
 </p>
